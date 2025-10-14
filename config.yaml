@@ -1,0 +1,22 @@
+broker:
+  host: 0.0.0.0
+  port: 8765
+
+organizations:
+  - name: OrgA
+    backends:
+      - id: backendA1
+        url: ws://localhost:9001
+        leader: true
+      - id: backendA2
+        url: ws://localhost:9002
+        leader: false
+
+  - name: OrgB
+    backends:
+      - id: backendB1
+        url: ws://localhost:9011
+        leader: true
+      - id: backendB2
+        url: ws://localhost:9012
+        leader: false

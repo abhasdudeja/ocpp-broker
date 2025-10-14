@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocpp-broker"
+version = "0.1.0A"
+description = "A middleware OCPP broker for forwarding messages between chargers and backends"
+authors = [
+  { name = "Abhas Dudeja", email = "amdudeja@gmail.com" }
+]
+license = { text = "MIT" }
+dependencies = [
+    "ocpp>=0.15.0",
+    "websockets>=11.0",
+    "pydantic>=2.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

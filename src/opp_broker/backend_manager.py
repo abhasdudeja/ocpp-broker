@@ -28,8 +28,11 @@ class BackendConnection:
 
     async def close(self):
         self._running = False
-        if self.websocket and not self.websocket.closed:
-            await self.websocket.close()
+        try:
+            if self.websocket and not self.websocket.closed:
+                await self.websocket.close()
+        except Exception:
+            pass
         if self._connect_task:
             self._connect_task.cancel()
 
@@ -41,6 +44,8 @@ class BackendConnection:
                 async with websockets.connect(self.url) as ws:
                     self.websocket = ws
                     logger.info(f"Connected to backend {self.id} ({self.org})")
+                    # notify broker about connection
+                    self.broker._on_backend_connected(self)
                     await self._reader_loop()
             except asyncio.CancelledError:
                 break
@@ -49,10 +54,16 @@ class BackendConnection:
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
             finally:
+                # notify broker about disconnect
+                try:
+                    self.broker._on_backend_disconnected(self)
+                except Exception:
+                    pass
                 self.websocket = None
                 await asyncio.sleep(1)
 
     async def _reader_loop(self):
+        assert self.websocket is not None
         async for msg in self.websocket:
             await self._handle_message(msg)
 
@@ -62,14 +73,27 @@ class BackendConnection:
         except Exception:
             data = None
 
+        # If message is a registry update
         if isinstance(data, dict) and data.get("type") == "registry":
             chargers = data.get("chargers", [])
-            await self.broker.get_registry(self.org).update_from_backend(self.id, chargers)
+            try:
+                await self.broker.get_registry(self.org).update_from_backend(self.id, chargers)
+            except Exception as e:
+                logger.exception(f"Error updating registry from backend {self.id}: {e}")
+        # If message is leader toggle
+        elif isinstance(data, dict) and data.get("type") == "leader":
+            leader_id = data.get("leader_id")
+            if leader_id:
+                self.broker.promote_leader(self.org, leader_id)
         else:
+            # delegate to command router for possible forwarding
             await self.broker.command_router.route_backend_message(self, msg)
 
     async def send(self, message: str):
         if self.websocket and not self.websocket.closed:
-            await self.websocket.send(message)
+            try:
+                await self.websocket.send(message)
+            except Exception as e:
+                logger.warning(f"Error sending to backend {self.id}: {e}")
         else:
             logger.warning(f"Cannot send to backend {self.id}: not connected.")

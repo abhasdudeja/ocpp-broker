@@ -35,7 +35,9 @@ def run_broker_server(config_path: str = None):
 
     async def _run():
         await init_orgs_from_config(broker, cfg)
-        await start_api(broker, port=8080)
+        # start REST API (background)
+        await start_api(broker, host="0.0.0.0", port=8080)
+        # start WS server
         ws_server = await start_ws_server(broker, host, port)
         logger.info("Multi-org OCPP Broker + REST API running. Press Ctrl+C to stop.")
         await ws_server.wait_closed()

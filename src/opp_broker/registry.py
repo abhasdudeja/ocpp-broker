@@ -15,13 +15,28 @@ class ChargerRegistry:
 
     async def update_from_backend(self, backend_id: str, new_ids):
         async with self._lock:
-            self._per_backend[backend_id] = set(new_ids)
+            new_set = set(map(str, new_ids or []))
+            self._per_backend[backend_id] = new_set
             combined = set()
             for s in self._per_backend.values():
                 combined |= s
             self._charger_ids = combined
-            logger.info(f"Updated registry from {backend_id}: {len(new_ids)} chargers (total {len(self._charger_ids)})")
+            logger.info(f"Updated registry from {backend_id}: {len(new_set)} chargers (total {len(self._charger_ids)})")
+
+    async def remove_backend(self, backend_id: str):
+        async with self._lock:
+            if backend_id in self._per_backend:
+                self._per_backend.pop(backend_id)
+                combined = set()
+                for s in self._per_backend.values():
+                    combined |= s
+                self._charger_ids = combined
+                logger.info(f"Removed backend {backend_id} from registry (total {len(self._charger_ids)})")
 
     async def is_registered(self, charger_id: str) -> bool:
         async with self._lock:
-            return charger_id in self._charger_ids
+            return str(charger_id) in self._charger_ids
+
+    async def list_all(self):
+        async with self._lock:
+            return set(self._charger_ids)

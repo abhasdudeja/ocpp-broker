@@ -1,11 +1,11 @@
 import asyncio
 import logging
 import websockets
+
 from .registry import ChargerRegistry
 from .backend_manager import BackendConnection
 from .command_router import CommandRouter
 from .middleware import process_charger_to_backend
-from .config import load_config
 
 logger = logging.getLogger("ocpp_broker.broker")
 
@@ -49,6 +49,10 @@ class OcppBroker:
         """
         Add new backend dynamically (via API).
         """
+        if org_name not in self.org_backends:
+            self.org_backends[org_name] = {}
+            self.org_registries[org_name] = ChargerRegistry()
+
         backend = BackendConnection(
             broker=self,
             backend_id=backend_data["id"],
@@ -69,7 +73,19 @@ class OcppBroker:
         if not backend:
             return False
         await backend.close()
+        # remove registry entries
+        try:
+            await self.org_registries[org_name].remove_backend(backend_id)
+        except Exception:
+            pass
         logger.info(f"Removed backend {backend_id} from org {org_name}")
+        # if removed backend was leader, auto-select another
+        if self.org_leaders.get(org_name) and getattr(self.org_leaders[org_name], "id", None) == backend_id:
+            remaining = list(backs.values())
+            if remaining:
+                self.promote_leader(org_name, remaining[0].id)
+            else:
+                self.org_leaders[org_name] = None
         return True
 
     def promote_leader(self, org_name: str, backend_id: str) -> bool:
@@ -87,6 +103,7 @@ class OcppBroker:
         """
         Reload all orgs and backends from config.yaml.
         """
+        from .config import load_config
         cfg = load_config(self._cfg_path)
         logger.info("Reloading configuration from file...")
         await self.close_all_backends()
@@ -100,6 +117,23 @@ class OcppBroker:
 
     def get_registry(self, org_name: str):
         return self.org_registries[org_name]
+
+    def _on_backend_connected(self, backend):
+        # Called by BackendConnection when it becomes connected
+        # ensure it's registered in the broker backends map (may already be)
+        self.org_backends.setdefault(backend.org, {})[backend.id] = backend
+        if backend.is_leader:
+            self.org_leaders[backend.org] = backend
+        logger.info(f"Backend connected: {backend.id} (org={backend.org})")
+
+    def _on_backend_disconnected(self, backend):
+        # Called by BackendConnection when disconnected
+        try:
+            if backend.org in self.org_backends and backend.id in self.org_backends[backend.org]:
+                # keep entry but mark websocket None; actual removal is done by remove_backend_dynamic
+                logger.info(f"Backend disconnected: {backend.id} (org={backend.org})")
+        except Exception:
+            pass
 
     async def handle_charger(self, websocket, path):
         parts = [p for p in path.strip("/").split("/") if p]
@@ -137,6 +171,9 @@ class OcppBroker:
             )
 
     async def close_all_backends(self):
-        for org, backs in self.org_backends.items():
-            for b in backs.values():
-                await b.close()
+        for org, backs in list(self.org_backends.items()):
+            for b in list(backs.values()):
+                try:
+                    await b.close()
+                except Exception:
+                    pass

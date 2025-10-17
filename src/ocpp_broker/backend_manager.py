@@ -5,6 +5,7 @@ import websockets
 
 logger = logging.getLogger("ocpp_broker.backend_manager")
 
+
 class BackendConnection:
     """
     Represents a persistent websocket connection to an upstream OCPP backend.
@@ -44,7 +45,6 @@ class BackendConnection:
                 async with websockets.connect(self.url) as ws:
                     self.websocket = ws
                     logger.info(f"Connected to backend {self.id} ({self.org})")
-                    # notify broker about connection
                     self.broker._on_backend_connected(self)
                     await self._reader_loop()
             except asyncio.CancelledError:
@@ -54,7 +54,6 @@ class BackendConnection:
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
             finally:
-                # notify broker about disconnect
                 try:
                     self.broker._on_backend_disconnected(self)
                 except Exception:
@@ -73,20 +72,17 @@ class BackendConnection:
         except Exception:
             data = None
 
-        # If message is a registry update
         if isinstance(data, dict) and data.get("type") == "registry":
             chargers = data.get("chargers", [])
             try:
                 await self.broker.get_registry(self.org).update_from_backend(self.id, chargers)
             except Exception as e:
                 logger.exception(f"Error updating registry from backend {self.id}: {e}")
-        # If message is leader toggle
         elif isinstance(data, dict) and data.get("type") == "leader":
             leader_id = data.get("leader_id")
             if leader_id:
                 self.broker.promote_leader(self.org, leader_id)
         else:
-            # delegate to command router for possible forwarding
             await self.broker.command_router.route_backend_message(self, msg)
 
     async def send(self, message: str):

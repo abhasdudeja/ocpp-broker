@@ -7,10 +7,10 @@ organizations:
     connect_to_backend: true   # ✅ Will connect to backends
     backends:
       - id: backendA1
-        url: ws://localhost:9001
+        url: ws://ocppmgl.ev-opt.com/EV/EDMS
         leader: true
         chargers:
-          - CHG001
+          - SLTEST01
           - CHG002
 
   - name: orgB

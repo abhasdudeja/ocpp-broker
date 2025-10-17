@@ -8,26 +8,31 @@ logger = logging.getLogger("ocpp_broker.backend_manager")
 
 class BackendConnection:
     """
-    Represents a persistent websocket connection to an upstream OCPP backend.
+    Represents a 1-to-1 persistent WebSocket link between the broker (acting as a charger)
+    and the upstream OCPP backend. Each charger has its own BackendConnection.
     """
 
-    def __init__(self, broker, backend_id: str, url: str, leader: bool = False, org: str = "default"):
+    def __init__(self, broker, charger_id: str, url: str, org: str = "default"):
         self.broker = broker
-        self.id = backend_id
-        self.url = url
+        self.id = charger_id            # Charger ID used for backend identification
+        self.url = url.rstrip("/")      # Base URL (from config)
         self.org = org
-        self.is_leader = leader
         self.websocket = None
         self._connect_task = None
         self._running = False
+        self.connected_event = asyncio.Event()  # signals when backend connection is ready
 
     async def connect(self):
+        """Start backend connection loop and wait until it's connected."""
         if self._running:
             return
         self._running = True
         self._connect_task = asyncio.create_task(self._run_connect_loop())
+        # Wait for connection signal before continuing
+        await self.connected_event.wait()
 
     async def close(self):
+        """Close active backend connection gracefully."""
         self._running = False
         try:
             if self.websocket and not self.websocket.closed:
@@ -38,19 +43,31 @@ class BackendConnection:
             self._connect_task.cancel()
 
     async def _run_connect_loop(self):
+        """Continuously try to connect to backend until stopped."""
         backoff = 1
         while self._running:
             try:
-                logger.info(f"Connecting to backend {self.id} ({self.org}) -> {self.url}")
-                async with websockets.connect(self.url) as ws:
+                target_url = f"{self.url}/{self.id}"  # ✅ append charger_id
+                logger.info(f"Connecting to backend for charger {self.id} ({self.org}) -> {target_url}")
+
+                async with websockets.connect(
+                    target_url,
+                    subprotocols=["ocpp1.6"],
+                    ping_interval=20,
+                    ping_timeout=20,
+                    close_timeout=5
+                ) as ws:
                     self.websocket = ws
-                    logger.info(f"Connected to backend {self.id} ({self.org})")
+                    self.connected_event.set()  # signal broker that backend connection is ready
+                    logger.info(f"✅ Connected to backend for charger {self.id} ({self.org}) via OCPP 1.6")
                     self.broker._on_backend_connected(self)
                     await self._reader_loop()
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning(f"Backend {self.id} ({self.org}) connection error: {e}")
+                logger.warning(f"⚠️ Backend connection error for {self.id} ({self.org}): {e}")
+                self.connected_event.clear()
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
             finally:
@@ -62,34 +79,29 @@ class BackendConnection:
                 await asyncio.sleep(1)
 
     async def _reader_loop(self):
+        """Receive messages from backend and forward to broker."""
         assert self.websocket is not None
         async for msg in self.websocket:
             await self._handle_message(msg)
 
     async def _handle_message(self, msg: str):
+        """Handle messages coming from backend."""
         try:
             data = json.loads(msg)
         except Exception:
             data = None
 
-        if isinstance(data, dict) and data.get("type") == "registry":
-            chargers = data.get("chargers", [])
-            try:
-                await self.broker.get_registry(self.org).update_from_backend(self.id, chargers)
-            except Exception as e:
-                logger.exception(f"Error updating registry from backend {self.id}: {e}")
-        elif isinstance(data, dict) and data.get("type") == "leader":
-            leader_id = data.get("leader_id")
-            if leader_id:
-                self.broker.promote_leader(self.org, leader_id)
-        else:
-            await self.broker.command_router.route_backend_message(self, msg)
+        # Forward every backend message to broker (to send to charger)
+        logger.info(f"[{self.id}] ← Message from backend: {msg[:200]}")  # log truncated message
+        await self.broker.command_router.route_backend_message(self, msg)
 
     async def send(self, message: str):
+        """Send OCPP message to backend if connected."""
         if self.websocket and not self.websocket.closed:
             try:
                 await self.websocket.send(message)
+                logger.debug(f"[{self.id}] → backend: {message[:200]}")
             except Exception as e:
-                logger.warning(f"Error sending to backend {self.id}: {e}")
+                logger.warning(f"⚠️ Error sending to backend for {self.id}: {e}")
         else:
-            logger.warning(f"Cannot send to backend {self.id}: not connected.")
+            logger.warning(f"⚠️ Cannot send to backend for {self.id}: not connected.")

@@ -1,0 +1,180 @@
+# OCPP 1.6 Enhanced Configuration Example
+# This configuration demonstrates the full OCPP 1.6 capabilities
+
+broker:
+  host: 0.0.0.0
+  port: 8765
+  # OCPP 1.6 specific settings
+  ocpp_version: "1.6"
+  enable_validation: true
+  enable_smart_charging: true
+  enable_firmware_management: true
+  enable_local_auth: true
+  enable_reservations: true
+
+# API server configuration
+api:
+  host: 0.0.0.0
+  port: 8080
+  enable_swagger: true
+
+# Organizations with OCPP 1.6 support
+organizations:
+  - name: "EVFleetCorp"
+    connect_to_backend: true
+    # OCPP 1.6 features enabled for this organization
+    ocpp_features:
+      - core_profile
+      - smart_charging
+      - firmware_management
+      - local_auth
+      - reservations
+    backends:
+      - id: "backend_primary"
+        url: "ws://ocpp-backend.evfleet.com/ocpp"
+        leader: true
+        # Supported OCPP 1.6 commands
+        supported_commands:
+          # Core Profile
+          - "Authorize"
+          - "BootNotification"
+          - "ChangeAvailability"
+          - "ChangeConfiguration"
+          - "ClearCache"
+          - "DataTransfer"
+          - "GetConfiguration"
+          - "Heartbeat"
+          - "MeterValues"
+          - "RemoteStartTransaction"
+          - "RemoteStopTransaction"
+          - "Reset"
+          - "SendLocalList"
+          - "SetChargingProfile"
+          - "StatusNotification"
+          - "StartTransaction"
+          - "StopTransaction"
+          - "UnlockConnector"
+          - "UpdateFirmware"
+          # Smart Charging Profile
+          - "ClearChargingProfile"
+          - "GetCompositeSchedule"
+          - "TriggerMessage"
+          # Firmware Management Profile
+          - "GetDiagnostics"
+          # Local Authorization List Profile
+          - "GetLocalListVersion"
+          # Reservation Profile
+          - "CancelReservation"
+          - "ReserveNow"
+        chargers:
+          - "CP_001"
+          - "CP_002"
+          - "CP_003"
+      - id: "backend_secondary"
+        url: "ws://ocpp-backup.evfleet.com/ocpp"
+        leader: false
+        supported_commands:
+          - "Authorize"
+          - "BootNotification"
+          - "Heartbeat"
+          - "StatusNotification"
+          - "MeterValues"
+        chargers:
+          - "CP_004"
+          - "CP_005"
+
+  - name: "CityCharging"
+    connect_to_backend: true
+    # Limited OCPP 1.6 features for this organization
+    ocpp_features:
+      - core_profile
+      - smart_charging
+    backends:
+      - id: "city_backend"
+        url: "ws://city-charging.gov/ocpp"
+        leader: true
+        supported_commands:
+          - "Authorize"
+          - "BootNotification"
+          - "Heartbeat"
+          - "StatusNotification"
+          - "MeterValues"
+          - "RemoteStartTransaction"
+          - "RemoteStopTransaction"
+          - "SetChargingProfile"
+          - "ClearChargingProfile"
+        chargers:
+          - "CITY_001"
+          - "CITY_002"
+          - "CITY_003"
+
+  - name: "TestOrganization"
+    connect_to_backend: false
+    # 🎯 Broker acts as backend - handles OCPP commands directly
+    ocpp_features:
+      - core_profile
+      - smart_charging
+    backends: []  # No external backends needed
+    chargers:
+      - "TEST_001"
+      - "TEST_002"
+
+# OCPP 1.6 specific configuration
+ocpp:
+  # Message validation settings
+  validation:
+    strict_mode: true
+    validate_payloads: true
+    validate_business_rules: true
+  
+  # Command handling settings
+  commands:
+    # Core Profile settings
+    core:
+      heartbeat_interval: 300  # 5 minutes
+      meter_value_interval: 60  # 1 minute
+      status_notification_interval: 30  # 30 seconds
+    
+    # Smart Charging settings
+    smart_charging:
+      max_charging_profiles: 10
+      default_charging_rate_unit: "W"
+      enable_dynamic_charging: true
+    
+    # Firmware Management settings
+    firmware:
+      max_retry_count: 3
+      retry_interval: 300  # 5 minutes
+      download_timeout: 3600  # 1 hour
+    
+    # Local Authorization settings
+    local_auth:
+      max_list_size: 1000
+      cache_timeout: 3600  # 1 hour
+    
+    # Reservation settings
+    reservations:
+      max_reservation_duration: 86400  # 24 hours
+      auto_cancel_expired: true
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  ocpp_commands: true
+  ocpp_validation: true
+  ocpp_errors: true
+
+# Security settings
+security:
+  # WebSocket security
+  websocket:
+    ping_interval: 20
+    ping_timeout: 20
+    close_timeout: 5
+  
+  # OCPP security
+  ocpp:
+    validate_message_ids: true
+    max_message_size: 1048576  # 1MB
+    rate_limit_per_charger: 100  # messages per minute

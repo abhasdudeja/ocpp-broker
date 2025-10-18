@@ -4,19 +4,17 @@ broker:
 
 organizations:
   - name: orgA
-    connect_to_backend: true   # ✅ Will connect to backends
+    connect_to_backend: true   # ✅ Will connect to external backends
     backends:
       - id: backendA1
-        url: ws://ocppmgl.ev-opt.com/EV/EDMS
-        leader: true
+        url: ws://localhost:90001/EV/OCPPBACKEND
+        leader: false
         chargers:
           - SLTEST01
           - CHG002
 
   - name: orgB
-    connect_to_backend: false  # 🚫 Skips backend connections
-    backends:
-      - id: backendB1
-        url: ws://localhost:9002
-        chargers:
-          - BCG001
+    connect_to_backend: false  # 🎯 Broker acts as backend (new feature)
+    backends: []  # No external backends needed
+    chargers:
+      - BCG001

@@ -12,11 +12,12 @@ class BackendConnection:
     and the upstream OCPP backend. Each charger has its own BackendConnection.
     """
 
-    def __init__(self, broker, charger_id: str, url: str, org: str = "default"):
+    def __init__(self, broker, charger_id: str, url: str, org: str = "default", is_leader: bool = False):
         self.broker = broker
         self.id = charger_id            # Charger ID used for backend identification
         self.url = url.rstrip("/")      # Base URL (from config)
         self.org = org
+        self.is_leader = is_leader     # Leader/follower status
         self.websocket = None
         self._connect_task = None
         self._running = False

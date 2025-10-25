@@ -15,12 +15,19 @@ from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 
 from .base import BaseCommandHandler, OCPPCommandResult, OCPPError, OCPPErrorCode
+from ..tag_manager import TagManager
 
 logger = logging.getLogger("ocpp_broker.commands.core")
 
 
 class AuthorizeHandler(BaseCommandHandler):
-    """Handler for Authorize command"""
+    """Handler for Authorize command with tag management integration"""
+    
+    def __init__(self, broker=None):
+        super().__init__(broker)
+        self.tag_manager = None
+        if broker and hasattr(broker, 'tag_manager'):
+            self.tag_manager = broker.tag_manager
     
     async def handle_request(self, charger_id: str, request: Dict[str, Any]) -> OCPPCommandResult:
         """Handle Authorize request from charger"""
@@ -35,9 +42,15 @@ class AuthorizeHandler(BaseCommandHandler):
                     )
                 )
             
-            # Simulate authorization logic
-            # In real implementation, this would check against authorization list
-            auth_result = await self._check_authorization(charger_id, id_tag)
+            # Get organization name from charger_id or broker context
+            org_name = await self._get_organization_name(charger_id)
+            
+            # Use tag manager for authorization if available
+            if self.tag_manager:
+                auth_result = await self.tag_manager.authorize_tag(org_name, id_tag)
+            else:
+                # Fallback to legacy authorization logic
+                auth_result = await self._check_authorization_legacy(charger_id, id_tag)
             
             response = {
                 "idTagInfo": {
@@ -47,7 +60,8 @@ class AuthorizeHandler(BaseCommandHandler):
                 }
             }
             
-            self.log_command(charger_id, "Authorize", "request", True, f"Tag: {id_tag}")
+            self.log_command(charger_id, "Authorize", "request", True, 
+                           f"Tag: {id_tag}, Status: {auth_result['status']}")
             return OCPPCommandResult(success=True, response=response)
             
         except Exception as e:
@@ -65,8 +79,21 @@ class AuthorizeHandler(BaseCommandHandler):
         # Authorize is typically a request from charger, not a response
         return OCPPCommandResult(success=True)
     
-    async def _check_authorization(self, charger_id: str, id_tag: str) -> Dict[str, Any]:
-        """Check authorization for ID tag"""
+    async def _get_organization_name(self, charger_id: str) -> str:
+        """Get organization name for charger"""
+        try:
+            if self.broker and hasattr(self.broker, 'config_data'):
+                organizations = self.broker.config_data.get('organizations', [])
+                for org in organizations:
+                    chargers = org.get('chargers', [])
+                    if charger_id in chargers:
+                        return org.get('name', 'default')
+            return 'default'
+        except Exception:
+            return 'default'
+    
+    async def _check_authorization_legacy(self, charger_id: str, id_tag: str) -> Dict[str, Any]:
+        """Legacy authorization check (fallback)"""
         # Simulate authorization check
         # In real implementation, this would query authorization list
         if id_tag.startswith("TEST"):

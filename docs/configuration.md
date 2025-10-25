@@ -1,15 +1,17 @@
 # Configuration Guide
 
-Complete guide to configuring the OCPP broker for various deployment scenarios.
+Complete guide to configuring the unified OCPP broker for various deployment scenarios.
 
 ## 📋 Configuration Overview
 
-The OCPP broker uses YAML configuration files to define:
-- Broker settings (host, port, logging)
-- Organizations and their backends
-- Charger assignments
-- OCPP 1.6 features
-- Leader-follower logic
+The OCPP broker uses a **unified YAML configuration file** (`config.yaml`) that includes all features:
+- **Broker settings** (host, port, OCPP version, features)
+- **API server configuration** (REST API settings)
+- **Organizations** and their backends with full OCPP 1.6 support
+- **Tag management** for authorization and access control
+- **OCPP 1.6 features** (smart charging, firmware management, etc.)
+- **Security and logging** settings
+- **Leader-follower logic** for multi-backend deployments
 
 ## 🔧 Basic Configuration
 

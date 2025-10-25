@@ -8,6 +8,7 @@ from .command_router_v2 import OCPPCommandRouter
 from .middleware import process_charger_to_backend
 from .config import load_config
 from .validation import OCPPValidator
+from .tag_manager import TagManager
 
 logger = logging.getLogger("ocpp_broker.broker")
 
@@ -26,6 +27,7 @@ class OcppBroker:
         self.command_router = CommandRouter(self)  # Legacy router
         self.ocpp_router = OCPPCommandRouter(self)  # Enhanced OCPP 1.6 router
         self.validator = OCPPValidator()  # OCPP message validator
+        self.tag_manager = None      # Tag manager for authorization
         self.config_data = {}
         self._cfg_path = "config.yaml"
         self._use_ocpp_router = True  # Flag to enable enhanced OCPP routing
@@ -36,6 +38,13 @@ class OcppBroker:
     async def load_config(self):
         self.config_data = load_config(self._cfg_path)
         logger.info(f"Loaded configuration for {len(self.config_data.get('organizations', []))} organizations.")
+        
+        # Initialize tag manager as core component
+        self.tag_manager = TagManager(self.config_data)
+        if self.tag_manager.is_enabled():
+            logger.info("Tag management enabled and initialized")
+        else:
+            logger.info("Tag management disabled - no organizations with tag management enabled")
 
     async def ensure_org_initialized(self, org_name: str):
         if org_name not in self.org_registries:

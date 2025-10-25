@@ -1,20 +1,451 @@
+# OCPP Broker Unified Configuration
+# This configuration combines all broker features: OCPP 1.6, tag management, and multi-organization support
+
+# =============================================================================
+# BROKER CORE SETTINGS
+# =============================================================================
 broker:
   host: 0.0.0.0
   port: 8765
+  # OCPP 1.6 specific settings
+  ocpp_version: "1.6"
+  enable_validation: true
+  enable_smart_charging: true
+  enable_firmware_management: true
+  enable_local_auth: true
+  enable_reservations: true
+  enable_tag_management: true  # 🎯 Enable tag management features
 
+# =============================================================================
+# API SERVER CONFIGURATION
+# =============================================================================
+api:
+  host: 0.0.0.0
+  port: 8080
+  enable_swagger: true
+
+# =============================================================================
+# ORGANIZATIONS CONFIGURATION
+# =============================================================================
 organizations:
-  - name: orgA
+  # Organization A: External Backend Mode
+  - name: "orgA"
     connect_to_backend: true   # ✅ Will connect to external backends
+    # OCPP 1.6 features enabled
+    ocpp_features:
+      - core_profile
+      - smart_charging
+      - firmware_management
+      - local_auth
+      - reservations
+    # Tag management for external backend mode
+    tag_management:
+      enabled: true
+      auto_authorize: true
+      validation_strict: true
+      cache_timeout: 3600  # 1 hour
+    # Pre-configured tags
+    tags:
+      - id_tag: "ADMIN001"
+        status: "Accepted"
+        tag_type: "RFID"
+        description: "Administrator access card"
+        metadata:
+          role: "admin"
+          department: "IT"
+      - id_tag: "USER123456"
+        status: "Accepted"
+        tag_type: "RFID"
+        expiry_date: "2024-12-31T23:59:59Z"
+        description: "Employee access card"
+        metadata:
+          role: "employee"
+          department: "Engineering"
     backends:
       - id: backendA1
         url: ws://localhost:90001/EV/OCPPBACKEND
-        leader: false
+        leader: true
+        # Supported OCPP 1.6 commands
+        supported_commands:
+          # Core Profile
+          - "Authorize"
+          - "BootNotification"
+          - "ChangeAvailability"
+          - "ChangeConfiguration"
+          - "ClearCache"
+          - "DataTransfer"
+          - "GetConfiguration"
+          - "Heartbeat"
+          - "MeterValues"
+          - "RemoteStartTransaction"
+          - "RemoteStopTransaction"
+          - "Reset"
+          - "SendLocalList"
+          - "SetChargingProfile"
+          - "StatusNotification"
+          - "StartTransaction"
+          - "StopTransaction"
+          - "UnlockConnector"
+          - "UpdateFirmware"
+          # Smart Charging Profile
+          - "ClearChargingProfile"
+          - "GetCompositeSchedule"
+          - "TriggerMessage"
+          # Firmware Management Profile
+          - "GetDiagnostics"
+          # Local Authorization List Profile
+          - "GetLocalListVersion"
+          # Reservation Profile
+          - "CancelReservation"
+          - "ReserveNow"
         chargers:
           - SLTEST01
           - CHG002
 
-  - name: orgB
-    connect_to_backend: false  # 🎯 Broker acts as backend (new feature)
+  # Organization B: Broker-as-Backend Mode
+  - name: "orgB"
+    connect_to_backend: false  # 🎯 Broker acts as backend
+    # OCPP 1.6 features enabled
+    ocpp_features:
+      - core_profile
+      - smart_charging
+      - firmware_management
+      - local_auth
+      - reservations
+    # Tag management for broker-as-backend mode
+    tag_management:
+      enabled: true
+      auto_authorize: true
+      validation_strict: true
+      cache_timeout: 1800  # 30 minutes
+    # Pre-configured tags for local authorization
+    tags:
+      - id_tag: "LOCAL_ADMIN"
+        status: "Accepted"
+        tag_type: "RFID"
+        description: "Local administrator access"
+        metadata:
+          role: "local_admin"
+          department: "Operations"
+      - id_tag: "LOCAL_USER"
+        status: "Accepted"
+        tag_type: "RFID"
+        expiry_date: "2024-06-30T23:59:59Z"
+        description: "Local user access"
+        metadata:
+          role: "user"
+          access_level: "standard"
+      - id_tag: "GUEST_ACCESS"
+        status: "Accepted"
+        tag_type: "QRCode"
+        expiry_date: "2024-01-31T23:59:59Z"
+        description: "Guest access"
+        metadata:
+          role: "guest"
+          access_level: "limited"
     backends: []  # No external backends needed
     chargers:
       - BCG001
+
+  # Organization C: EV Fleet Corporation (Production Example)
+  - name: "EVFleetCorp"
+    connect_to_backend: true
+    # OCPP 1.6 features enabled
+    ocpp_features:
+      - core_profile
+      - smart_charging
+      - firmware_management
+      - local_auth
+      - reservations
+    # Tag management for fleet operations
+    tag_management:
+      enabled: true
+      auto_authorize: true
+      validation_strict: true
+      cache_timeout: 3600  # 1 hour
+    # Fleet management tags
+    tags:
+      - id_tag: "FLEET_ADMIN"
+        status: "Accepted"
+        tag_type: "RFID"
+        description: "Fleet administrator access"
+        metadata:
+          role: "fleet_admin"
+          department: "Fleet Management"
+      - id_tag: "DRIVER001"
+        status: "Accepted"
+        tag_type: "RFID"
+        expiry_date: "2024-12-31T23:59:59Z"
+        description: "Driver access card"
+        metadata:
+          role: "driver"
+          vehicle_id: "VH001"
+      - id_tag: "MAINTENANCE"
+        status: "Accepted"
+        tag_type: "RFID"
+        description: "Maintenance team access"
+        metadata:
+          role: "maintenance"
+          department: "Technical"
+    backends:
+      - id: "backend_primary"
+        url: "ws://ocpp-backend.evfleet.com/ocpp"
+        leader: true
+        supported_commands:
+          - "Authorize"
+          - "BootNotification"
+          - "Heartbeat"
+          - "StatusNotification"
+          - "MeterValues"
+          - "RemoteStartTransaction"
+          - "RemoteStopTransaction"
+          - "Reset"
+          - "SendLocalList"
+          - "SetChargingProfile"
+          - "StartTransaction"
+          - "StopTransaction"
+          - "UnlockConnector"
+          - "UpdateFirmware"
+          - "ClearChargingProfile"
+          - "GetCompositeSchedule"
+          - "TriggerMessage"
+          - "GetDiagnostics"
+          - "GetLocalListVersion"
+          - "CancelReservation"
+          - "ReserveNow"
+        chargers:
+          - "CP_001"
+          - "CP_002"
+          - "CP_003"
+      - id: "backend_secondary"
+        url: "ws://ocpp-backup.evfleet.com/ocpp"
+        leader: false
+        supported_commands:
+          - "Authorize"
+          - "BootNotification"
+          - "Heartbeat"
+          - "StatusNotification"
+          - "MeterValues"
+        chargers:
+          - "CP_004"
+          - "CP_005"
+
+  # Organization D: City Charging (Public Infrastructure)
+  - name: "CityCharging"
+    connect_to_backend: true
+    # Limited OCPP 1.6 features for public infrastructure
+    ocpp_features:
+      - core_profile
+      - smart_charging
+    # Tag management for public charging
+    tag_management:
+      enabled: true
+      auto_authorize: true
+      validation_strict: false
+      cache_timeout: 7200  # 2 hours
+    # Public charging tags
+    tags:
+      - id_tag: "CITY_ADMIN"
+        status: "Accepted"
+        tag_type: "RFID"
+        description: "City administrator access"
+        metadata:
+          role: "city_admin"
+          department: "Transportation"
+      - id_tag: "PUBLIC001"
+        status: "Accepted"
+        tag_type: "MobileApp"
+        expiry_date: "2025-12-31T23:59:59Z"
+        description: "Public charging access"
+        metadata:
+          role: "public"
+          access_level: "standard"
+      - id_tag: "EMERGENCY"
+        status: "Accepted"
+        tag_type: "RFID"
+        description: "Emergency services access"
+        metadata:
+          role: "emergency"
+          priority: "high"
+    backends:
+      - id: "city_backend"
+        url: "ws://city-charging.gov/ocpp"
+        leader: true
+        supported_commands:
+          - "Authorize"
+          - "BootNotification"
+          - "Heartbeat"
+          - "StatusNotification"
+          - "MeterValues"
+          - "RemoteStartTransaction"
+          - "RemoteStopTransaction"
+          - "SetChargingProfile"
+          - "ClearChargingProfile"
+        chargers:
+          - "CITY_001"
+          - "CITY_002"
+          - "CITY_003"
+
+  # Organization E: Test Organization (Development/Testing)
+  - name: "TestOrganization"
+    connect_to_backend: false
+    # 🎯 Broker acts as backend - handles OCPP commands directly
+    ocpp_features:
+      - core_profile
+      - smart_charging
+      - firmware_management
+      - local_auth
+      - reservations
+    # Tag management for testing
+    tag_management:
+      enabled: true
+      auto_authorize: true
+      validation_strict: true
+      cache_timeout: 1800  # 30 minutes
+    # Test organization tags
+    tags:
+      - id_tag: "TEST001"
+        status: "Accepted"
+        tag_type: "RFID"
+        description: "Test user 1"
+        metadata:
+          role: "test_user"
+          test_group: "group_a"
+      - id_tag: "TEST002"
+        status: "Accepted"
+        tag_type: "QRCode"
+        expiry_date: "2024-06-30T23:59:59Z"
+        description: "Test user 2"
+        metadata:
+          role: "test_user"
+          test_group: "group_b"
+      - id_tag: "EXPIRED001"
+        status: "Expired"
+        tag_type: "RFID"
+        expiry_date: "2023-12-31T23:59:59Z"
+        description: "Expired test tag"
+        metadata:
+          role: "test_user"
+          status: "expired"
+      - id_tag: "BLOCKED001"
+        status: "Blocked"
+        tag_type: "RFID"
+        description: "Blocked test tag"
+        metadata:
+          role: "test_user"
+          reason: "test_block"
+    backends: []  # No external backends needed
+    chargers:
+      - "TEST_001"
+      - "TEST_002"
+
+# =============================================================================
+# OCPP 1.6 SPECIFIC CONFIGURATION
+# =============================================================================
+ocpp:
+  # Message validation settings
+  validation:
+    strict_mode: true
+    validate_payloads: true
+    validate_business_rules: true
+  
+  # Command handling settings
+  commands:
+    # Core Profile settings
+    core:
+      heartbeat_interval: 300  # 5 minutes
+      meter_value_interval: 60  # 1 minute
+      status_notification_interval: 30  # 30 seconds
+    
+    # Smart Charging settings
+    smart_charging:
+      max_charging_profiles: 10
+      default_charging_rate_unit: "W"
+      enable_dynamic_charging: true
+    
+    # Firmware Management settings
+    firmware:
+      max_retry_count: 3
+      retry_interval: 300  # 5 minutes
+      download_timeout: 3600  # 1 hour
+    
+    # Local Authorization settings
+    local_auth:
+      max_list_size: 1000
+      cache_timeout: 3600  # 1 hour
+    
+    # Reservation settings
+    reservations:
+      max_reservation_duration: 86400  # 24 hours
+      auto_cancel_expired: true
+
+# =============================================================================
+# TAG MANAGEMENT CONFIGURATION
+# =============================================================================
+tag_management:
+  # Global tag management settings
+  global:
+    enabled: true
+    default_status: "Accepted"
+    default_tag_type: "RFID"
+    max_tags_per_org: 10000
+    tag_id_length_min: 1
+    tag_id_length_max: 20
+    auto_cleanup_expired: true
+    cleanup_interval: 86400  # 24 hours
+  
+  # Tag validation settings
+  validation:
+    strict_mode: true
+    validate_expiry_dates: true
+    validate_parent_tags: true
+    allow_duplicate_ids: false
+    require_description: false
+  
+  # Tag import/export settings
+  import_export:
+    supported_formats: ["json", "csv", "xml"]
+    max_import_size: 10485760  # 10MB
+    export_include_metadata: true
+    export_include_timestamps: true
+  
+  # Tag statistics and monitoring
+  monitoring:
+    enable_statistics: true
+    statistics_interval: 3600  # 1 hour
+    log_tag_operations: true
+    log_authorization_attempts: true
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+logging:
+  level: "INFO"
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  ocpp_commands: true
+  ocpp_validation: true
+  ocpp_errors: true
+  tag_management: true  # 🎯 Enable tag management logging
+
+# =============================================================================
+# SECURITY SETTINGS
+# =============================================================================
+security:
+  # WebSocket security
+  websocket:
+    ping_interval: 20
+    ping_timeout: 20
+    close_timeout: 5
+  
+  # OCPP security
+  ocpp:
+    validate_message_ids: true
+    max_message_size: 1048576  # 1MB
+    rate_limit_per_charger: 100  # messages per minute
+  
+  # Tag security
+  tags:
+    encrypt_sensitive_data: false
+    hash_tag_ids: false
+    audit_tag_changes: true
+    require_authentication: false

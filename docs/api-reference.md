@@ -573,12 +573,212 @@ Content-Type: application/json
 }
 ```
 
+## 🏷️ Tag Management Endpoints
+
+### **Tag Management Status**
+
+```http
+GET /api/tags/status
+```
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "message": "Tag management is active",
+  "organizations": ["MyChargingStation", "ProductionCharging"]
+}
+```
+
+### **Add Tag**
+
+```http
+POST /api/tags/organizations/{org_name}/tags
+```
+
+**Request Body:**
+```json
+{
+  "id_tag": "USER123456",
+  "status": "Accepted",
+  "tag_type": "RFID",
+  "description": "Employee access card",
+  "expiry_date": "2024-12-31T23:59:59Z",
+  "metadata": {
+    "role": "employee",
+    "department": "Engineering"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Tag USER123456 added successfully"
+}
+```
+
+### **Get Tag**
+
+```http
+GET /api/tags/organizations/{org_name}/tags/{id_tag}
+```
+
+**Response:**
+```json
+{
+  "id_tag": "USER123456",
+  "status": "Accepted",
+  "tag_type": "RFID",
+  "description": "Employee access card",
+  "expiry_date": "2024-12-31T23:59:59Z",
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-15T10:30:00Z",
+  "metadata": {
+    "role": "employee",
+    "department": "Engineering"
+  }
+}
+```
+
+### **Search Tags**
+
+```http
+GET /api/tags/organizations/{org_name}/tags?status=Accepted&tag_type=RFID&limit=50
+```
+
+**Response:**
+```json
+{
+  "tags": [
+    {
+      "id_tag": "USER123456",
+      "status": "Accepted",
+      "tag_type": "RFID",
+      "description": "Employee access card"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### **Tag Statistics**
+
+```http
+GET /api/tags/organizations/{org_name}/statistics
+```
+
+**Response:**
+```json
+{
+  "total_tags": 150,
+  "active_tags": 120,
+  "expired_tags": 20,
+  "blocked_tags": 10,
+  "tags_by_type": {
+    "RFID": 100,
+    "QRCode": 30,
+    "MobileApp": 20
+  },
+  "tags_by_status": {
+    "Accepted": 120,
+    "Blocked": 10,
+    "Expired": 20
+  }
+}
+```
+
+### **Authorize Tag**
+
+```http
+POST /api/tags/organizations/{org_name}/tags/authorize
+```
+
+**Request Body:**
+```json
+"USER123456"
+```
+
+**Response:**
+```json
+{
+  "idTag": "USER123456",
+  "idTagInfo": {
+    "status": "Accepted",
+    "expiryDate": "2024-12-31T23:59:59Z",
+    "parentIdTag": null
+  }
+}
+```
+
+### **Bulk Operations**
+
+```http
+POST /api/tags/organizations/{org_name}/tags/bulk
+```
+
+**Request Body:**
+```json
+{
+  "operation": "add",
+  "tags": [
+    {
+      "id_tag": "BULK001",
+      "status": "Accepted",
+      "tag_type": "RFID",
+      "description": "Bulk user 1"
+    },
+    {
+      "id_tag": "BULK002",
+      "status": "Accepted",
+      "tag_type": "RFID",
+      "description": "Bulk user 2"
+    }
+  ]
+}
+```
+
+### **Import Tags**
+
+```http
+POST /api/tags/organizations/{org_name}/tags/import
+```
+
+**Request Body:**
+```json
+{
+  "source": "json",
+  "data": "{\"tags\": [{\"id_tag\": \"IMPORT001\", \"status\": \"Accepted\", \"tag_type\": \"RFID\"}]}",
+  "overwrite_existing": false
+}
+```
+
+### **Export Tags**
+
+```http
+POST /api/tags/organizations/{org_name}/tags/export
+```
+
+**Request Body:**
+```json
+{
+  "format": "csv",
+  "include_metadata": true
+}
+```
+
+**Response:** File download (CSV/JSON/XML format)
+
 ## 🔗 Related Documentation
 
 - [Quick Start Guide](quick-start.md)
 - [Configuration Guide](configuration.md)
 - [OCPP 1.6 Features](ocpp16-features.md)
 - [Broker-as-Backend Mode](broker-as-backend.md)
+- [Tag Management](tag-management.md)
 - [Production Deployment](deployment.md)
 - [Troubleshooting](troubleshooting.md)
 

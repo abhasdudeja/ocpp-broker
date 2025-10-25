@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ocpp-broker"
 version = "0.2.0a0"
-description = "A middleware OCPP broker for forwarding messages between chargers and backends"
+description = "A comprehensive OCPP broker with tag management, message routing, and backend integration"
 authors = [
   { name = "Abhas Dudeja", email = "amdudeja@gmail.com" }
 ]

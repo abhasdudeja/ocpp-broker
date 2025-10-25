@@ -4,8 +4,11 @@ Welcome to the **OCPP Multi-Organization Broker** documentation.
 
 This broker:
 - Acts as an OCPP proxy between chargers and multiple backends
-- Supports multiple organizations
-- Provides a REST API for dynamic control and runtime management
+- Supports multiple organizations with independent configurations
+- Provides comprehensive tag management for authorization
+- Offers both traditional proxy mode and broker-as-backend mode
+- Includes a REST API for dynamic control and runtime management
+- Supports OCPP 1.6 with full command coverage
 
 ## Quick Start
 

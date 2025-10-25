@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
+from .tag_api import create_tag_api
 
 logger = logging.getLogger("ocpp_broker.api")
 
@@ -17,6 +18,10 @@ def create_api(broker):
     Create FastAPI app bound to a running OcppBroker instance.
     """
     app = FastAPI(title="OCPP Broker API", version="1.0")
+    
+    # Include tag management API if available
+    tag_router = create_tag_api(broker)
+    app.include_router(tag_router)
 
     @app.get("/orgs")
     async def list_orgs():

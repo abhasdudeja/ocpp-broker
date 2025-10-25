@@ -18,17 +18,52 @@ pip install -e .
 
 ### **Step 2: Create Configuration**
 
-Create a `config.yaml` file:
+The broker now uses a unified `config.yaml` file that includes all features:
 
 ```yaml
-# config.yaml
+# config.yaml - Unified Configuration
 broker:
   host: 0.0.0.0
   port: 8765
+  ocpp_version: "1.6"
+  enable_validation: true
+  enable_smart_charging: true
+  enable_firmware_management: true
+  enable_local_auth: true
+  enable_reservations: true
+  enable_tag_management: true
+
+# API server configuration
+api:
+  host: 0.0.0.0
+  port: 8080
+  enable_swagger: true
+
+# Tag management configuration
+tag_management:
+  global:
+    enabled: true
 
 organizations:
   - name: "MyChargingStation"
     connect_to_backend: false  # Broker acts as backend
+    ocpp_features:
+      - core_profile
+      - smart_charging
+      - firmware_management
+      - local_auth
+      - reservations
+    tag_management:
+      enabled: true
+    tags:
+      - id_tag: "ADMIN001"
+        status: "Accepted"
+        tag_type: "RFID"
+        description: "Administrator access"
+      - id_tag: "USER123"
+        status: "Accepted"
+        tag_type: "RFID"
+        description: "Regular user access"
     chargers:
       - "CHARGER_001"
 ```

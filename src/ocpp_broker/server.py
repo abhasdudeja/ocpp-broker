@@ -91,7 +91,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 def load_broker_config(config_path: str | None) -> dict:
     """
-    Load the broker configuration from YAML.
+    Load the unified broker configuration from YAML.
     - If -c is provided, use that path.
     - Otherwise, first check the current working directory for config.yaml.
     - If not found, fall back to the package root path.
@@ -108,14 +108,18 @@ def load_broker_config(config_path: str | None) -> dict:
             path = Path(__file__).resolve().parents[2] / "config.yaml"
 
     if not path.exists():
-        logger.warning(f"Configuration file not found at {path}, using defaults.")
-        return {"broker": {"host": "0.0.0.0", "port": 8765}, "organizations": []}
+        logger.warning(f"Configuration file not found at {path}, using unified defaults.")
+        from .config import _get_default_config
+        cfg = _get_default_config()
+        cfg["_path"] = "default"
+        return cfg
 
-    with open(path, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
-
-    logger.info(f"Loaded configuration from {path}")
+    # Use the optimized config loader
+    from .config import load_config
+    cfg = load_config(str(path))
     cfg["_path"] = str(path)
+    
+    logger.info(f"Loaded unified configuration from {path}")
     return cfg
 
 

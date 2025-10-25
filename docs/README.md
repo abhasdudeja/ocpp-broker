@@ -11,6 +11,7 @@ Welcome to the OCPP Broker documentation! This wiki provides comprehensive infor
 
 ### **Core Features**
 - [OCPP 1.6 Support](ocpp16-features.md) - Complete OCPP 1.6 implementation
+- [Tag Management](tag-management.md) - Comprehensive tag management for authorization
 - [Broker-as-Backend Mode](broker-as-backend.md) - Direct OCPP command processing
 - [Leader-Follower Logic](leader-follower.md) - Multi-backend management
 - [Message Routing](message-routing.md) - How messages are processed
@@ -62,6 +63,7 @@ Welcome to the OCPP Broker documentation! This wiki provides comprehensive infor
 - ✅ **Enhanced command routing**
 - ✅ **Leader-follower logic**
 - ✅ **Broker-as-backend mode**
+- ✅ **Tag management and authorization**
 
 ### **Architecture**
 - ✅ **Modular command handlers**

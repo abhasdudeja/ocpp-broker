@@ -23,6 +23,7 @@ class OcppBroker:
         self.org_registries: Dict[str, ChargerRegistry] = {}
         self.sessions: Dict[str, ChargerSession] = {}
         self.tag_manager: Optional[TagManager] = None
+        self.data_transfer_handler = None  # Will be created on first use
         self.config_data: Dict[str, object] = {}
         self._cfg_path = "config.yaml"
         self._transaction_seed = random.randint(1000, 9999)

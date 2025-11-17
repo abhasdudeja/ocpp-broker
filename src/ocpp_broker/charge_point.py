@@ -129,6 +129,107 @@ class BrokerChargePoint(OcppChargePoint):
         tag_info = await self._authorize_tag(id_tag) if id_tag else datatypes.IdTagInfo(status="Invalid")
         return call_result.StopTransaction(id_tag_info=tag_info)
 
+    @on("DataTransfer")
+    async def on_data_transfer(self, vendor_id: str, message_id: str = None, data: str = None, **payload):
+        """
+        Handle DataTransfer command from charger.
+        DataTransfer allows chargers to send vendor-specific data to the central system.
+        """
+        self.logger.info(
+            "DataTransfer received from %s: vendor=%s message_id=%s data_length=%s",
+            self.id,
+            vendor_id,
+            message_id or "none",
+            len(data) if data else 0
+        )
+        
+        try:
+            # Get or create DataTransfer handler
+            handler = None
+            if hasattr(self.broker, "data_transfer_handler"):
+                handler = getattr(self.broker, "data_transfer_handler", None)
+            
+            if handler is None:
+                try:
+                    from .data_transfer_handler import create_data_transfer_handler
+                    handler = create_data_transfer_handler(self.broker)
+                    self.broker.data_transfer_handler = handler
+                    self.logger.debug("Created DataTransfer handler for charger %s", self.id)
+                except Exception as create_error:
+                    self.logger.error(
+                        "Failed to create DataTransfer handler for charger %s: %s",
+                        self.id,
+                        create_error,
+                        exc_info=True
+                    )
+                    return call_result.DataTransfer(
+                        status="Rejected",
+                        data=None
+                    )
+            
+            # Safety check: ensure handler was created successfully
+            if handler is None:
+                self.logger.error(
+                    "DataTransfer handler is None for charger %s after creation attempt",
+                    self.id
+                )
+                return call_result.DataTransfer(
+                    status="Rejected",
+                    data=None
+                )
+            
+            # Process the DataTransfer
+            # Additional safety check before calling handle_data_transfer
+            if handler is None or not hasattr(handler, "handle_data_transfer"):
+                self.logger.error(
+                    "DataTransfer handler for charger %s is invalid (handler=%s)",
+                    self.id,
+                    type(handler).__name__ if handler else "None"
+                )
+                return call_result.DataTransfer(
+                    status="Rejected",
+                    data=None
+                )
+            
+            status, response_data = await handler.handle_data_transfer(
+                charger_id=self.id,
+                org_name=self.org_name,
+                vendor_id=vendor_id,
+                message_id=message_id,
+                data=data
+            )
+            
+            # Return OCPP-compliant response
+            return call_result.DataTransfer(
+                status=status,
+                data=response_data
+            )
+        except AttributeError as attr_error:
+            self.logger.error(
+                "AttributeError processing DataTransfer from %s: %s (handler=%s)",
+                self.id,
+                attr_error,
+                type(handler).__name__ if handler else "None",
+                exc_info=True
+            )
+            # Return rejected status on error instead of letting it bubble up
+            return call_result.DataTransfer(
+                status="Rejected",
+                data=None
+            )
+        except Exception as e:
+            self.logger.error(
+                "Error processing DataTransfer from %s: %s",
+                self.id,
+                e,
+                exc_info=True
+            )
+            # Return rejected status on error instead of letting it bubble up
+            return call_result.DataTransfer(
+                status="Rejected",
+                data=None
+            )
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------

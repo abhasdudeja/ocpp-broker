@@ -380,6 +380,57 @@ ocpp:
       auto_cancel_expired: true
 
 # =============================================================================
+# DATATRANSFER CONFIGURATION (System-wide)
+# =============================================================================
+data_transfer:
+  # List of known vendor IDs that are allowed to send DataTransfer commands
+  known_vendors:
+    - "ABB"
+    - "generalConfiguration"
+    - "Schneider"
+    - "Siemens"
+    - "VendorA"
+    - "VendorB"
+    - "VendorC"
+  # List of known message IDs that are allowed in DataTransfer commands
+  known_message_ids:
+    - "MSG001"
+    - "setMeterConfiguration"
+    - "MSG002"
+    - "MSG003"
+    - "DiagnosticsRequest"
+    - "FirmwareStatus"
+    - "CustomData"
+  # Enable/disable validation (default: true)
+  validate_vendors: true
+  validate_message_ids: true
+  # Vendor-specific configurations
+  vendors:
+    VendorA:
+      # Optional: specific message IDs allowed for this vendor
+      allowed_message_ids:
+        - "MSG001"
+        - "MSG002"
+      # Auto-accept messages from this vendor (default: true)
+      auto_accept: true
+      # Require message_id for this vendor (default: false)
+      require_message_id: false
+    VendorB:
+      allowed_message_ids:
+        - "MSG003"
+        - "DiagnosticsRequest"
+      auto_accept: true
+      require_message_id: true  # This vendor requires message_id
+  # Vendor+Message ID specific configurations (optional)
+  vendor_messages:
+    "VendorA:MSG001":
+      auto_accept: true
+      description: "Diagnostics data from VendorA"
+    "VendorB:DiagnosticsRequest":
+      auto_accept: true
+      description: "Diagnostics request from VendorB"
+
+# =============================================================================
 # TAG MANAGEMENT CONFIGURATION
 # =============================================================================
 tag_management:

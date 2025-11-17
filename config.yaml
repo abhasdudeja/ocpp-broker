@@ -30,7 +30,7 @@ api:
 organizations:
   # Organization A: External Backend Mode
   - name: "orgA"
-    connect_to_backend: true   # ✅ Will connect to external backends
+    connect_to_backend: false   # ✅ Will connect to external backends
     # OCPP 1.6 features enabled
     ocpp_features:
       - core_profile

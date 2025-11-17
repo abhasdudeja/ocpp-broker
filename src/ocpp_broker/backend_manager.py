@@ -94,7 +94,7 @@ class BackendConnection:
 
         # Forward every backend message to broker (to send to charger)
         logger.info(f"[{self.id}] ← Message from backend: {msg[:200]}")  # log truncated message
-        await self.broker.command_router.route_backend_message(self, msg)
+        await self.broker.forward_backend_message(self, msg)
 
     async def send(self, message: str):
         """Send OCPP message to backend if connected."""

@@ -1,3 +1,48 @@
+# Architecture Overview
+
+The broker is intentionally structured as a small number of focused building blocks to keep
+the codebase approachable:
+
+| Layer | Purpose | Key Modules |
+|-------|---------|-------------|
+| Entry points | FastAPI server + REST APIs | `src/ocpp_broker/server.py`, `src/ocpp_broker/api_server.py` |
+| Orchestrator | Owns configuration, sessions, shared services | `src/ocpp_broker/broker.py` |
+| Session runtime | Handles a single charger connection (including multi-backend leader/follower relays) | `src/ocpp_broker/session.py` |
+| Protocol logic | Subclass of the upstream `ocpp` ChargePoint | `src/ocpp_broker/charge_point.py` |
+| Services | Backends, registry, tag manager | `src/ocpp_broker/backend_manager.py`, `registry.py`, `tag_manager.py` |
+
+## Charger lifecycle
+
+1. `server.py` accepts a WebSocket on `/org/charger` and hands it to `OcppBroker.handle_charger`.
+2. The broker creates a `ChargerSession`, which decides whether the charger should be:
+   - **Relay mode** (`SessionMode.RELAY`): the charger stays connected to all upstream backends defined for the organization. The first backend marked as leader (or the first entry if none are marked) becomes the leader connection, and every additional backend is treated as a follower.
+   - **Broker mode** (`SessionMode.BROKER`): the broker acts as the central system by instantiating `BrokerChargePoint`.
+3. `ChargerSession.start()` contains the full lifecycle:
+   - Builds the backend connection if required.
+   - Wraps the Starlette WebSocket in `StarletteWebSocketAdapter`.
+   - Either forwards frames to the backend or calls `BrokerChargePoint.start()` to let the upstream `ocpp` library handle parsing/validation.
+4. When the socket closes, `ChargerSession.close()` tears down the leader + follower backend links and unregisters the session.
+
+All per-connection state now lives inside `ChargerSession`, so `OcppBroker` is reduced to:
+```python
+session = ChargerSession(..., websocket=websocket)
+self.sessions[charger_id] = session
+try:
+    await session.start()
+finally:
+    await session.close()
+    self.sessions.pop(charger_id, None)
+```
+
+## Backend message flow
+
+`BackendConnection` objects feed all inbound messages into `OcppBroker.forward_backend_message()`, which ensures that only leader connections are allowed to emit actionable commands. Follower connections stay connected for monitoring/takeover purposes, but any attempt to send a command from a follower is logged and ignored.
+
+## Extending functionality
+
+- Add new OCPP handlers by decorating methods in `BrokerChargePoint` with `@on("Action")`.
+- Add REST/management features without touching session logic.
+- The documentation you are reading provides the high-level view; `docs/README.md` links to feature-specific guides.
 # System Architecture
 
 Comprehensive overview of the OCPP broker architecture, components, and design principles.

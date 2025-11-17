@@ -16,7 +16,14 @@ dependencies = [
   "websockets>=11.0",
   "pyyaml>=6.0",
   "fastapi>=0.110.0",
-  "uvicorn>=0.29.0"
+  "uvicorn>=0.29.0",
+  "ocpp>=0.13.0"
+]
+
+[project.optional-dependencies]
+tests = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0"
 ]
 
 # 👇 This is the CRITICAL FIX

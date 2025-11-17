@@ -308,6 +308,8 @@ When a charger sends an `Authorize` command, the broker automatically:
 2. **Validates the tag** (status, expiry, etc.)
 3. **Returns authorization result** with proper OCPP response
 
+**Important:** Tags must exist in the system. There is **no fallback mechanism** - if a tag is not found in the organization's tag list, or if tag management is unavailable, the authorization will be rejected with `"status": "Invalid"`. This ensures strict access control and prevents unauthorized charging.
+
 **Example OCPP Authorize Flow:**
 ```json
 // Charger sends Authorize request

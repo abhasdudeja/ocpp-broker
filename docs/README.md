@@ -17,7 +17,7 @@ Welcome to the OCPP Broker documentation! This wiki provides comprehensive infor
 - [Message Routing](message-routing.md) - How messages are processed
 
 ### **Architecture**
-- [System Architecture](architecture.md) - High-level system design
+- [Architecture Overview](architecture.md) - Broker, session, and service layout
 - [Command Handlers](command-handlers.md) - OCPP command processing
 - [Message Validation](message-validation.md) - OCPP message validation
 - [WebSocket Management](websocket-management.md) - Connection handling
@@ -39,6 +39,10 @@ Welcome to the OCPP Broker documentation! This wiki provides comprehensive infor
 - [Testing](testing.md) - Testing guidelines
 - [Code Style](code-style.md) - Coding standards
 
+### **Testing**
+- Install dev deps with `pip install .[tests]`
+- Run `pytest` to execute async unit tests (e.g., `tests/test_charge_point.py`)
+
 ### **Examples**
 - [Basic Examples](examples/basic.md) - Simple usage examples
 - [Advanced Examples](examples/advanced.md) - Complex scenarios
@@ -58,18 +62,17 @@ Welcome to the OCPP Broker documentation! This wiki provides comprehensive infor
 ## 📖 Key Features
 
 ### **OCPP 1.6 Support**
-- ✅ **30 OCPP 1.6 Commands** across all profiles
-- ✅ **Complete message validation**
-- ✅ **Enhanced command routing**
-- ✅ **Leader-follower logic**
-- ✅ **Broker-as-backend mode**
-- ✅ **Tag management and authorization**
+- ✅ Powered by the upstream [`ocpp`](https://pypi.org/project/ocpp/) Python library
+- ✅ Spec-compliant parsing, validation, and response generation
+- ✅ Pass-through (broker-as-proxy) and broker-as-backend modes
+- ✅ Config-driven leader/follower backend links
+- ✅ Tag management and authorization workflows
 
 ### **Architecture**
-- ✅ **Modular command handlers**
-- ✅ **Extensible validation system**
-- ✅ **Dual router support** (legacy + OCPP 1.6)
-- ✅ **Backward compatibility**
+- ✅ `BrokerChargePoint` subclass for all locally handled chargers
+- ✅ Lightweight Starlette → `ocpp` WebSocket adapter
+- ✅ Clean separation between pass-through relay and local command handling
+- ✅ Backwards-compatible REST/tag management APIs
 
 ### **Production Ready**
 - ✅ **Error handling**

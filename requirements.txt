@@ -2,3 +2,4 @@ websockets>=11.0
 pyyaml>=6.0
 fastapi>=0.110.0
 uvicorn>=0.29.0
+ocpp>=0.13.0

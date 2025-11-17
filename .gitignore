@@ -1,3 +1,5 @@
 src/ocpp_broker.egg-info
 src/ocpp_broker/__pycache__
 dist
+build
+**/__pycache__/*

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from ocpp.routing import on
-from ocpp.v16 import ChargePoint as OcppChargePoint, call_result
+from ocpp.v16 import ChargePoint as OcppChargePoint, call_result, datatypes
 
 logger = logging.getLogger("ocpp_broker.charge_point")
 
@@ -81,7 +81,7 @@ class BrokerChargePoint(OcppChargePoint):
     @on("Authorize")
     async def on_authorize(self, id_tag: str, **payload):
         tag_info = await self._authorize_tag(id_tag)
-        self.logger.info("Authorize for %s → %s", id_tag, tag_info["status"])
+        self.logger.info("Authorize for %s → %s", id_tag, tag_info.status)
         return call_result.Authorize(id_tag_info=tag_info)
 
     @on("Heartbeat")
@@ -126,11 +126,7 @@ class BrokerChargePoint(OcppChargePoint):
     async def on_stop_transaction(self, transaction_id: int, **payload):
         self.logger.info("StopTransaction transaction_id=%s payload=%s", transaction_id, payload)
         id_tag = payload.get("id_tag")
-        tag_info = await self._authorize_tag(id_tag) if id_tag else {
-            "status": "Invalid",
-            "expiry_date": None,
-            "parent_id_tag": None
-        }
+        tag_info = await self._authorize_tag(id_tag) if id_tag else datatypes.IdTagInfo(status="Invalid")
         return call_result.StopTransaction(id_tag_info=tag_info)
 
     # ------------------------------------------------------------------
@@ -143,14 +139,14 @@ class BrokerChargePoint(OcppChargePoint):
         except Exception as exc:
             self.logger.warning("Unable to register charger in registry: %s", exc)
 
-    async def _authorize_tag(self, id_tag: Optional[str]) -> Dict[str, Any]:
+    async def _authorize_tag(self, id_tag: Optional[str]) -> datatypes.IdTagInfo:
         """
         Authorize a tag. Tags must exist in the system - no fallback mechanism.
         Returns Invalid status if tag manager is unavailable or tag is not found.
         """
         if not id_tag:
             self.logger.warning("Authorization attempted with empty id_tag")
-            return {"status": "Invalid", "expiry_date": None, "parent_id_tag": None}
+            return datatypes.IdTagInfo(status="Invalid")
 
         tag_manager = getattr(self.broker, "tag_manager", None)
         if not tag_manager:
@@ -159,14 +155,14 @@ class BrokerChargePoint(OcppChargePoint):
                 self.org_name,
                 id_tag
             )
-            return {"status": "Invalid", "expiry_date": None, "parent_id_tag": None}
+            return datatypes.IdTagInfo(status="Invalid")
 
         result = await tag_manager.authorize_tag(self.org_name, id_tag)
-        return {
-            "status": result.get("status", "Invalid"),
-            "expiry_date": result.get("expiry_date"),
-            "parent_id_tag": result.get("parent_id_tag"),
-        }
+        return datatypes.IdTagInfo(
+            status=result.get("status", "Invalid"),
+            expiry_date=result.get("expiry_date"),
+            parent_id_tag=result.get("parent_id_tag"),
+        )
 
     @staticmethod
     def _now() -> str:

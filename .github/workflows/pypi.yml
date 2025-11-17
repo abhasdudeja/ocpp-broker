@@ -55,6 +55,7 @@ jobs:
   publish:
     needs: build-and-test
     runs-on: ubuntu-latest
+    environment: default 
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') || github.event_name == 'release'
     
     steps:
@@ -73,6 +74,10 @@ jobs:
     - name: Build package
       run: python -m build
 
+    - name: Debug secret existence
+      run: |
+        if [ -z "${{ secrets.PYPI_API_TOKEN }}" ]; then echo "SECRET IS EMPTY"; else echo "SECRET EXISTS"; fi
+    
     - name: Publish to PyPI
       env:
         TWINE_USERNAME: __token__

@@ -72,7 +72,7 @@ class BrokerChargePoint(OcppChargePoint):
             payload,
         )
 
-        return call_result.BootNotificationPayload(
+        return call_result.BootNotification(
             current_time=self._now(),
             interval=interval,
             status="Accepted",
@@ -82,11 +82,11 @@ class BrokerChargePoint(OcppChargePoint):
     async def on_authorize(self, id_tag: str, **payload):
         tag_info = await self._authorize_tag(id_tag)
         self.logger.info("Authorize for %s → %s", id_tag, tag_info["status"])
-        return call_result.AuthorizePayload(id_tag_info=tag_info)
+        return call_result.Authorize(id_tag_info=tag_info)
 
     @on("Heartbeat")
     async def on_heartbeat(self):
-        return call_result.HeartbeatPayload(current_time=self._now())
+        return call_result.Heartbeat(current_time=self._now())
 
     @on("StatusNotification")
     async def on_status_notification(self, connector_id: int, status: str, **payload):
@@ -96,7 +96,7 @@ class BrokerChargePoint(OcppChargePoint):
             status,
             payload,
         )
-        return call_result.StatusNotificationPayload()
+        return call_result.StatusNotification()
 
     @on("MeterValues")
     async def on_meter_values(self, connector_id: int, meter_value: Any, **payload):
@@ -104,7 +104,7 @@ class BrokerChargePoint(OcppChargePoint):
         self.logger.info(
             "MeterValues connector=%s count=%s payload=%s", connector_id, readings, payload
         )
-        return call_result.MeterValuesPayload()
+        return call_result.MeterValues()
 
     @on("StartTransaction")
     async def on_start_transaction(self, connector_id: int, id_tag: str, **payload):
@@ -117,7 +117,7 @@ class BrokerChargePoint(OcppChargePoint):
             payload,
         )
         tag_info = await self._authorize_tag(id_tag)
-        return call_result.StartTransactionPayload(
+        return call_result.StartTransaction(
             transaction_id=transaction_id,
             id_tag_info=tag_info,
         )
@@ -131,7 +131,7 @@ class BrokerChargePoint(OcppChargePoint):
             "expiry_date": None,
             "parent_id_tag": None
         }
-        return call_result.StopTransactionPayload(id_tag_info=tag_info)
+        return call_result.StopTransaction(id_tag_info=tag_info)
 
     # ------------------------------------------------------------------
     # Helpers

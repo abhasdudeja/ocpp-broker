@@ -72,7 +72,7 @@ def create_tag_api(broker) -> APIRouter:
         try:
             tag = await tag_manager.get_tag(org_name, id_tag)
             if tag:
-                return tag.dict()
+                return tag.model_dump()
             else:
                 raise HTTPException(status_code=404, detail="Tag not found")
         except Exception as e:

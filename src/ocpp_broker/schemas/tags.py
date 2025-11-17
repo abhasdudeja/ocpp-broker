@@ -6,7 +6,7 @@ tag definitions, and tag operations.
 """
 
 from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
 from enum import Enum
 
@@ -62,8 +62,8 @@ class OCPPTag(BaseModel):
         except ValueError:
             raise ValueError("Expiry date must be in ISO 8601 format")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "idTag": "USER123456",
                 "status": "Accepted",
@@ -77,6 +77,7 @@ class OCPPTag(BaseModel):
                 }
             }
         }
+    )
 
 
 class TagList(BaseModel):
@@ -86,8 +87,8 @@ class TagList(BaseModel):
     created_at: Optional[str] = Field(None, description="List creation timestamp")
     updated_at: Optional[str] = Field(None, description="Last update timestamp")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "listVersion": 1,
                 "tags": [
@@ -100,6 +101,7 @@ class TagList(BaseModel):
                 ]
             }
         }
+    )
 
 
 class TagSearchRequest(BaseModel):

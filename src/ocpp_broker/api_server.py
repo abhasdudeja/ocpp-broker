@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 from .tag_api import create_tag_api
+from .ocpp_command_api import create_ocpp_command_api
 
 logger = logging.getLogger("ocpp_broker.api")
 
@@ -22,6 +23,10 @@ def create_api(broker):
     # Include tag management API if available
     tag_router = create_tag_api(broker)
     app.include_router(tag_router)
+    
+    # Include OCPP command API
+    ocpp_command_router = create_ocpp_command_api(broker)
+    app.include_router(ocpp_command_router)
 
     @app.get("/orgs")
     async def list_orgs():
@@ -57,7 +62,7 @@ def create_api(broker):
             raise HTTPException(status_code=400, detail="Backend already exists")
 
         # add backend asynchronously
-        await broker.add_backend_dynamic(org, backend.dict())
+        await broker.add_backend_dynamic(org, backend.model_dump())
         return {"status": "created", "backend": backend.id}
 
     @app.delete("/orgs/{org}/backends/{backend_id}")

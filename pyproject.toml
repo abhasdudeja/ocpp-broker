@@ -34,7 +34,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"ocpp_broker" = ["docs/*.md"]
+"ocpp_broker" = []
 
 [project.scripts]
 ocpp-broker-server = "ocpp_broker.server:main"

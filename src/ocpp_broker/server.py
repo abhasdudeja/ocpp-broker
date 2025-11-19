@@ -54,9 +54,9 @@ async def ocpp_entry(websocket: WebSocket, org_name: str, charger_id: str):
         expected_subprotocol = org_entry.get("ocpp_subprotocol", "ocpp1.6")
     
     # Check sec-websocket-protocol header - REQUIRED for OCPP compliance
-    requested_protocols = websocket.headers.get("sec-websocket-protocol", "")
+    requested_protocols_str = websocket.headers.get("sec-websocket-protocol", "")
     
-    if not requested_protocols:
+    if not requested_protocols_str:
         # Reject connection if sec-websocket-protocol header is missing
         logger.error(
             f"❌ Rejected charger {charger_id} from org '{org_name}': "
@@ -64,6 +64,9 @@ async def ocpp_entry(websocket: WebSocket, org_name: str, charger_id: str):
         )
         await websocket.close(code=1002, reason="Missing sec-websocket-protocol header (required for OCPP)")
         return
+    
+    # Parse comma-separated protocol list (e.g., "ocpp1.6, ocpp2.0.1")
+    requested_protocols = [p.strip() for p in requested_protocols_str.split(",")]
     
     # Check if the expected subprotocol is in the requested protocols
     subprotocol = None
@@ -74,11 +77,11 @@ async def ocpp_entry(websocket: WebSocket, org_name: str, charger_id: str):
         # Protocol was requested but doesn't match expected - reject connection
         logger.error(
             f"❌ Rejected charger {charger_id} from org '{org_name}': "
-            f"subprotocol mismatch - expected '{expected_subprotocol}', got '{requested_protocols}'"
+            f"subprotocol mismatch - expected '{expected_subprotocol}', got '{requested_protocols_str}'"
         )
         await websocket.close(
             code=1002, 
-            reason=f"Subprotocol mismatch: expected '{expected_subprotocol}', got '{requested_protocols}'"
+            reason=f"Subprotocol mismatch: expected '{expected_subprotocol}', got '{requested_protocols_str}'"
         )
         return
     

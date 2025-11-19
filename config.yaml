@@ -25,7 +25,7 @@ organizations:
   - name: "orgA"
     connect_to_backend: true   # ✅ Will connect to external backends
     ocpp_subprotocol: "ocpp1.6"  # OCPP WebSocket subprotocol (e.g., "ocpp1.6", "ocpp2.0.1")
-    validate_messages_when_backend_leader: false  # Validate OCPP messages when backend is leader (default: false)
+    validate_messages_when_backend_leader: true  # Validate OCPP messages when backend is leader (default: false)
     validate_messages_when_broker_backend: false  # Validate OCPP messages when broker acts as backend (default: false)
     validation:
       strict_mode: true  # If true, reject invalid messages; if false, log warning but forward

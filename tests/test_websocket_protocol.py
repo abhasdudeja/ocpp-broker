@@ -67,7 +67,8 @@ class TestChargerToBrokerProtocol:
             # Verify accept was called with ocpp1.6 subprotocol
             mock_ws.accept.assert_called_once()
             call_args = mock_ws.accept.call_args
-            assert call_args[0][0] == "ocpp1.6", "Should accept ocpp1.6 subprotocol"
+            # accept() is called with keyword argument subprotocol=...
+            assert call_args[1]["subprotocol"] == "ocpp1.6", "Should accept ocpp1.6 subprotocol"
     
     @pytest.mark.asyncio
     async def test_charger_connection_without_protocol_rejected(self, mock_broker):
@@ -154,7 +155,8 @@ class TestChargerToBrokerProtocol:
             # Should accept with ocpp1.6 if it's in the list
             mock_ws.accept.assert_called_once()
             call_args = mock_ws.accept.call_args
-            assert call_args[0][0] == "ocpp1.6", "Should accept ocpp1.6 when it's in the protocol list"
+            # accept() is called with keyword argument subprotocol=...
+            assert call_args[1]["subprotocol"] == "ocpp1.6", "Should accept ocpp1.6 when it's in the protocol list"
 
 
 class TestBrokerToBackendProtocol:
@@ -216,6 +218,13 @@ class TestBrokerToBackendProtocol:
     @patch('ocpp_broker.backend_manager.websockets.connect')
     async def test_backend_connection_sends_subprotocol_in_handshake(self, mock_connect, mock_broker):
         """Test that backend connection sends subprotocol in WebSocket handshake"""
+        # Create a mock session so charger appears connected
+        mock_session = Mock()
+        mock_session.websocket = Mock()
+        mock_session.websocket.client_state = Mock()
+        mock_session.websocket.client_state.name = "CONNECTED"
+        mock_broker.sessions["CHARGER001"] = mock_session
+        
         # Mock websocket connection
         mock_ws = AsyncMock()
         mock_ws.subprotocol = "ocpp1.6"
@@ -238,8 +247,8 @@ class TestBrokerToBackendProtocol:
         # Start connection (will fail but we can check the call)
         backend_conn._running = True
         try:
-            await backend_conn._run_connect_loop()
-        except Exception:
+            await asyncio.wait_for(backend_conn._run_connect_loop(), timeout=0.1)
+        except (asyncio.TimeoutError, Exception):
             pass
         
         # Verify websockets.connect was called with subprotocols parameter
@@ -252,6 +261,13 @@ class TestBrokerToBackendProtocol:
     @patch('ocpp_broker.backend_manager.websockets.connect')
     async def test_backend_connection_verifies_negotiated_subprotocol(self, mock_connect, mock_broker):
         """Test that backend connection verifies the negotiated subprotocol"""
+        # Create a mock session so charger appears connected
+        mock_session = Mock()
+        mock_session.websocket = Mock()
+        mock_session.websocket.client_state = Mock()
+        mock_session.websocket.client_state.name = "CONNECTED"
+        mock_broker.sessions["CHARGER001"] = mock_session
+        
         # Mock websocket with matching subprotocol
         mock_ws = AsyncMock()
         mock_ws.subprotocol = "ocpp1.6"  # Matches requested
@@ -296,6 +312,13 @@ class TestBrokerToBackendProtocol:
     @patch('ocpp_broker.backend_manager.websockets.connect')
     async def test_backend_connection_warns_on_mismatched_subprotocol(self, mock_connect, mock_broker):
         """Test that backend connection warns when negotiated subprotocol doesn't match"""
+        # Create a mock session so charger appears connected
+        mock_session = Mock()
+        mock_session.websocket = Mock()
+        mock_session.websocket.client_state = Mock()
+        mock_session.websocket.client_state.name = "CONNECTED"
+        mock_broker.sessions["CHARGER001"] = mock_session
+        
         # Mock websocket with mismatched subprotocol
         mock_ws = AsyncMock()
         mock_ws.subprotocol = "ocpp2.0.1"  # Doesn't match requested ocpp1.6

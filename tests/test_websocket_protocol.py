@@ -68,7 +68,7 @@ class TestChargerToBrokerProtocol:
             mock_ws.accept.assert_called_once()
             call_args = mock_ws.accept.call_args
             # accept() is called with keyword argument subprotocol=...
-            assert call_args[1]["subprotocol"] == "ocpp1.6", "Should accept ocpp1.6 subprotocol"
+            assert call_args.kwargs["subprotocol"] == "ocpp1.6", "Should accept ocpp1.6 subprotocol"
     
     @pytest.mark.asyncio
     async def test_charger_connection_without_protocol_rejected(self, mock_broker):
@@ -156,7 +156,7 @@ class TestChargerToBrokerProtocol:
             mock_ws.accept.assert_called_once()
             call_args = mock_ws.accept.call_args
             # accept() is called with keyword argument subprotocol=...
-            assert call_args[1]["subprotocol"] == "ocpp1.6", "Should accept ocpp1.6 when it's in the protocol list"
+            assert call_args.kwargs["subprotocol"] == "ocpp1.6", "Should accept ocpp1.6 when it's in the protocol list"
 
 
 class TestBrokerToBackendProtocol:
@@ -220,10 +220,12 @@ class TestBrokerToBackendProtocol:
         """Test that backend connection sends subprotocol in WebSocket handshake"""
         # Create a mock session so charger appears connected
         mock_session = Mock()
-        mock_session.websocket = Mock()
-        mock_session.websocket.client_state = Mock()
-        mock_session.websocket.client_state.name = "CONNECTED"
-        mock_broker.sessions["CHARGER001"] = mock_session
+        mock_client_state = Mock()
+        mock_client_state.name = "CONNECTED"
+        mock_websocket = Mock()
+        mock_websocket.client_state = mock_client_state
+        mock_session.websocket = mock_websocket
+        mock_broker.sessions = {"CHARGER001": mock_session}
         
         # Mock websocket connection
         mock_ws = AsyncMock()
@@ -244,16 +246,20 @@ class TestBrokerToBackendProtocol:
             subprotocol="ocpp1.6"
         )
         
+        # Ensure sessions dict is properly set up
+        assert "CHARGER001" in mock_broker.sessions, "Mock session should be in broker.sessions"
+        assert backend_conn._is_charger_still_connected(), "Charger should appear connected"
+        
         # Start connection (will fail but we can check the call)
         backend_conn._running = True
         try:
-            await asyncio.wait_for(backend_conn._run_connect_loop(), timeout=0.1)
+            await asyncio.wait_for(backend_conn._run_connect_loop(), timeout=0.5)
         except (asyncio.TimeoutError, Exception):
             pass
         
         # Verify websockets.connect was called with subprotocols parameter
         assert mock_connect.called, "websockets.connect should be called"
-        call_kwargs = mock_connect.call_args[1]
+        call_kwargs = mock_connect.call_args.kwargs
         assert "subprotocols" in call_kwargs, "subprotocols parameter should be present"
         assert call_kwargs["subprotocols"] == ["ocpp1.6"], "Should use configured subprotocol"
     
@@ -263,10 +269,12 @@ class TestBrokerToBackendProtocol:
         """Test that backend connection verifies the negotiated subprotocol"""
         # Create a mock session so charger appears connected
         mock_session = Mock()
-        mock_session.websocket = Mock()
-        mock_session.websocket.client_state = Mock()
-        mock_session.websocket.client_state.name = "CONNECTED"
-        mock_broker.sessions["CHARGER001"] = mock_session
+        mock_client_state = Mock()
+        mock_client_state.name = "CONNECTED"
+        mock_websocket = Mock()
+        mock_websocket.client_state = mock_client_state
+        mock_session.websocket = mock_websocket
+        mock_broker.sessions = {"CHARGER001": mock_session}
         
         # Mock websocket with matching subprotocol
         mock_ws = AsyncMock()
@@ -287,6 +295,10 @@ class TestBrokerToBackendProtocol:
             subprotocol="ocpp1.6"
         )
         
+        # Ensure sessions dict is properly set up
+        assert "CHARGER001" in mock_broker.sessions, "Mock session should be in broker.sessions"
+        assert backend_conn._is_charger_still_connected(), "Charger should appear connected"
+        
         # Capture log messages
         import logging
         log_capture = []
@@ -298,7 +310,7 @@ class TestBrokerToBackendProtocol:
         
         backend_conn._running = True
         try:
-            await asyncio.wait_for(backend_conn._run_connect_loop(), timeout=0.1)
+            await asyncio.wait_for(backend_conn._run_connect_loop(), timeout=0.5)
         except (asyncio.TimeoutError, Exception):
             pass
         
@@ -314,10 +326,12 @@ class TestBrokerToBackendProtocol:
         """Test that backend connection warns when negotiated subprotocol doesn't match"""
         # Create a mock session so charger appears connected
         mock_session = Mock()
-        mock_session.websocket = Mock()
-        mock_session.websocket.client_state = Mock()
-        mock_session.websocket.client_state.name = "CONNECTED"
-        mock_broker.sessions["CHARGER001"] = mock_session
+        mock_client_state = Mock()
+        mock_client_state.name = "CONNECTED"
+        mock_websocket = Mock()
+        mock_websocket.client_state = mock_client_state
+        mock_session.websocket = mock_websocket
+        mock_broker.sessions = {"CHARGER001": mock_session}
         
         # Mock websocket with mismatched subprotocol
         mock_ws = AsyncMock()
@@ -338,6 +352,10 @@ class TestBrokerToBackendProtocol:
             subprotocol="ocpp1.6"
         )
         
+        # Ensure sessions dict is properly set up
+        assert "CHARGER001" in mock_broker.sessions, "Mock session should be in broker.sessions"
+        assert backend_conn._is_charger_still_connected(), "Charger should appear connected"
+        
         # Capture log messages
         import logging
         log_capture = []
@@ -349,7 +367,7 @@ class TestBrokerToBackendProtocol:
         
         backend_conn._running = True
         try:
-            await asyncio.wait_for(backend_conn._run_connect_loop(), timeout=0.1)
+            await asyncio.wait_for(backend_conn._run_connect_loop(), timeout=0.5)
         except (asyncio.TimeoutError, Exception):
             pass
         

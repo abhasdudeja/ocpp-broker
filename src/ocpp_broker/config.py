@@ -1,28 +1,62 @@
 import os
 import yaml
 import logging
+from pathlib import Path
 
 logger = logging.getLogger("ocpp_broker.config")
 
 DEFAULT_CONFIG_PATH = os.environ.get("OCPP_BROKER_CONFIG", "config.yaml")
 
+
+def _load_env_file():
+    """Load environment variables from .env file if it exists."""
+    try:
+        from dotenv import load_dotenv
+        
+        # Try to find .env file in current directory or project root
+        env_paths = [
+            Path.cwd() / ".env",
+            Path(__file__).resolve().parents[2] / ".env",  # Project root
+        ]
+        
+        for env_path in env_paths:
+            if env_path.exists():
+                load_dotenv(env_path)
+                logger.info(f"Loaded environment variables from {env_path}")
+                return
+        
+        logger.debug("No .env file found, using system environment variables only")
+    except ImportError:
+        logger.debug("python-dotenv not available, skipping .env file loading")
+    except Exception as e:
+        logger.warning(f"Error loading .env file: {e}")
+
+
 def load_config(path: str = None):
     """
     Load unified YAML configuration file with all broker features.
+    Environment variables from .env file or system can override YAML values.
     """
+    # Load .env file first
+    _load_env_file()
+    
     config_path = path or DEFAULT_CONFIG_PATH
     if not os.path.exists(config_path):
         logger.warning(f"No config.yaml found at {config_path}, using defaults.")
-        return _get_default_config()
-
-    with open(config_path, "r") as f:
-        try:
-            cfg = yaml.safe_load(f) or {}
-        except Exception as e:
-            raise RuntimeError(f"Failed to parse YAML config: {e}")
+        cfg = _get_default_config()
+    else:
+        with open(config_path, "r") as f:
+            try:
+                cfg = yaml.safe_load(f) or {}
+            except Exception as e:
+                raise RuntimeError(f"Failed to parse YAML config: {e}")
 
     # Apply defaults and validate configuration
     cfg = _apply_defaults(cfg)
+    
+    # Override with environment variables
+    cfg = _apply_env_overrides(cfg)
+    
     _validate_config(cfg)
     
     logger.info(f"Loaded unified configuration with {len(cfg.get('organizations', []))} organizations")
@@ -189,3 +223,46 @@ def _validate_config(cfg):
         logger.warning("Global tag management enabled but no organizations have tag management enabled")
     
     logger.info("Configuration validation passed")
+
+
+def _apply_env_overrides(cfg):
+    """
+    Override configuration values with environment variables.
+    Environment variables take precedence over YAML config.
+    """
+    # Broker settings
+    if "BROKER_HOST" in os.environ:
+        cfg.setdefault("broker", {})["host"] = os.environ["BROKER_HOST"]
+    if "BROKER_PORT" in os.environ:
+        try:
+            cfg.setdefault("broker", {})["port"] = int(os.environ["BROKER_PORT"])
+        except ValueError:
+            logger.warning(f"Invalid BROKER_PORT value: {os.environ['BROKER_PORT']}")
+    
+    # API settings
+    if "API_HOST" in os.environ:
+        cfg.setdefault("api", {})["host"] = os.environ["API_HOST"]
+    if "API_PORT" in os.environ:
+        try:
+            cfg.setdefault("api", {})["port"] = int(os.environ["API_PORT"])
+        except ValueError:
+            logger.warning(f"Invalid API_PORT value: {os.environ['API_PORT']}")
+    
+    # MongoDB settings
+    if "MONGODB_ENABLED" in os.environ:
+        enabled = os.environ["MONGODB_ENABLED"].lower() in ("true", "1", "yes", "on")
+        cfg.setdefault("mongodb", {})["enabled"] = enabled
+    
+    if "MONGODB_CONNECTION_STRING" in os.environ:
+        cfg.setdefault("mongodb", {})["connection_string"] = os.environ["MONGODB_CONNECTION_STRING"]
+    
+    if "MONGODB_DATABASE_NAME" in os.environ:
+        cfg.setdefault("mongodb", {})["database_name"] = os.environ["MONGODB_DATABASE_NAME"]
+    
+    # Logging
+    if "LOG_LEVEL" in os.environ:
+        log_level = os.environ["LOG_LEVEL"].upper()
+        if log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            cfg.setdefault("logging", {})["level"] = log_level
+    
+    return cfg

@@ -23,7 +23,7 @@ api:
 organizations:
   # Organization A: External Backend Mode
   - name: "orgA"
-    connect_to_backend: true   # ✅ Will connect to external backends
+    connect_to_backend: false   # ✅ Will connect to external backends
     ocpp_subprotocol: "ocpp1.6"  # OCPP WebSocket subprotocol (e.g., "ocpp1.6", "ocpp2.0.1")
     validate_messages_when_backend_leader: true  # Validate OCPP messages when backend is leader (default: false)
     validate_messages_when_broker_backend: false  # Validate OCPP messages when broker acts as backend (default: false)
@@ -118,6 +118,14 @@ tag_management:
   # Global tag management settings
   global:
     enabled: true
+
+# =============================================================================
+# MONGODB CONFIGURATION
+# =============================================================================
+mongodb:
+  enabled: true  # Set to false to disable MongoDB integration
+  connection_string: "mongodb://localhost:27017"  # MongoDB connection string
+  database_name: "ocpp_broker"  # Database name to use
 
 # =============================================================================
 # LOGGING CONFIGURATION

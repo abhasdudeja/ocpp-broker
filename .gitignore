@@ -3,3 +3,4 @@ src/ocpp_broker/__pycache__
 dist
 build
 **/__pycache__/*
+.env

@@ -177,6 +177,8 @@ class ChargerSession:
             broker=self.broker,
             org_name=self.org_name,
         )
+        # Store reference to charge_point in adapter for MongoDB saving
+        adapter._charge_point = self.charge_point
         try:
             await self.charge_point.start()
         except Exception as exc:

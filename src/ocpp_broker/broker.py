@@ -24,6 +24,7 @@ class OcppBroker:
         self.sessions: Dict[str, ChargerSession] = {}
         self.tag_manager: Optional[TagManager] = None
         self.data_transfer_handler = None  # Will be created on first use
+        self.mongodb_service = None  # Will be initialized if MongoDB is configured
         self.config_data: Dict[str, object] = {}
         self._cfg_path = "config.yaml"
         self._transaction_seed = random.randint(1000, 9999)
@@ -37,6 +38,9 @@ class OcppBroker:
             "Loaded configuration for %s organizations.",
             len(self.config_data.get("organizations", [])),
         )
+        
+        # Initialize MongoDB service if configured
+        await self._initialize_mongodb()
 
     async def ensure_org_initialized(self, org_name: str):
         if org_name not in self.org_registries:
@@ -156,6 +160,34 @@ class OcppBroker:
                 # In non-strict mode, log warning but forward anyway
                 logger.warning(f"⚠️ Forwarding invalid message from backend in non-strict mode")
 
+        # Save command to MongoDB when broker is leader
+        try:
+            import json
+            parsed = json.loads(message)
+            if isinstance(parsed, list) and len(parsed) >= 3:
+                message_type = parsed[0]
+                action = parsed[2] if len(parsed) > 2 else None
+                payload = parsed[3] if len(parsed) > 3 else {}
+                
+                # Only save CALL messages (type 2) - commands from Central System to Charge Point
+                if message_type == 2 and action:
+                    mongodb = getattr(self, "mongodb_service", None)
+                    if mongodb and mongodb.is_connected():
+                        try:
+                            await mongodb.save_ocpp_message(
+                                org_name=session.org_name,
+                                charger_id=backend_conn.id,
+                                message_type="call",
+                                action=action,
+                                payload=payload,
+                                direction="broker_to_charger",
+                                message_id=parsed[1] if len(parsed) > 1 else None
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to save command {action} to MongoDB: {e}")
+        except Exception as e:
+            logger.debug(f"Could not parse message for MongoDB saving: {e}")
+        
         try:
             await session.send_to_charger(message)
             logger.info("[%s] ← from backend", backend_conn.id)
@@ -169,3 +201,47 @@ class OcppBroker:
 
     def _on_backend_disconnected(self, backend):
         logger.info("⚠️ Backend disconnected for charger %s (org=%s)", backend.id, backend.org)
+    
+    # ------------------------------------------------------------------
+    # MongoDB initialization
+    # ------------------------------------------------------------------
+    async def _initialize_mongodb(self):
+        """Initialize MongoDB service if configured."""
+        import os
+        
+        # Check config first, then environment variables
+        mongodb_config = self.config_data.get("mongodb", {})
+        
+        # Check if MongoDB is enabled (config or env var)
+        enabled = mongodb_config.get("enabled", False)
+        if not enabled:
+            # Check environment variable
+            enabled = os.environ.get("MONGODB_ENABLED", "").lower() in ("true", "1", "yes", "on")
+        
+        if not enabled:
+            logger.info("MongoDB not configured or disabled")
+            return
+        
+        try:
+            from .mongodb_service import MongoDBService
+            
+            # Get connection string (env var takes precedence)
+            connection_string = (
+                os.environ.get("MONGODB_CONNECTION_STRING") or
+                mongodb_config.get("connection_string") or
+                "mongodb://localhost:27017"
+            )
+            
+            # Get database name (env var takes precedence)
+            database_name = (
+                os.environ.get("MONGODB_DATABASE_NAME") or
+                mongodb_config.get("database_name") or
+                "ocpp_broker"
+            )
+            
+            self.mongodb_service = MongoDBService(connection_string, database_name)
+            await self.mongodb_service.connect()
+            logger.info("✅ MongoDB service initialized and connected")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize MongoDB service: {e}", exc_info=True)
+            self.mongodb_service = None

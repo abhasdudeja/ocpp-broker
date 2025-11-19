@@ -6,6 +6,7 @@ from typing import Optional
 import uvicorn
 from .tag_api import create_tag_api
 from .ocpp_command_api import create_ocpp_command_api
+from .mongodb_api import create_mongodb_api
 
 logger = logging.getLogger("ocpp_broker.api")
 
@@ -27,6 +28,10 @@ def create_api(broker):
     # Include OCPP command API
     ocpp_command_router = create_ocpp_command_api(broker)
     app.include_router(ocpp_command_router)
+    
+    # Include MongoDB API
+    mongodb_router = create_mongodb_api(broker)
+    app.include_router(mongodb_router)
 
     @app.get("/orgs")
     async def list_orgs():

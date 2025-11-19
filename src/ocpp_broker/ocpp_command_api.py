@@ -178,6 +178,22 @@ def create_ocpp_command_api(broker) -> APIRouter:
         }
         
         try:
+            # Save command to MongoDB before sending
+            mongodb = getattr(broker, "mongodb_service", None)
+            if mongodb and mongodb.is_connected():
+                try:
+                    await mongodb.save_ocpp_message(
+                        org_name=org_name,
+                        charger_id=charger_id,
+                        message_type="call",
+                        action=action,
+                        payload=payload,
+                        direction="broker_to_charger",
+                        message_id=message_id
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to save command {action} to MongoDB: {e}")
+            
             # Send command to charger
             await session.send_to_charger(message_json)
             logger.info(f"Sent OCPP command {action} to charger {org_name}/{charger_id} (message_id: {message_id})")

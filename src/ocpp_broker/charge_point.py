@@ -15,11 +15,39 @@ class StarletteWebSocketAdapter:
     WebSocket instance.
     """
 
-    def __init__(self, websocket):
+    def __init__(self, websocket, validate_messages: bool = False, org_entry: Optional[Dict[str, Any]] = None):
         self._ws = websocket
+        self.validate_messages = validate_messages
+        self.org_entry = org_entry
 
     async def recv(self) -> str:
-        return await self._ws.receive_text()
+        message = await self._ws.receive_text()
+        
+        # Validate message if enabled
+        if self.validate_messages:
+            from .message_validator import validate_ocpp_message
+            
+            # Get strict mode from org config
+            strict_mode = True
+            if self.org_entry:
+                validation_config = self.org_entry.get("validation", {})
+                strict_mode = validation_config.get("strict_mode", True)
+            
+            is_valid, error_msg, validated_msg = validate_ocpp_message(message, strict_mode=strict_mode)
+            
+            if not is_valid:
+                logger = logging.getLogger("ocpp_broker.charge_point")
+                logger.warning(
+                    f"❌ Message validation failed: {error_msg}. "
+                    f"Message: {message[:200]}"
+                )
+                # In strict mode, reject invalid messages
+                if strict_mode:
+                    raise ValueError(f"Invalid OCPP message: {error_msg}")
+                # In non-strict mode, log warning but continue
+                logger.warning(f"⚠️ Processing invalid message in non-strict mode")
+        
+        return message
 
     async def send(self, message: str):
         await self._ws.send_text(message)

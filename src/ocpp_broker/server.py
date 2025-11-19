@@ -36,11 +36,52 @@ async def ocpp_entry(websocket: WebSocket, org_name: str, charger_id: str):
     """
     Main entrypoint for charger WebSocket connections.
     Accepts OCPP connections like /orgA/CHG001 and passes them to the broker handler.
+    Validates sec-websocket-protocol header according to organization configuration.
     """
-    # Accept the WebSocket handshake first
+    # Load config if not already loaded
+    if not broker.config_data:
+        await broker.load_config()
+    
+    # Get organization configuration to determine expected subprotocol
+    org_entry = next(
+        (o for o in broker.config_data.get("organizations", []) if o.get("name") == org_name),
+        None,
+    )
+    
+    # Determine expected subprotocol (from org config or default to ocpp1.6)
+    expected_subprotocol = "ocpp1.6"  # Default
+    if org_entry:
+        expected_subprotocol = org_entry.get("ocpp_subprotocol", "ocpp1.6")
+    
+    # Check sec-websocket-protocol header - REQUIRED for OCPP compliance
+    requested_protocols = websocket.headers.get("sec-websocket-protocol", "")
+    
+    if not requested_protocols:
+        # Reject connection if sec-websocket-protocol header is missing
+        logger.error(
+            f"❌ Rejected charger {charger_id} from org '{org_name}': "
+            f"missing required sec-websocket-protocol header"
+        )
+        await websocket.close(code=1002, reason="Missing sec-websocket-protocol header (required for OCPP)")
+        return
+    
+    # Check if the expected subprotocol is in the requested protocols
     subprotocol = None
-    if "ocpp1.6" in websocket.headers.get("sec-websocket-protocol", ""):
-        subprotocol = "ocpp1.6"
+    if expected_subprotocol in requested_protocols:
+        subprotocol = expected_subprotocol
+        logger.debug(f"✅ Accepted subprotocol '{subprotocol}' for {org_name}/{charger_id}")
+    else:
+        # Protocol was requested but doesn't match expected - reject connection
+        logger.error(
+            f"❌ Rejected charger {charger_id} from org '{org_name}': "
+            f"subprotocol mismatch - expected '{expected_subprotocol}', got '{requested_protocols}'"
+        )
+        await websocket.close(
+            code=1002, 
+            reason=f"Subprotocol mismatch: expected '{expected_subprotocol}', got '{requested_protocols}'"
+        )
+        return
+    
     await websocket.accept(subprotocol=subprotocol)
 
     # Delegate to broker logic
@@ -58,9 +99,28 @@ async def ocpp_entry(websocket: WebSocket, org_name: str, charger_id: str):
 @app.websocket("/ocpp-check")
 async def ocpp_check(websocket: WebSocket):
     """Dummy endpoint to test OCPP subprotocol acceptance."""
+    # Check sec-websocket-protocol header - REQUIRED for OCPP compliance
+    requested_protocols = websocket.headers.get("sec-websocket-protocol", "")
+    
+    if not requested_protocols:
+        # Reject connection if sec-websocket-protocol header is missing
+        logger.error("❌ Rejected connection to /ocpp-check: missing required sec-websocket-protocol header")
+        await websocket.close(code=1002, reason="Missing sec-websocket-protocol header (required for OCPP)")
+        return
+    
+    # Accept common OCPP protocols
     subprotocol = None
-    if "ocpp1.6" in websocket.headers.get("sec-websocket-protocol", ""):
-        subprotocol = "ocpp1.6"
+    for proto in ["ocpp1.6", "ocpp2.0.1", "ocpp2.0"]:
+        if proto in requested_protocols:
+            subprotocol = proto
+            break
+    
+    if not subprotocol:
+        # Reject if no valid OCPP protocol was requested
+        logger.error(f"❌ Rejected connection to /ocpp-check: no valid OCPP subprotocol in '{requested_protocols}'")
+        await websocket.close(code=1002, reason=f"No valid OCPP subprotocol in '{requested_protocols}'")
+        return
+    
     await websocket.accept(subprotocol=subprotocol)
     await websocket.close()
 

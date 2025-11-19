@@ -141,8 +141,16 @@ def _apply_defaults(cfg):
         org.setdefault("backends", [])
         org.setdefault("chargers", [])
         org.setdefault("ocpp_features", ["core_profile"])
+        org.setdefault("ocpp_subprotocol", "ocpp1.6")  # Default OCPP subprotocol
+        org.setdefault("validate_messages_when_backend_leader", False)  # Default: no validation when backend is leader
+        org.setdefault("validate_messages_when_broker_backend", False)  # Default: no validation when broker acts as backend
+        org.setdefault("validation", {"strict_mode": True})  # Validation settings
         org.setdefault("tag_management", {"enabled": False})
         org.setdefault("tags", [])
+        
+        # Set backend defaults
+        for backend in org.get("backends", []):
+            backend.setdefault("ocpp_subprotocol", org.get("ocpp_subprotocol", "ocpp1.6"))
 
         # Validate and fix backend leaders
         leaders = [b for b in org["backends"] if b.get("leader")]

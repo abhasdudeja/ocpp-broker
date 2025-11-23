@@ -1,12 +1,15 @@
 """
 MongoDB service for saving OCPP messages, statuses, metervalues, and configurations.
 Organizes data by organization and charger.
+
+Also provides REST API endpoints for external systems to save OCPP data to MongoDB.
 """
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, List
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger("ocpp_broker.mongodb")
 
@@ -543,4 +546,235 @@ class MongoDBService:
             logger.debug(f"Updated heartbeat timestamp for {charger_id}: {now}")
         except Exception as e:
             logger.error(f"Error updating heartbeat timestamp: {e}", exc_info=True)
+    
+    # ============================================================================
+    # Tag Management CRUD Operations
+    # ============================================================================
+    
+    async def save_tag(
+        self,
+        org_name: str,
+        tag_data: Dict[str, Any],
+        timestamp: Optional[datetime] = None
+    ) -> bool:
+        """
+        Save a tag to MongoDB.
+        
+        Args:
+            org_name: Organization name
+            tag_data: Tag data dictionary (should include id_tag, status, etc.)
+            timestamp: Optional timestamp (defaults to now)
+        """
+        if not self._connected:
+            logger.warning("MongoDB not connected, skipping tag save")
+            return False
+        
+        try:
+            collection = self._get_collection("tags")
+            now = timestamp or datetime.now(timezone.utc)
+            
+            document = {
+                "org_name": org_name,
+                "id_tag": tag_data.get("id_tag"),
+                **tag_data,
+                "updated_at": now
+            }
+            
+            # Set created_at if not present
+            if "created_at" not in document:
+                document["created_at"] = now
+            
+            await collection.update_one(
+                {"org_name": org_name, "id_tag": tag_data.get("id_tag")},
+                {"$set": document},
+                upsert=True
+            )
+            logger.debug(f"Saved tag: {org_name}/{tag_data.get('id_tag')}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving tag: {e}", exc_info=True)
+            return False
+    
+    async def get_tag(self, org_name: str, id_tag: str) -> Optional[Dict[str, Any]]:
+        """Get a tag by org and id_tag"""
+        if not self._connected:
+            return None
+        
+        try:
+            collection = self._get_collection("tags")
+            tag = await collection.find_one({"org_name": org_name, "id_tag": id_tag})
+            if tag and "_id" in tag:
+                tag.pop("_id")
+            return tag
+        except Exception as e:
+            logger.error(f"Error getting tag: {e}", exc_info=True)
+            return None
+    
+    async def list_tags(
+        self,
+        org_name: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """List tags, optionally filtered by organization and other criteria"""
+        if not self._connected:
+            return []
+        
+        try:
+            collection = self._get_collection("tags")
+            query = {}
+            if org_name:
+                query["org_name"] = org_name
+            if filters:
+                query.update(filters)
+            
+            cursor = collection.find(query)
+            tags = []
+            async for tag in cursor:
+                if "_id" in tag:
+                    tag.pop("_id")
+                tags.append(tag)
+            return tags
+        except Exception as e:
+            logger.error(f"Error listing tags: {e}", exc_info=True)
+            return []
+    
+    async def delete_tag(self, org_name: str, id_tag: str) -> bool:
+        """Delete a tag"""
+        if not self._connected:
+            return False
+        
+        try:
+            collection = self._get_collection("tags")
+            result = await collection.delete_one({"org_name": org_name, "id_tag": id_tag})
+            logger.debug(f"Deleted tag: {org_name}/{id_tag}")
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error deleting tag: {e}", exc_info=True)
+            return False
+    
+    async def get_tag_list_version(self, org_name: str) -> int:
+        """Get the current tag list version for an organization"""
+        if not self._connected:
+            return 0
+        
+        try:
+            collection = self._get_collection("tag_list_versions")
+            doc = await collection.find_one({"org_name": org_name})
+            if doc:
+                return doc.get("list_version", 1)
+            return 1
+        except Exception as e:
+            logger.error(f"Error getting tag list version: {e}", exc_info=True)
+            return 1
+    
+    async def update_tag_list_version(self, org_name: str, list_version: int) -> bool:
+        """Update the tag list version for an organization"""
+        if not self._connected:
+            return False
+        
+        try:
+            collection = self._get_collection("tag_list_versions")
+            await collection.update_one(
+                {"org_name": org_name},
+                {
+                    "$set": {
+                        "org_name": org_name,
+                        "list_version": list_version,
+                        "updated_at": datetime.now(timezone.utc)
+                    }
+                },
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error updating tag list version: {e}", exc_info=True)
+            return False
+
+
+# ============================================================================
+# REST API Request Models
+# ============================================================================
+# Note: API endpoints are now in api_server.py
+# These models are kept here for backward compatibility and for use by api_server.py
+
+# Request models
+class StatusNotificationRequest(BaseModel):
+    org_name: str = Field(..., description="Organization name")
+    charger_id: str = Field(..., description="Charger ID")
+    connector_id: int = Field(..., description="Connector ID")
+    status: str = Field(..., description="Status (Available, Preparing, Charging, etc.)")
+    error_code: Optional[str] = Field(None, description="Error code")
+    info: Optional[str] = Field(None, description="Info message")
+    vendor_id: Optional[str] = Field(None, description="Vendor ID")
+    vendor_error_code: Optional[str] = Field(None, description="Vendor error code")
+    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
+
+
+class MeterValuesRequest(BaseModel):
+    org_name: str = Field(..., description="Organization name")
+    charger_id: str = Field(..., description="Charger ID")
+    connector_id: int = Field(..., description="Connector ID")
+    transaction_id: Optional[int] = Field(None, description="Transaction ID")
+    meter_value: List[Dict[str, Any]] = Field(..., description="List of meter value readings")
+    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
+
+
+class BootNotificationRequest(BaseModel):
+    org_name: str = Field(..., description="Organization name")
+    charger_id: str = Field(..., description="Charger ID")
+    charge_point_model: str = Field(..., description="Charger model")
+    charge_point_vendor: str = Field(..., description="Charger vendor")
+    firmware_version: Optional[str] = Field(None, description="Firmware version")
+    iccid: Optional[str] = Field(None, description="ICCID")
+    imsi: Optional[str] = Field(None, description="IMSI")
+    meter_type: Optional[str] = Field(None, description="Meter type")
+    meter_serial_number: Optional[str] = Field(None, description="Meter serial number")
+    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
+
+
+class TransactionRequest(BaseModel):
+    org_name: str = Field(..., description="Organization name")
+    charger_id: str = Field(..., description="Charger ID")
+    transaction_id: int = Field(..., description="Transaction ID")
+    connector_id: int = Field(..., description="Connector ID")
+    id_tag: str = Field(..., description="ID tag")
+    meter_start: Optional[int] = Field(None, description="Meter start value")
+    reservation_id: Optional[int] = Field(None, description="Reservation ID")
+    transaction_type: str = Field("start", description="Transaction type: 'start' or 'stop'")
+    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
+
+
+class AuthorizationRequest(BaseModel):
+    org_name: str = Field(..., description="Organization name")
+    charger_id: str = Field(..., description="Charger ID")
+    id_tag: str = Field(..., description="ID tag")
+    status: str = Field(..., description="Authorization status")
+    expiry_date: Optional[str] = Field(None, description="Expiry date")
+    parent_id_tag: Optional[str] = Field(None, description="Parent ID tag")
+    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
+
+
+class DataTransferRequest(BaseModel):
+    org_name: str = Field(..., description="Organization name")
+    charger_id: str = Field(..., description="Charger ID")
+    vendor_id: str = Field(..., description="Vendor ID")
+    message_id: Optional[str] = Field(None, description="Message ID")
+    data: Optional[str] = Field(None, description="Data payload")
+    status: Optional[str] = Field(None, description="Status response")
+    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
+
+
+class OCPPMessageRequest(BaseModel):
+    org_name: str = Field(..., description="Organization name")
+    charger_id: str = Field(..., description="Charger ID")
+    message_type: str = Field(..., description="Message type: 'call', 'call_result', 'call_error'")
+    action: str = Field(..., description="OCPP action name")
+    payload: Dict[str, Any] = Field(..., description="Message payload")
+    direction: str = Field("charger_to_broker", description="Message direction")
+    message_id: Optional[str] = Field(None, description="Message ID")
+    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
+
+
+# Note: API endpoints (create_mongodb_api function) have been moved to api_server.py
+# to consolidate all API endpoints in a single file.
 

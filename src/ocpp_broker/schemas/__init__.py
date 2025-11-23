@@ -12,14 +12,6 @@ from .tags import (
     TagType,
     TagSearchRequest,
     TagSearchResponse,
-    TagBulkOperation,
-    TagBulkResponse,
-    TagStatistics,
-    TagValidationResult,
-    TagImportRequest,
-    TagImportResponse,
-    TagExportRequest,
-    TagExportResponse,
 )
 
 __all__ = [
@@ -29,12 +21,4 @@ __all__ = [
     "TagType",
     "TagSearchRequest",
     "TagSearchResponse",
-    "TagBulkOperation",
-    "TagBulkResponse",
-    "TagStatistics",
-    "TagValidationResult",
-    "TagImportRequest",
-    "TagImportResponse",
-    "TagExportRequest",
-    "TagExportResponse",
 ]

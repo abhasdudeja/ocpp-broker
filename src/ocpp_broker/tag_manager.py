@@ -1,24 +1,19 @@
 """
 OCPP Tag Manager
 
-Service for managing OCPP tags and authorization lists.
-Provides CRUD operations, validation, and search functionality.
+Simple service for managing OCPP tags and authorization lists.
+Provides basic CRUD operations and search functionality.
+Supports both MongoDB persistence and in-memory storage.
 """
 
 import asyncio
-import json
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any, Union
-from pathlib import Path
-import csv
-import xml.etree.ElementTree as ET
+from typing import Dict, List, Optional, Any
 
 from .schemas.tags import (
     OCPPTag, TagList, TagStatus, TagType, TagSearchRequest, 
-    TagSearchResponse, TagBulkOperation, TagBulkResponse,
-    TagStatistics, TagValidationResult, TagImportRequest,
-    TagImportResponse, TagExportRequest, TagExportResponse
+    TagSearchResponse
 )
 
 
@@ -30,23 +25,38 @@ class TagManager:
     Manages OCPP tags and authorization lists.
     
     Features:
-    - CRUD operations for tags
-    - Tag validation and search
-    - Bulk operations
-    - Import/export functionality
-    - Statistics and reporting
+    - Basic CRUD operations for tags (with MongoDB persistence)
+    - Tag search and listing
+    - Tag authorization (for OCPP Authorize command)
     - Configuration-based tag management
+    - Hybrid storage: MongoDB when available, in-memory fallback
     """
     
-    def __init__(self, config_data: Dict[str, Any] = None):
+    def __init__(self, config_data: Dict[str, Any] = None, mongodb_service=None):
+        """
+        Initialize TagManager.
+        
+        Args:
+            config_data: Configuration data for loading initial tags
+            mongodb_service: Optional MongoDBService instance for persistence
+        """
         self.config_data = config_data or {}
+        self.mongodb_service = mongodb_service
         self._tags: Dict[str, OCPPTag] = {}
         self._tag_lists: Dict[str, TagList] = {}
         self._lock = asyncio.Lock()
         self._next_list_version = 1
+        self._use_mongodb = mongodb_service is not None and mongodb_service.is_connected()
         
         # Load tags from configuration if available
         self._load_tags_from_config()
+        
+        # Load tags from MongoDB if available
+        if self._use_mongodb:
+            # Note: We'll load tags from MongoDB asynchronously when needed
+            logger.info("TagManager initialized with MongoDB persistence")
+        else:
+            logger.info("TagManager initialized with in-memory storage only")
     
     def is_enabled(self) -> bool:
         """Check if tag management is enabled for any organization"""
@@ -74,7 +84,10 @@ class TagManager:
                     self._tag_lists[org_name] = tag_list
                     self._next_list_version += 1
                     
-                    logger.info(f"Loaded {len(tag_list.tags)} tags for organization {org_name}")
+                    logger.info(f"Loaded {len(tag_list.tags)} tags for organization {org_name} from config")
+                    
+                    # Note: Tags loaded from config will be saved to MongoDB when first accessed
+                    # or can be synced using sync_from_mongodb() method
         
         except Exception as e:
             logger.error(f"Error loading tags from configuration: {e}")
@@ -85,7 +98,9 @@ class TagManager:
             try:
                 tag_key = f"{org_name}:{tag.id_tag}"
                 
-                if tag_key in self._tags:
+                # Check if tag already exists (in memory or MongoDB)
+                existing_tag = await self.get_tag(org_name, tag.id_tag)
+                if existing_tag:
                     logger.warning(f"Tag {tag.id_tag} already exists in organization {org_name}")
                     return False
                 
@@ -94,15 +109,31 @@ class TagManager:
                 tag.created_at = now
                 tag.updated_at = now
                 
-                # Add to tags dictionary
+                # Save to MongoDB if available
+                if self._use_mongodb and self.mongodb_service.is_connected():
+                    tag_dict = tag.model_dump()
+                    success = await self.mongodb_service.save_tag(org_name, tag_dict)
+                    if not success:
+                        logger.warning(f"Failed to save tag {tag.id_tag} to MongoDB, continuing with in-memory storage")
+                
+                # Add to tags dictionary (in-memory cache)
                 self._tags[tag_key] = tag
                 
                 # Add to organization's tag list
                 if org_name not in self._tag_lists:
+                    # Get current list version from MongoDB if available
+                    if self._use_mongodb and self.mongodb_service.is_connected():
+                        current_version = await self.mongodb_service.get_tag_list_version(org_name)
+                        if current_version > 0:
+                            self._next_list_version = current_version + 1
+                    
                     self._tag_lists[org_name] = TagList(
                         list_version=self._next_list_version,
                         tags=[]
                     )
+                    # Update MongoDB list version if available
+                    if self._use_mongodb and self.mongodb_service.is_connected():
+                        await self.mongodb_service.update_tag_list_version(org_name, self._next_list_version)
                     self._next_list_version += 1
                 
                 self._tag_lists[org_name].tags.append(tag)
@@ -118,7 +149,24 @@ class TagManager:
     async def get_tag(self, org_name: str, id_tag: str) -> Optional[OCPPTag]:
         """Get a specific tag"""
         tag_key = f"{org_name}:{id_tag}"
-        return self._tags.get(tag_key)
+        
+        # Check in-memory cache first
+        if tag_key in self._tags:
+            return self._tags[tag_key]
+        
+        # Try MongoDB if available
+        if self._use_mongodb and self.mongodb_service.is_connected():
+            try:
+                tag_dict = await self.mongodb_service.get_tag(org_name, id_tag)
+                if tag_dict:
+                    # Convert to OCPPTag and cache
+                    tag = OCPPTag(**tag_dict)
+                    self._tags[tag_key] = tag
+                    return tag
+            except Exception as e:
+                logger.warning(f"Error loading tag from MongoDB: {e}")
+        
+        return None
     
     async def update_tag(self, org_name: str, id_tag: str, updated_tag: OCPPTag) -> bool:
         """Update an existing tag"""
@@ -126,16 +174,24 @@ class TagManager:
             try:
                 tag_key = f"{org_name}:{id_tag}"
                 
-                if tag_key not in self._tags:
+                # Get original tag (from cache or MongoDB)
+                original_tag = await self.get_tag(org_name, id_tag)
+                if not original_tag:
                     logger.warning(f"Tag {id_tag} not found in organization {org_name}")
                     return False
                 
                 # Preserve creation timestamp
-                original_tag = self._tags[tag_key]
                 updated_tag.created_at = original_tag.created_at
                 updated_tag.updated_at = datetime.now(timezone.utc).isoformat()
                 
-                # Update tag
+                # Update in MongoDB if available
+                if self._use_mongodb and self.mongodb_service.is_connected():
+                    tag_dict = updated_tag.model_dump()
+                    success = await self.mongodb_service.save_tag(org_name, tag_dict)
+                    if not success:
+                        logger.warning(f"Failed to update tag {id_tag} in MongoDB, continuing with in-memory update")
+                
+                # Update in-memory cache
                 self._tags[tag_key] = updated_tag
                 
                 # Update in organization's tag list
@@ -159,12 +215,21 @@ class TagManager:
             try:
                 tag_key = f"{org_name}:{id_tag}"
                 
-                if tag_key not in self._tags:
+                # Check if tag exists
+                existing_tag = await self.get_tag(org_name, id_tag)
+                if not existing_tag:
                     logger.warning(f"Tag {id_tag} not found in organization {org_name}")
                     return False
                 
+                # Delete from MongoDB if available
+                if self._use_mongodb and self.mongodb_service.is_connected():
+                    success = await self.mongodb_service.delete_tag(org_name, id_tag)
+                    if not success:
+                        logger.warning(f"Failed to delete tag {id_tag} from MongoDB, continuing with in-memory deletion")
+                
                 # Remove from tags dictionary
-                del self._tags[tag_key]
+                if tag_key in self._tags:
+                    del self._tags[tag_key]
                 
                 # Remove from organization's tag list
                 if org_name in self._tag_lists:
@@ -184,6 +249,21 @@ class TagManager:
     async def search_tags(self, org_name: str, search_request: TagSearchRequest) -> TagSearchResponse:
         """Search tags with filters"""
         try:
+            # Load tags from MongoDB if available and cache is empty
+            if self._use_mongodb and self.mongodb_service.is_connected():
+                # Check if we need to load from MongoDB
+                org_tags_in_cache = [tag for tag_key, tag in self._tags.items() if tag_key.startswith(f"{org_name}:")]
+                if not org_tags_in_cache:
+                    # Load all tags for this org from MongoDB
+                    try:
+                        tags_dicts = await self.mongodb_service.list_tags(org_name=org_name)
+                        for tag_dict in tags_dicts:
+                            tag = OCPPTag(**tag_dict)
+                            tag_key = f"{org_name}:{tag.id_tag}"
+                            self._tags[tag_key] = tag
+                    except Exception as e:
+                        logger.warning(f"Error loading tags from MongoDB: {e}")
+            
             # Get organization's tags
             org_tags = []
             for tag_key, tag in self._tags.items():
@@ -228,143 +308,30 @@ class TagManager:
     
     async def get_tag_list(self, org_name: str) -> Optional[TagList]:
         """Get the complete tag list for an organization"""
-        return self._tag_lists.get(org_name)
-    
-    async def get_tag_statistics(self, org_name: str) -> TagStatistics:
-        """Get tag statistics for an organization"""
-        try:
-            org_tags = []
-            for tag_key, tag in self._tags.items():
-                if tag_key.startswith(f"{org_name}:"):
-                    org_tags.append(tag)
-            
-            total_tags = len(org_tags)
-            active_tags = len([tag for tag in org_tags if tag.status == TagStatus.ACCEPTED])
-            expired_tags = len([tag for tag in org_tags if tag.status == TagStatus.EXPIRED])
-            blocked_tags = len([tag for tag in org_tags if tag.status == TagStatus.BLOCKED])
-            
-            # Count by type
-            tags_by_type = {}
-            for tag in org_tags:
-                tag_type = tag.tag_type.value
-                tags_by_type[tag_type] = tags_by_type.get(tag_type, 0) + 1
-            
-            # Count by status
-            tags_by_status = {}
-            for tag in org_tags:
-                status = tag.status.value
-                tags_by_status[status] = tags_by_status.get(status, 0) + 1
-            
-            return TagStatistics(
-                total_tags=total_tags,
-                active_tags=active_tags,
-                expired_tags=expired_tags,
-                blocked_tags=blocked_tags,
-                tags_by_type=tags_by_type,
-                tags_by_status=tags_by_status
-            )
-            
-        except Exception as e:
-            logger.error(f"Error getting tag statistics: {e}")
-            return TagStatistics(
-                total_tags=0, active_tags=0, expired_tags=0, blocked_tags=0,
-                tags_by_type={}, tags_by_status={}
-            )
-    
-    async def validate_tag(self, tag: OCPPTag) -> TagValidationResult:
-        """Validate a tag"""
-        errors = []
-        warnings = []
-        
-        try:
-            # Check ID tag format
-            if not tag.id_tag or len(tag.id_tag.strip()) == 0:
-                errors.append("ID tag cannot be empty")
-            elif len(tag.id_tag) > 20:
-                errors.append("ID tag cannot exceed 20 characters")
-            
-            # Check expiry date
-            if tag.expiry_date:
+        # Load tags from MongoDB if cache is empty
+        if self._use_mongodb and self.mongodb_service.is_connected():
+            org_tags_in_cache = [tag for tag_key, tag in self._tags.items() if tag_key.startswith(f"{org_name}:")]
+            if not org_tags_in_cache:
                 try:
-                    expiry_dt = datetime.fromisoformat(tag.expiry_date.replace('Z', '+00:00'))
-                    if expiry_dt < datetime.now(timezone.utc):
-                        warnings.append("Tag has already expired")
-                except ValueError:
-                    errors.append("Invalid expiry date format")
-            
-            # Check parent tag exists if specified
-            if tag.parent_id_tag:
-                parent_exists = any(
-                    t.parent_id_tag == tag.parent_id_tag 
-                    for t in self._tags.values()
-                )
-                if not parent_exists:
-                    warnings.append("Parent tag not found in system")
-            
-            # Check for duplicate ID tag
-            duplicate_exists = any(
-                t.id_tag == tag.id_tag and t != tag 
-                for t in self._tags.values()
-            )
-            if duplicate_exists:
-                errors.append("Tag with this ID already exists")
-            
-            return TagValidationResult(
-                valid=len(errors) == 0,
-                errors=errors,
-                warnings=warnings,
-                tag=tag if len(errors) == 0 else None
-            )
-            
-        except Exception as e:
-            logger.error(f"Error validating tag: {e}")
-            return TagValidationResult(
-                valid=False,
-                errors=[f"Validation error: {str(e)}"],
-                warnings=[]
-            )
-    
-    async def bulk_operation(self, org_name: str, operation: TagBulkOperation) -> TagBulkResponse:
-        """Perform bulk operations on tags"""
-        success_count = 0
-        error_count = 0
-        errors = []
-        updated_tags = []
+                    tags_dicts = await self.mongodb_service.list_tags(org_name=org_name)
+                    tags = [OCPPTag(**tag_dict) for tag_dict in tags_dicts]
+                    if tags:
+                        list_version = await self.mongodb_service.get_tag_list_version(org_name)
+                        tag_list = TagList(
+                            list_version=list_version,
+                            tags=tags,
+                            updated_at=datetime.now(timezone.utc).isoformat()
+                        )
+                        self._tag_lists[org_name] = tag_list
+                        # Cache individual tags
+                        for tag in tags:
+                            tag_key = f"{org_name}:{tag.id_tag}"
+                            self._tags[tag_key] = tag
+                        return tag_list
+                except Exception as e:
+                    logger.warning(f"Error loading tag list from MongoDB: {e}")
         
-        for tag in operation.tags:
-            try:
-                if operation.operation == 'add':
-                    success = await self.add_tag(org_name, tag)
-                elif operation.operation == 'update':
-                    success = await self.update_tag(org_name, tag.id_tag, tag)
-                elif operation.operation == 'delete':
-                    success = await self.delete_tag(org_name, tag.id_tag)
-                else:
-                    success = False
-                
-                if success:
-                    success_count += 1
-                    updated_tags.append(tag)
-                else:
-                    error_count += 1
-                    errors.append({
-                        "tag": tag.id_tag,
-                        "error": f"Failed to {operation.operation} tag"
-                    })
-                    
-            except Exception as e:
-                error_count += 1
-                errors.append({
-                    "tag": tag.id_tag,
-                    "error": str(e)
-                })
-        
-        return TagBulkResponse(
-            success_count=success_count,
-            error_count=error_count,
-            errors=errors,
-            updated_tags=updated_tags
-        )
+        return self._tag_lists.get(org_name)
     
     async def authorize_tag(self, org_name: str, id_tag: str) -> Dict[str, Any]:
         """
@@ -413,156 +380,3 @@ class TagManager:
                 "expiry_date": None,
                 "parent_id_tag": None
             }
-    
-    async def import_tags(self, org_name: str, import_request: TagImportRequest) -> TagImportResponse:
-        """Import tags from external source"""
-        imported_count = 0
-        skipped_count = 0
-        error_count = 0
-        errors = []
-        imported_tags = []
-        
-        try:
-            if import_request.source == 'json':
-                data = json.loads(import_request.data)
-                tags_data = data if isinstance(data, list) else data.get('tags', [])
-            elif import_request.source == 'csv':
-                # Parse CSV data
-                csv_reader = csv.DictReader(import_request.data.split('\n'))
-                tags_data = list(csv_reader)
-            else:
-                raise ValueError(f"Unsupported import source: {import_request.source}")
-            
-            for tag_data in tags_data:
-                try:
-                    # Convert to OCPPTag
-                    tag = OCPPTag(**tag_data)
-                    
-                    # Validate tag
-                    validation = await self.validate_tag(tag)
-                    if not validation.valid:
-                        error_count += 1
-                        errors.append({
-                            "tag": tag.id_tag,
-                            "error": "; ".join(validation.errors)
-                        })
-                        continue
-                    
-                    # Check if tag already exists
-                    existing_tag = await self.get_tag(org_name, tag.id_tag)
-                    if existing_tag and not import_request.overwrite_existing:
-                        skipped_count += 1
-                        continue
-                    
-                    # Add or update tag
-                    if existing_tag and import_request.overwrite_existing:
-                        success = await self.update_tag(org_name, tag.id_tag, tag)
-                    else:
-                        success = await self.add_tag(org_name, tag)
-                    
-                    if success:
-                        imported_count += 1
-                        imported_tags.append(tag)
-                    else:
-                        error_count += 1
-                        errors.append({
-                            "tag": tag.id_tag,
-                            "error": "Failed to import tag"
-                        })
-                        
-                except Exception as e:
-                    error_count += 1
-                    errors.append({
-                        "tag": tag_data.get('id_tag', 'unknown'),
-                        "error": str(e)
-                    })
-            
-            return TagImportResponse(
-                imported_count=imported_count,
-                skipped_count=skipped_count,
-                error_count=error_count,
-                errors=errors,
-                imported_tags=imported_tags
-            )
-            
-        except Exception as e:
-            logger.error(f"Error importing tags: {e}")
-            return TagImportResponse(
-                imported_count=0,
-                skipped_count=0,
-                error_count=1,
-                errors=[{"tag": "all", "error": str(e)}],
-                imported_tags=[]
-            )
-    
-    async def export_tags(self, org_name: str, export_request: TagExportRequest) -> TagExportResponse:
-        """Export tags to external format"""
-        try:
-            # Get organization's tags
-            org_tags = []
-            for tag_key, tag in self._tags.items():
-                if tag_key.startswith(f"{org_name}:"):
-                    # Apply filters
-                    if export_request.filter_status and tag.status not in export_request.filter_status:
-                        continue
-                    if export_request.filter_type and tag.tag_type not in export_request.filter_type:
-                        continue
-                    org_tags.append(tag)
-            
-            if export_request.format == 'json':
-                export_data = {
-                    "organization": org_name,
-                    "exported_at": datetime.now(timezone.utc).isoformat(),
-                    "tag_count": len(org_tags),
-                    "tags": [tag.dict() for tag in org_tags]
-                }
-                data = json.dumps(export_data, indent=2)
-                
-            elif export_request.format == 'csv':
-                if not org_tags:
-                    data = "id_tag,status,tag_type,expiry_date,parent_id_tag,description\n"
-                else:
-                    # Create CSV
-                    fieldnames = ['id_tag', 'status', 'tag_type', 'expiry_date', 'parent_id_tag', 'description']
-                    if export_request.include_metadata:
-                        fieldnames.extend(['created_at', 'updated_at'])
-                    
-                    output = []
-                    output.append(','.join(fieldnames))
-                    
-                    for tag in org_tags:
-                        row = [
-                            tag.id_tag,
-                            tag.status.value,
-                            tag.tag_type.value,
-                            tag.expiry_date or '',
-                            tag.parent_id_tag or '',
-                            tag.description or ''
-                        ]
-                        if export_request.include_metadata:
-                            row.extend([
-                                tag.created_at or '',
-                                tag.updated_at or ''
-                            ])
-                        output.append(','.join(f'"{str(field)}"' for field in row))
-                    
-                    data = '\n'.join(output)
-            
-            else:
-                raise ValueError(f"Unsupported export format: {export_request.format}")
-            
-            return TagExportResponse(
-                format=export_request.format,
-                data=data,
-                tag_count=len(org_tags),
-                file_size=len(data.encode('utf-8'))
-            )
-            
-        except Exception as e:
-            logger.error(f"Error exporting tags: {e}")
-            return TagExportResponse(
-                format=export_request.format,
-                data="",
-                tag_count=0,
-                file_size=0
-            )

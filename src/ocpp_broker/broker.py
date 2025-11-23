@@ -47,7 +47,9 @@ class OcppBroker:
             self.org_registries[org_name] = ChargerRegistry()
 
         if self.tag_manager is None:
-            self.tag_manager = TagManager(self.config_data)
+            # Pass MongoDB service to TagManager if available
+            mongodb = getattr(self, "mongodb_service", None)
+            self.tag_manager = TagManager(self.config_data, mongodb_service=mongodb)
             if self.tag_manager.is_enabled():
                 logger.info("Tag management enabled and initialized")
             else:

@@ -193,6 +193,7 @@ def _apply_defaults(cfg):
                 )
         org.setdefault("backend_buffer_size", 200)  # frames held while the backend is down
         org.setdefault("backend_outage_timeout", 30)  # seconds before a held CALL is answered with a CallError
+        org.setdefault("leader_failover_timeout", 15)  # seconds the leader may be down before a follower takes over (0 = never)
         org.setdefault("tag_management", {"enabled": False})
         org.setdefault("tags", [])
         

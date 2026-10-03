@@ -189,8 +189,10 @@ class OcppBroker:
             return
 
         if not backend_conn.is_leader:
-            logger.warning(
-                "Blocked follower command from backend %s (org=%s)", backend_conn.id, backend_conn.org
+            # Followers are observe-only: they receive a copy of the charger's CALLs
+            # and reply to them, but only the leader may talk to the charger.
+            logger.debug(
+                "Ignored message from follower backend %s (org=%s)", backend_conn.id, backend_conn.org
             )
             return
 

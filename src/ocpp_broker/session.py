@@ -33,6 +33,7 @@ class CommandResult:
     response: Optional[Dict[str, Any]] = None  # camelCase CallResult payload
     error: Optional[str] = None  # "<code>: <description>" for a CallError
 
+
 class SessionMode(str, Enum):
     BROKER = "broker"
     RELAY = "relay"
@@ -66,6 +67,10 @@ class ChargerSession:
         # message id -> future resolved with the charger's CallResult/CallError
         # frame (relay mode only; broker mode uses BrokerChargePoint.call)
         self._pending_calls: Dict[str, asyncio.Future] = {}
+        # Observe-only fan-out sends and the leader-failover watcher
+        self._background: set[asyncio.Task] = set()
+        self._failover_task: Optional[asyncio.Task] = None
+
     async def evict(self, grace: float = 5.0):
         """
         Disconnect this session because the same charger connected again.
@@ -112,7 +117,11 @@ class ChargerSession:
         for future in self._pending_calls.values():
             if not future.done():
                 future.set_exception(ConnectionError(f"Charger {self.charger_id} disconnected"))
-        self._pending_calls.clear()        
+        self._pending_calls.clear()
+        for task in [*self._background, self._failover_task]:
+            if task is not None:
+                task.cancel()
+
         # Forget our backend links, unless a newer session already replaced them
         links = self.broker.org_backends.get(self.org_name, {}).get(self.charger_id)
         if links is not None and links.get("leader") is self.backend_conn:
@@ -313,6 +322,7 @@ class ChargerSession:
             max_buffered=self.org_entry.get("backend_buffer_size", DEFAULT_MAX_BUFFERED),
             outage_timeout=self.org_entry.get("backend_outage_timeout", DEFAULT_OUTAGE_TIMEOUT),
             on_undeliverable=self._reject_charger_call,
+            on_disconnected=self._on_backend_link_lost,
         )
         logger.info("🔗 Establishing leader backend for charger %s -> %s (subprotocol: %s)", 
                    self.charger_id, leader_config["url"], leader_subprotocol)
@@ -332,6 +342,7 @@ class ChargerSession:
                 is_leader=False,
                 subprotocol=follower_subprotocol,
                 max_buffered=0,  # followers are best-effort; never block on them
+                on_disconnected=self._on_backend_link_lost,
             )
             self.follower_conns.append(follower_conn)
             logger.info("🔗 Establishing follower backend for charger %s -> %s (subprotocol: %s)", 
@@ -339,6 +350,86 @@ class ChargerSession:
             await follower_conn.connect(wait=False)
         self.broker.org_backends[self.org_name][self.charger_id]["followers"] = self.follower_conns
 
+    # ------------------------------------------------------------------ #
+    # Followers: observe-only fan-out and leader failover                #
+    # ------------------------------------------------------------------ #
+    def _spawn(self, coro) -> None:
+        task = asyncio.ensure_future(coro)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    def _fan_out_to_followers(self, message: str, parsed: Any) -> None:
+        """
+        Give every follower a copy of the charger's CALLs. This is observe-only:
+        followers get no buffering, never block the leader's path, and whatever
+        they answer is discarded (only the leader may talk to the charger).
+        CALLRESULTs are not copied; they answer the leader's own calls.
+        """
+        if not (isinstance(parsed, list) and parsed and parsed[0] == 2):
+            return
+        for follower in self.follower_conns:
+            self._spawn(self._send_to_follower(follower, message))
+
+    async def _send_to_follower(self, follower: BackendConnection, message: str) -> None:
+        try:
+            await follower.send(message)
+        except Exception as exc:
+            logger.debug("[%s] could not copy frame to follower %s: %s", self.charger_id, follower.url, exc)
+
+    def _on_backend_link_lost(self, conn: BackendConnection) -> None:
+        """A backend link dropped. If it was the leader, start watching for failover."""
+        timeout = self.org_entry.get("leader_failover_timeout", 15)
+        if conn is not self.backend_conn or not self.follower_conns or not timeout:
+            return
+        if self._failover_task is None or self._failover_task.done():
+            self._failover_task = asyncio.ensure_future(self._watch_leader(conn, float(timeout)))
+
+    async def _watch_leader(self, leader: BackendConnection, timeout: float) -> None:
+        """Promote the first healthy follower if the leader stays down for ``timeout`` seconds."""
+        while not self._closed.is_set() and leader is self.backend_conn and not leader.is_ready():
+            await asyncio.sleep(timeout)
+            if self._closed.is_set() or leader is not self.backend_conn or leader.is_ready():
+                return
+            candidate = next((f for f in self.follower_conns if f.is_ready()), None)
+            if candidate is not None:
+                self._promote(candidate)
+                return
+            logger.warning(
+                "[%s] leader backend %s is down and no follower is healthy; still waiting",
+                self.charger_id,
+                leader.url,
+            )
+
+    def _promote(self, new_leader: BackendConnection) -> None:
+        """Swap roles: ``new_leader`` becomes the leader, the old leader a follower."""
+        old_leader = self.backend_conn
+        assert old_leader is not None and new_leader in self.follower_conns
+        logger.warning(
+            "🔁 [%s] FAILOVER: leader %s unreachable, promoting follower %s",
+            self.charger_id,
+            old_leader.url,
+            new_leader.url,
+        )
+        # Whatever was waiting for the old leader is answered with CALLERROR (the
+        # charger retries it, and the retry goes to the new leader). It is not
+        # replayed: the new leader already saw those CALLs as observed copies.
+        old_leader.reject_buffered()
+
+        old_leader.is_leader = False
+        old_leader.max_buffered = 0
+        old_leader.on_undeliverable = None
+
+        new_leader.is_leader = True
+        new_leader.max_buffered = self.org_entry.get("backend_buffer_size", DEFAULT_MAX_BUFFERED)
+        new_leader.outage_timeout = self.org_entry.get("backend_outage_timeout", DEFAULT_OUTAGE_TIMEOUT)
+        new_leader.on_undeliverable = self._reject_charger_call
+
+        self.follower_conns = [f for f in self.follower_conns if f is not new_leader] + [old_leader]
+        self.backend_conn = new_leader
+        links = self.broker.org_backends.get(self.org_name, {}).get(self.charger_id)
+        if links is not None:
+            links["leader"] = new_leader
+            links["followers"] = self.follower_conns
     async def _reject_charger_call(self, message: str):
         """
         The backend could not take a frame from the charger (outage or full
@@ -391,6 +482,7 @@ class ChargerSession:
                     action = parsed[2]
                     logger.info("[%s] → %s → backend", self.charger_id, action)
                 await self.backend_conn.send(msg_out)
+                self._fan_out_to_followers(msg_out, parsed)
             except Exception as exc:
                 logger.info("[%s] relay stopped: %s", self.charger_id, exc)
                 break

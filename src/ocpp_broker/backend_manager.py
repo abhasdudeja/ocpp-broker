@@ -315,7 +315,10 @@ class BackendConnection:
             logger.debug(f"Error closing broken backend socket for {self.id}: {e}")
 
     def _buffer(self, message: str):
-        if self.max_buffered <= 0 or len(self._outbox) >= self.max_buffered:
+        if self.max_buffered <= 0:
+            logger.debug(f"Backend {self.url} for {self.id} is unreachable and unbuffered; dropping frame")
+            return
+        if len(self._outbox) >= self.max_buffered:
             logger.warning(
                 f"⚠️ Backend unavailable for {self.id} and outbox full ({len(self._outbox)}/"
                 f"{self.max_buffered}); refusing frame"
@@ -372,15 +375,18 @@ class BackendConnection:
         self._arm_expiry()
 
     def _reject(self, message: str):
-        if self.on_undeliverable is None:
+        # Capture the callback now: the owner may reassign it (role change) before
+        # the notification task gets to run.
+        callback = self.on_undeliverable
+        if callback is None:
             return
-        task = asyncio.ensure_future(self._notify_undeliverable(message))
+        task = asyncio.ensure_future(self._notify_undeliverable(callback, message))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _notify_undeliverable(self, message: str):
+    async def _notify_undeliverable(self, callback, message: str):
         try:
-            await self.on_undeliverable(message)
+            await callback(message)
         except Exception:
             logger.exception("on_undeliverable callback failed for %s", self.id)
 

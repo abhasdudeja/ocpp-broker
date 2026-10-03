@@ -271,6 +271,152 @@ async def test_several_followers_each_get_their_own_ids():
 
 
 # --------------------------------------------------------------------------
+# Failover, reconnects and retries
+# --------------------------------------------------------------------------
+async def wait_promoted(session, follower_key="follow"):
+    await wait_for(lambda: session.backend_conn is not None and session.backend_conn.key == follower_key, timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_after_a_failover_the_new_leader_speaks_its_own_ids_and_a_collision_is_remapped():
+    leader, follower = await ScriptedBackend(first_id=2).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(leader, follower, leader_failover_timeout=0.3)
+    try:
+        a = await begin(charger, "sA", tag="A", meter=1)
+        assert a == 2, "the charger holds the old leader's id"
+        await wait_for(lambda: 1 in follower.transactions)
+        await wait_for(lambda: session._ids.snapshot()[0]["backend_ids"].get("follow") == 1)
+
+        await leader.stop()
+        await wait_promoted(session)
+
+        # the new leader's command quotes its own id; the charger must see its own
+        await follower.command("RemoteStopTransaction", {"transactionId": 1})
+        assert await charger.next_reply() == [2, "cmd-1", "RemoteStopTransaction", {"transactionId": 2}]
+
+        # a transaction that starts on the new leader gets 2 from it, which the charger already holds for A
+        b = await begin(charger, "sB", tag="B", meter=5)
+        assert b != 2, "the charger must not hold id 2 for two live transactions"
+
+        charger.deliver(stop_frame(a, "stA", meter_stop=111))
+        charger.deliver(stop_frame(b, "stB", meter_stop=222))
+        await wait_for(lambda: follower.transactions[1]["stop"] and follower.transactions[2]["stop"])
+        assert follower.transactions[1]["stop"]["meterStop"] == 111, "A ends under the new leader's own number for it"
+        assert follower.transactions[2]["stop"]["meterStop"] == 222
+        assert follower.unknown == []
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_reconnecting_charger_keeps_its_transaction_mapping():
+    leader, follower = await ScriptedBackend(first_id=10).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    try:
+        tx = await begin(charger, "s1")
+        await wait_for(lambda: session._ids.snapshot()[0]["backend_ids"].get("follow") == 1)
+        table = session._ids
+        await charger.close()
+        await asyncio.wait_for(task, timeout=5)
+        assert broker.transaction_tables[("OrgA", "CP1")] is table, "an open transaction keeps the table alive"
+
+        charger = FakeCharger()
+        task = asyncio.create_task(broker.handle_charger(charger, "/OrgA/CP1"))
+        await wait_for(lambda: ("OrgA", "CP1") in broker.sessions)
+        session = broker.sessions[("OrgA", "CP1")]
+        await wait_for(lambda: session.backend_conn and session.follower_conns and all(c.is_ready() for c in [session.backend_conn, *session.follower_conns]))
+        assert session._ids is table
+
+        charger.deliver(stop_frame(tx, "st1", meter_stop=77))
+        await wait_for(lambda: follower.transactions[1]["stop"])
+        assert follower.transactions[1]["stop"]["meterStop"] == 77
+        assert leader.transactions[10]["stop"]["meterStop"] == 77
+        assert follower.unknown == [] and leader.unknown == []
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_late_answer_to_an_observer_copy_never_reaches_the_charger_after_a_failover():
+    leader, follower = await ScriptedBackend().start(), await ScriptedBackend(reply_delay=0.6).start()
+    broker, session, charger, task = await start_relay(leader, follower, leader_failover_timeout=0.2)
+    try:
+        charger.deliver([2, "hb-1", "Heartbeat", {}])
+        assert (await charger.next_reply())[1] == "hb-1"  # the leader's own answer
+        await leader.stop()
+        await wait_promoted(session)
+
+        await asyncio.sleep(1.0)  # the new leader's answer to its observer copy arrives now, as a leader frame
+        assert charger.sent == [], "the charger never asked that backend"
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_retry_while_the_leader_is_slow_is_answered_together_with_the_first_attempt():
+    leader, follower = await ScriptedBackend(first_id=10, reply_delay=0.4).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    try:
+        charger.deliver(start_frame("s1"))
+        charger.deliver(start_frame("s1-retry"))
+        first, second = await charger.next_reply(), await charger.next_reply()
+        assert {first[1], second[1]} == {"s1", "s1-retry"}
+        assert first[2]["transactionId"] == second[2]["transactionId"] == 10
+        assert sum(1 for c in leader.calls if c[2] == "StartTransaction") == 1, "the leader started one transaction"
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_start_refused_because_the_leader_is_down_fails_its_waiting_retry_too_and_can_be_retried_cleanly():
+    leader, follower = await ScriptedBackend(first_id=10).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(
+        leader, follower, leader_failover_timeout=0, backend_outage_timeout=0.3
+    )
+    try:
+        await leader.stop()
+        await wait_for(lambda: not session.backend_conn.is_ready())
+        charger.deliver(start_frame("s1"))  # held for the leader; the follower still gets its copy
+        charger.deliver(start_frame("s1-retry"))  # waits on the first attempt
+        await wait_for(lambda: 1 in follower.transactions)
+
+        errors = [await charger.next_reply(), await charger.next_reply()]
+        assert sorted((e[0], e[1], e[2]) for e in errors) == [(4, "s1", "InternalError"), (4, "s1-retry", "InternalError")]
+
+        await leader.start(port=leader.port)
+        await wait_for(lambda: session.backend_conn.is_ready())
+        charger.deliver(start_frame("s1-retry-2"))
+        reply = await charger.next_reply()
+        assert reply[1] == "s1-retry-2" and reply[2]["transactionId"] == 10
+        await asyncio.sleep(0.2)
+        assert len(follower.transactions) == 1, "the follower already had this start; it must not get a second"
+        assert len(leader.transactions) == 1
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_start_retried_after_a_failover_does_not_start_a_second_transaction_on_the_new_leader():
+    leader, follower = await ScriptedBackend(first_id=10, mute=True).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(leader, follower, leader_failover_timeout=0.3)
+    try:
+        charger.deliver(start_frame("s1"))  # the old leader takes it and never answers; the follower numbers it 1
+        await wait_for(lambda: 1 in follower.transactions)
+        await wait_for(lambda: session._ids.snapshot()[0]["backend_ids"].get("follow") == 1)
+        await leader.stop()
+        await wait_promoted(session)
+
+        charger.deliver(start_frame("s1-retry"))
+        reply = await charger.next_reply()
+        assert reply == [3, "s1-retry", {"transactionId": 1, "idTagInfo": {"status": "Accepted"}}]
+        await asyncio.sleep(0.2)
+        assert len(follower.transactions) == 1, "the new leader already had this start; it must not get a second"
+        assert sum(1 for c in follower.calls if c[2] == "StartTransaction") == 1
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+# --------------------------------------------------------------------------
 # Switching it on and off
 # --------------------------------------------------------------------------
 @pytest.mark.asyncio

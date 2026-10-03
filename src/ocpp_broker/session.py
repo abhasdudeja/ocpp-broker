@@ -443,7 +443,8 @@ class ChargerSession:
         except ValueError:
             return [message]
         plan = self._ids.from_leader(conn.key, parsed, message)
-        return [plan.frame, *plan.extra]
+        frames = [plan.frame, *plan.extra]
+        return [f for f in frames if f is not None]  # None: an answer to an observer copy, not for the charger
 
     def note_follower_frame(self, conn: BackendConnection, message: str) -> None:
         """A follower spoke. Its answer to a start copy tells the id table which id it issued."""

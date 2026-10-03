@@ -273,10 +273,87 @@ def test_promotion_gives_up_on_copies_queued_for_the_promoted_follower(table):
 
 
 def test_a_start_waiting_for_the_old_leader_is_forgotten_on_promotion(table):
-    charger(table, start_call("s1"))  # the old leader never answers
+    charger(table, start_call("s1"), followers={FOLLOW: False})  # the old leader never answers; S never saw it
     table.leader_changed("S")
     retry = table.from_charger(start_call("s1b"), json.dumps(start_call("s1b")), "S", {"P": True})
     assert retry.to_leader == json.dumps(start_call("s1b")), "the retry must reach the new leader, not wait for the old one"
+
+
+def test_a_retry_after_promotion_is_answered_from_what_the_new_leader_already_said(table):
+    """The new leader saw the start as an observer copy and numbered it; a second start would be a second transaction."""
+    charger(table, start_call("s1"))
+    follower_result(table, "s1", 41)  # S answered its copy; the old leader never answered the charger
+    table.start_failed("s1")  # the broker answered the charger with a CALLERROR
+    table.leader_changed("S")
+
+    retry = table.from_charger(start_call("s1b"), json.dumps(start_call("s1b")), "S", {"P": True})
+    assert retry.to_leader is None, "S already has this start"
+    assert json.loads(retry.reply) == [3, "s1b", {"transactionId": 41, "idTagInfo": {"status": "Accepted"}}]
+    stopped = table.from_charger(stop(41), json.dumps(stop(41)), "S", {"P": True})
+    assert ids_in([stopped.to_leader]) == [41]
+
+
+def test_a_retry_after_promotion_gets_a_fresh_id_if_the_new_leaders_number_is_taken(table):
+    begin(table, "s0", leader_id=5, follower_id=1, tag="OTHER", meter=1)  # the charger holds 5 for another session
+    charger(table, start_call("s1", tag="B", meter=2))
+    follower_result(table, "s1", 5)  # S numbered this one 5 as well
+    table.start_failed("s1")
+    table.leader_changed("S")
+    retry = table.from_charger(start_call("s1b", tag="B", meter=2), json.dumps(start_call("s1b", tag="B", meter=2)), "S", {"P": True})
+    shown = json.loads(retry.reply)[2]["transactionId"]
+    assert shown != 5
+    again = table.from_charger(stop(shown), json.dumps(stop(shown)), "S", {"P": True})
+    assert ids_in([again.to_leader]) == [5]
+
+
+def test_a_retry_after_promotion_waits_for_the_new_leaders_answer_to_its_copy(table):
+    charger(table, start_call("s1"))  # S has the copy but has not answered
+    table.start_failed("s1")
+    table.leader_changed("S")
+
+    retry = table.from_charger(start_call("s1b"), json.dumps(start_call("s1b")), "S", {"P": True})
+    assert retry.to_leader is None and retry.reply is None, "forwarding it would start a second transaction on S"
+
+    answer = leader_result(table, "s1", 41, leader="S")  # S's answer to the copy now arrives as a leader frame
+    assert [json.loads(f)[1] for f in [answer.frame, *answer.extra]] == ["s1", "s1b"]
+    assert json.loads(answer.extra[0])[2]["transactionId"] == 41
+
+
+def test_the_promoted_follower_answering_its_observer_copy_is_read_not_forwarded(table):
+    charger(table, start_call("s1"))
+    leader_result(table, "s1", 7)  # the old leader answered the charger
+    table.leader_changed("S")
+    swallowed = leader_result(table, "s1", 41, leader="S")
+    assert swallowed.frame is None and swallowed.extra == []
+    plan = table.from_charger(stop(7), json.dumps(stop(7)), "S", {"P": True})
+    assert ids_in([plan.to_leader]) == [41]
+
+
+def test_late_answers_to_observer_copies_do_not_reach_the_charger_after_a_promotion(table):
+    heartbeat = [2, "hb-1", "Heartbeat", {}]
+    charger(table, heartbeat)
+    table.leader_changed("S")
+    late = [3, "hb-1", {"currentTime": "x"}]
+    assert table.from_leader("S", late, json.dumps(late)).frame is None
+    assert table.from_leader("S", late, json.dumps(late)).frame == json.dumps(late), "only the first, once"
+    unknown = [3, "never-sent", {}]
+    assert table.from_leader("S", unknown, json.dumps(unknown)).frame == json.dumps(unknown)
+    assert table.stats["swallowed"] == 1
+
+
+def test_the_demoted_leader_answering_late_is_read_for_its_id(table):
+    charger(table, start_call("s1"))
+    table.leader_changed("S")  # P is no longer the leader
+    assert table.from_follower("P", [3, "s1", {"transactionId": 9, "idTagInfo": {"status": "Accepted"}}]) == []
+    assert table.snapshot() == [
+        {"transaction_id": None, "state": "pending", "backend_ids": {"P": 9}, "degraded": [], "awaiting": ["S"]}
+    ]
+
+
+def test_the_copy_log_is_bounded(table):
+    for i in range(5000):
+        charger(table, [2, f"hb-{i}", "Heartbeat", {}])
+    assert len(table._copied) <= 4096
 
 
 # --------------------------------------------------------------------------
@@ -315,6 +392,69 @@ def test_a_start_the_broker_gave_up_on_can_be_retried_without_a_second_follower_
     retry = charger(table, start_call("s1-retry"))
     assert retry.to_leader == json.dumps(start_call("s1-retry"))
     assert retry.to_followers == [], "the follower must not get a second start for the same charging session"
+
+
+def test_a_follower_that_answers_after_we_gave_up_is_still_learned_when_it_leads(table, clock):
+    """Found by the simulation: the slow follower's id arrived after the wait ran out, then it was promoted."""
+    charger(table, start_call("s1"))
+    leader_result(table, "s1", 7)
+    charger(table, meter(7, "mv"))
+    clock.now += 6
+    table.expire_holds()
+    assert table.snapshot()[0]["degraded"] == [FOLLOW], "the table gave up on the slow follower"
+
+    table.leader_changed("S")
+    late = leader_result(table, "s1", 41, leader="S")  # its answer to the copy arrives now, as a leader frame
+    assert late.frame is None
+    row = table.snapshot()[0]
+    assert row["backend_ids"] == {"P": 7, "S": 41} and row["degraded"] == []
+    plan = table.from_charger(stop(7), json.dumps(stop(7)), "S", {"P": True})
+    assert ids_in([plan.to_leader]) == [41]
+
+
+def test_a_start_copy_still_waiting_in_a_queue_keeps_its_record_alive_through_a_promotion(table):
+    """Found by the simulation: the record was cleaned up, the copy was sent anyway and its answer matched nothing."""
+    charger(table, start_call("s1", tag="A", meter=1))
+    leader_result(table, "s1", 7)
+    charger(table, meter(7, "mv"))  # blocks the follower's queue until it answers s1
+    queued = charger(table, start_call("s2", tag="B", meter=2))
+    assert queued.to_followers == [], "the copy of s2 is queued behind the blocked meter values"
+
+    table.leader_changed("Z")  # some promotion voids the attempt on s2; nothing is learned yet
+    assert len(table.snapshot()) == 2, "the record for s2 must survive: its copy has not been sent yet"
+
+    released = follower_result(table, "s1", 5)
+    assert [json.loads(f)[1] for _, f in released] == ["mv", "s2"]
+    follower_result(table, "s2", 6)
+    assert {r["transaction_id"]: r["backend_ids"] for r in table.snapshot()}[None] == {FOLLOW: 6}, "its answer is learned"
+
+
+def test_a_late_answer_to_the_first_attempt_is_still_recognised_after_a_stale_retry(table, clock):
+    """Found by the randomised simulation: the retry used to overwrite the record of the first attempt."""
+    charger(table, start_call("s1"))
+    clock.now += 61  # the first attempt is stale, so the retry is forwarded as well
+    retry = charger(table, start_call("s1-retry"))
+    assert retry.to_leader is not None
+
+    first = leader_result(table, "s1", 2)  # the leader finally answers the FIRST attempt
+    assert json.loads(first.frame)[2]["transactionId"] == 2
+    assert table.snapshot()[0]["transaction_id"] == 2 and table.snapshot()[0]["state"] == "open", \
+        "the charger was given this id, so the table must know it (else a later id could collide with it)"
+
+    second = leader_result(table, "s1-retry", 3)  # the leader started a second transaction for the retry
+    assert json.loads(second.frame) == [3, "s1-retry", {"transactionId": 2, "idTagInfo": {"status": "Accepted"}}]
+    assert table.stats["duplicate_answers"] == 1
+
+
+def test_a_failed_attempt_does_not_fail_retries_while_another_attempt_is_still_outstanding(table, clock):
+    charger(table, start_call("s1"))
+    clock.now += 61
+    charger(table, start_call("s1-retry"))
+    charger(table, start_call("s1-retry-2"))  # waits on the retry: it is recent
+    error = [4, "s1", "InternalError", "no", {}]
+    assert table.from_leader(LEADER, error, json.dumps(error)).extra == []
+    gone = [4, "s1-retry", "InternalError", "no", {}]
+    assert [json.loads(f)[1] for f in table.from_leader(LEADER, gone, json.dumps(gone)).extra] == ["s1-retry-2"]
 
 
 def test_start_failed_answers_waiting_retries(table):

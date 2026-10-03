@@ -229,6 +229,8 @@ class OcppBroker:
 
         # The charger must see its own transaction ids, not the leader's, when they differ
         frames = session.frames_for_charger(backend_conn, message)
+        if not frames:
+            return
         message = frames[0]
 
         # Save command to MongoDB when broker is leader

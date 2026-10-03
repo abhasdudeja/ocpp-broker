@@ -23,7 +23,7 @@ import itertools
 import json
 import logging
 import time
-from collections import Counter, deque
+from collections import Counter, OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeGuard
 
@@ -86,13 +86,16 @@ class TxRecord:
     start_key: tuple
     tx_id: Optional[int] = None  # the id the charger holds; None until the leader answered
     backend_ids: Dict[str, int] = field(default_factory=dict)  # backend key -> its id
+    queued: Set[str] = field(default_factory=set)  # followers with a start copy waiting in their queue, not yet sent
     awaiting: Set[str] = field(default_factory=set)  # followers that got the start and have not answered
     awaiting_since: Dict[str, float] = field(default_factory=dict)
     degraded: Set[str] = field(default_factory=set)  # backends that will never have an id for it
     state: str = "pending"  # pending -> open -> closed
+    backend_confs: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # each backend's own start result
+    copy_msgs: Dict[str, str] = field(default_factory=dict)  # follower -> message id of the start copy it got
     conf: Optional[Dict[str, Any]] = None  # the StartTransaction result the charger received
-    leader_msg: Optional[str] = None  # message id of the start forwarded to the leader, unanswered
-    leader_msg_at: float = 0.0
+    sent: Set[str] = field(default_factory=set)  # start message ids forwarded to the leader, not yet answered
+    sent_at: float = 0.0  # when the latest of them went out
     aliases: List[str] = field(default_factory=list)  # retries waiting on the same leader answer
     msgs: Set[str] = field(default_factory=set)  # every start message id registered for this record
     created: float = 0.0
@@ -112,7 +115,7 @@ class ChargerPlan:
 class LeaderPlan:
     """What to do with one frame from the leader."""
 
-    frame: str  # for the charger
+    frame: Optional[str]  # for the charger; None = swallow it (an answer to an observer copy)
     extra: List[str] = field(default_factory=list)  # further frames for the charger
 
 
@@ -147,6 +150,10 @@ class TransactionIdTable:
         self._by_start: Dict[tuple, TxRecord] = {}
         self._start_msgs: Dict[str, TxRecord] = {}
         self._held: Dict[str, Deque[_Queued]] = {}
+        # (follower, message id) of every CALL copied to a follower and not yet answered. If that
+        # follower is promoted its late answer arrives as a "leader" frame; the charger never
+        # asked that backend, so it must not see it.
+        self._copied: "OrderedDict[Tuple[str, str], None]" = OrderedDict()
         self.stats: Counter = Counter()
 
     # ------------------------------------------------------------------
@@ -206,7 +213,21 @@ class TransactionIdTable:
             self.stats["deduped"] += 1
             plan.reply = _dump([CALLRESULT, msg_id, rec.conf])
             return plan
-        if rec is not None and rec.leader_msg is not None and now - rec.leader_msg_at < self.stale_start:
+        if rec is not None and rec.state == "pending" and not rec.sent and leader in rec.backend_ids and leader in rec.backend_confs:
+            # The leader (a follower until just now) already holds this start: it saw the observer
+            # copy and answered it. Starting again would make a second transaction there.
+            self.stats["deduped"] += 1
+            conf = self._open(rec, leader, rec.backend_ids[leader], rec.backend_confs[leader])
+            plan.reply = _dump([CALLRESULT, msg_id, conf])
+            return plan
+        if rec is not None and rec.state == "pending" and not rec.sent and leader in rec.awaiting and leader in rec.copy_msgs:
+            # Same, but the leader has not answered its copy yet: wait for that answer.
+            self.stats["deduped"] += 1
+            rec.sent.add(rec.copy_msgs[leader])
+            rec.sent_at = now
+            rec.aliases.append(msg_id)
+            return plan
+        if rec is not None and rec.sent and now - rec.sent_at < self.stale_start:
             # The leader is still working on the first attempt; answer both together.
             self.stats["deduped"] += 1
             rec.aliases.append(msg_id)
@@ -217,7 +238,8 @@ class TransactionIdTable:
             rec = TxRecord(start_key=key, created=now)
             if self.dedupe_start:
                 self._by_start[key] = rec
-        rec.leader_msg, rec.leader_msg_at = msg_id, now
+        rec.sent.add(msg_id)
+        rec.sent_at = now
         rec.msgs.add(msg_id)
         self._start_msgs[msg_id] = rec
         plan.to_leader = raw
@@ -228,6 +250,7 @@ class TransactionIdTable:
             if not ready:
                 rec.degraded.add(follower)
                 continue
+            rec.queued.add(follower)
             plan.to_followers.extend((follower, frame) for frame in self._enqueue(follower, _Queued(rec, parsed, raw, "start")))
         return plan
 
@@ -241,14 +264,37 @@ class TransactionIdTable:
         kind = parsed[0]
 
         if kind in (CALLRESULT, CALLERROR):
-            rec = self._start_msgs.get(parsed[1])
-            if rec is None or rec.leader_msg != parsed[1] or rec.state != "pending":
+            msg_id = parsed[1]
+            rec = self._start_msgs.get(msg_id)
+            if rec is not None and msg_id in rec.sent:
+                if rec.state == "pending":
+                    if kind == CALLRESULT:
+                        return self._leader_started(rec, leader, parsed, raw)
+                    return LeaderPlan(raw, self._attempt_failed(rec, msg_id, parsed[2:]))
+                # Another attempt at the same start (a retry after the stale timeout) answered after
+                # the transaction already exists: the charger must hear the id it already holds.
+                rec.sent.discard(msg_id)
+                self._collect(rec)
+                if kind == CALLRESULT and rec.conf is not None:
+                    self.stats["duplicate_answers"] += 1
+                    logger.warning(
+                        "Leader answered a repeated StartTransaction with a second transaction of its own; the charger keeps id %s",
+                        rec.tx_id,
+                    )
+                    return LeaderPlan(_dump([CALLRESULT, msg_id, rec.conf]))
                 return LeaderPlan(raw)
-            if kind == CALLRESULT:
-                return self._leader_started(rec, leader, parsed, raw)
-            extra = [_dump([CALLERROR, alias, *parsed[2:]]) for alias in rec.aliases]
-            self._leader_gave_up(rec)
-            return LeaderPlan(raw, extra)
+            if rec is not None and rec.copy_msgs.get(leader) == msg_id and leader not in rec.backend_ids:
+                # The promoted follower finally answering the observer copy it got as a follower
+                # (even after we gave up waiting for it): the charger never asked this backend,
+                # so only the table gets to read it.
+                self._learn(rec, leader, parsed)
+                self._copied.pop((leader, msg_id), None)
+                return LeaderPlan(None)
+            if (leader, msg_id) in self._copied:
+                del self._copied[(leader, msg_id)]
+                self.stats["swallowed"] += 1
+                return LeaderPlan(None)  # a late answer to an observer copy, not to the charger
+            return LeaderPlan(raw)
 
         if kind == CALL and len(parsed) >= 4 and isinstance(parsed[2], str):
             path = _BACKEND_ID_FIELDS.get(parsed[2])
@@ -263,28 +309,64 @@ class TransactionIdTable:
         issued = payload.get("transactionId") if payload is not None else None
         if payload is None or not _is_int(issued):
             logger.warning("StartTransaction result without a usable transactionId; passed through untouched")
-            self._leader_gave_up(rec)
+            self._attempt_failed(rec, parsed[1], ["InternalError", "Backend sent no transaction id", {}])
             return LeaderPlan(raw)
 
+        conf = self._open(rec, leader, issued, payload)
+        frame = raw if conf["transactionId"] == issued else _dump([CALLRESULT, parsed[1], conf])
+        extra = [_dump([CALLRESULT, alias, conf]) for alias in rec.aliases]
+        rec.aliases.clear()
+        rec.sent.discard(parsed[1])
+        self._collect(rec)
+        return LeaderPlan(frame, extra)
+
+    def _open(self, rec: TxRecord, leader: str, issued: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """The leader numbered the transaction ``issued``: settle the charger's id and open the record."""
         tx_id = self._choose(issued)
         rec.tx_id, rec.state = tx_id, "open"
         rec.backend_ids[leader] = issued
         rec.degraded.discard(leader)
+        rec.awaiting.discard(leader)
+        rec.awaiting_since.pop(leader, None)
         self._by_tx[tx_id] = rec
         self._by_backend[(leader, issued)] = rec
         conf = dict(payload)
         conf["transactionId"] = tx_id
         rec.conf = conf
+        return conf
 
-        frame = raw if tx_id == issued else _dump([CALLRESULT, parsed[1], conf])
-        extra = [_dump([CALLRESULT, alias, conf]) for alias in rec.aliases]
-        rec.aliases.clear()
-        rec.leader_msg = None
+    def _learn(self, rec: TxRecord, backend: str, parsed: list) -> None:
+        """A backend that was only observing answered its copy of a start: remember the id it issued."""
+        rec.awaiting.discard(backend)
+        rec.awaiting_since.pop(backend, None)
+        payload = parsed[2] if parsed[0] == CALLRESULT and len(parsed) > 2 and isinstance(parsed[2], dict) else None
+        issued = payload.get("transactionId") if payload is not None else None
+        if payload is not None and _is_int(issued):
+            rec.backend_ids[backend] = issued
+            rec.backend_confs[backend] = dict(payload)
+            rec.degraded.discard(backend)
+            self._by_backend[(backend, issued)] = rec
+        else:
+            rec.degraded.add(backend)
+            logger.warning("Backend %s gave no transaction id for a start; its copies for it are skipped", backend)
         self._collect(rec)
-        return LeaderPlan(frame, extra)
+
+    def _attempt_failed(self, rec: TxRecord, msg_id: str, error: list) -> List[str]:
+        """
+        One attempt at the start failed. Retries waiting on it hear the same error, but only once no
+        other attempt is still outstanding (that one may yet succeed). Returns the frames for them.
+        """
+        rec.sent.discard(msg_id)
+        extra: List[str] = []
+        if not rec.sent:
+            extra = [_dump([CALLERROR, alias, *error]) for alias in rec.aliases]
+            rec.aliases.clear()
+        self._collect(rec)
+        return extra
 
     def _leader_gave_up(self, rec: TxRecord) -> None:
-        rec.leader_msg = None
+        """Every outstanding attempt is void (the leader changed): the charger will retry."""
+        rec.sent.clear()
         rec.aliases.clear()
         self._collect(rec)
 
@@ -305,14 +387,9 @@ class TransactionIdTable:
         Forget the attempt; returns CALLERRORs for any retries that were waiting on it.
         """
         rec = self._start_msgs.get(msg_id)
-        if rec is None or rec.leader_msg != msg_id:
+        if rec is None or msg_id not in rec.sent:
             return []
-        extra = [
-            _dump([CALLERROR, alias, "InternalError", "Backend unavailable, please retry", {}])
-            for alias in rec.aliases
-        ]
-        self._leader_gave_up(rec)
-        return extra
+        return self._attempt_failed(rec, msg_id, ["InternalError", "Backend unavailable, please retry", {}])
 
     # ------------------------------------------------------------------
     # Frames from followers
@@ -325,19 +402,12 @@ class TransactionIdTable:
         """
         if not (isinstance(parsed, list) and len(parsed) >= 3 and parsed[0] in (CALLRESULT, CALLERROR)):
             return []
+        self._copied.pop((follower, parsed[1]), None)
         rec = self._start_msgs.get(parsed[1])
-        if rec is None or follower not in rec.awaiting:
+        # Also the demoted old leader answering a start it was sent as the leader: its id is worth keeping
+        if rec is None or (follower not in rec.awaiting and follower in rec.backend_ids):
             return []
-        rec.awaiting.discard(follower)
-        rec.awaiting_since.pop(follower, None)
-        issued = parsed[2].get("transactionId") if parsed[0] == CALLRESULT and isinstance(parsed[2], dict) else None
-        if _is_int(issued):
-            rec.backend_ids[follower] = issued
-            self._by_backend[(follower, issued)] = rec
-        else:
-            rec.degraded.add(follower)
-            logger.warning("Follower %s gave no transaction id for a start; its copies for it are skipped", follower)
-        self._collect(rec)
+        self._learn(rec, follower, parsed)
         return [(follower, frame) for frame in self._drain(follower)]
 
     # ------------------------------------------------------------------
@@ -349,6 +419,7 @@ class TransactionIdTable:
             self.stats["overflow"] += 1
             if item.rec is not None:
                 item.rec.degraded.add(follower)
+                item.rec.queued.discard(follower)
             logger.warning("Copy queue for follower %s is full; frame dropped", follower)
             return []
         queue.append(item)
@@ -371,6 +442,7 @@ class TransactionIdTable:
                     frame = self._frame_for(follower, item.parsed, item.raw, rec, is_leader=False)
                     assert frame is not None  # the follower has an id for it
                     out.append(frame)
+                    self._note_copy(follower, item.parsed)
                     queue.popleft()
                     continue
                 if follower in rec.awaiting:
@@ -389,9 +461,18 @@ class TransactionIdTable:
             if item.kind == "start" and item.rec is not None:
                 item.rec.awaiting.add(follower)
                 item.rec.awaiting_since[follower] = now
+                item.rec.copy_msgs[follower] = item.parsed[1]
+                item.rec.queued.discard(follower)
             out.append(item.raw)
+            self._note_copy(follower, item.parsed)
             queue.popleft()
         return out
+
+    def _note_copy(self, follower: str, parsed: Any) -> None:
+        """Remember a CALL copied to ``follower`` so a late answer after its promotion can be recognised."""
+        self._copied[(follower, parsed[1])] = None
+        while len(self._copied) > 4096:
+            self._copied.popitem(last=False)
 
     def expire_holds(self) -> List[Tuple[str, str]]:
         """Give up on followers that took too long; returns frames that are now free."""
@@ -426,13 +507,14 @@ class TransactionIdTable:
         on, because it is the leader now.
         """
         for rec in list(self._by_start.values()):
-            if rec.state == "pending" and rec.leader_msg is not None:
+            if rec.state == "pending" and rec.sent:
                 self._leader_gave_up(rec)
         if new_leader is not None:
             for item in self._held.pop(new_leader, deque()):
                 if item.rec is not None:
                     item.rec.degraded.add(new_leader)
                     item.rec.awaiting.discard(new_leader)
+                    item.rec.queued.discard(new_leader)
                     self.stats["skipped"] += 1
 
     # ------------------------------------------------------------------
@@ -492,12 +574,12 @@ class TransactionIdTable:
 
     def _collect(self, rec: TxRecord) -> None:
         """Forget message-id bookkeeping nobody is waiting on any more, and dead records."""
-        if rec.leader_msg is None and not rec.awaiting:
+        if not rec.sent and not rec.awaiting and not rec.queued:
             for msg in rec.msgs:
                 if self._start_msgs.get(msg) is rec:
                     del self._start_msgs[msg]
             rec.msgs.clear()
-        if rec.state == "pending" and rec.leader_msg is None and not rec.backend_ids and not rec.awaiting:
+        if rec.state == "pending" and not rec.sent and not rec.backend_ids and not rec.awaiting and not rec.queued:
             if self._by_start.get(rec.start_key) is rec:
                 del self._by_start[rec.start_key]
 

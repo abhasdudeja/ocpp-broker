@@ -1,6 +1,6 @@
 # Plan: transaction id mapping in relay mode
 
-Status: research and proposal, nothing built. Written 2026-10-04.
+Status: **T1 to T3 built** (2026-10-04); T4 to T6 not started. Written 2026-10-04. See "Build log" at the end.
 Related: [ui-plan.md](ui-plan.md) (the console shows this table), [roadmap.md](roadmap.md) (OCPP 2.x changes the problem).
 
 ## Summary
@@ -212,6 +212,25 @@ Mutation checks as before: skipping the follower rewrite, the collision check, t
 | T4 | Persistence and restart, backend keys, configuration and docs (`leader-follower.md`, `configuration.md`, `architecture.md`); S7 | M |
 | T5 | Reservation ids and charging-profile ids; S8 | S |
 | T6 | `GET /api/chargers/{org}/{id}/transactions` with a typed response, events, console view | S |
+
+## 6a. Build log
+
+| Stage | Status | Commits / notes |
+|-------|--------|-----------------|
+| T1 | done | `TransactionIdTable` and 41 unit tests; mutation-checked. The scripted test backend moved into T2 where it is used. |
+| T2 | done | Wired into the relay path; `transaction_ids` settings; docs; 21 socket tests including a characterisation test that shows the bug with mapping off. |
+| T3 | done | Failover, reconnect, collision remapping, late answers; randomised simulation (S9) over 400 seeds in the suite and a one-off sweep of 30,000 seeds x 150 steps with no violations. |
+
+Deviations from the design above, and what the build found:
+
+1. **A promoted follower already holds the start.** The plan said a retry after promotion would reach the new leader. That would have created a second transaction there, because the new leader had already numbered the start from its observer copy. The table now answers the retry from that backend's own stored result (or waits for its answer if it has not given one yet). Stored per-backend results (`backend_confs`) and the copy's message id (`copy_msgs`) were added for this.
+2. **Late answers leaked to the charger** after a promotion (existing behaviour, not caused by the table): the new leader's slow answer to an observer copy arrived as a "leader" frame and was forwarded for a message id the charger no longer waited on. The table now remembers copies (`_copied`, bounded) and swallows those answers; if the answer carries a transaction id it is still read. Found while tracing the simulation.
+3. **A follower's id is learned even after the table gave up waiting for it**, including when it has since become the leader.
+4. **Several attempts at one start can be outstanding.** A retry forwarded after the stale timeout used to overwrite the record of the first attempt, so the first attempt's late answer was passed through raw and the table never learned the id the charger had been given (a later id could then collide with it). The record now keeps the set of outstanding attempts; a later answer to a repeated start is replaced by the id already issued. Found by the simulation.
+5. **A start copy waiting in a follower's queue** was not counted when records were cleaned up, so a promotion could delete the record, the copy was sent anyway, and the answer matched nothing; the retry then started over and the follower got the start twice. Records with a queued copy are now kept. Found by the simulation.
+6. **Not guaranteed, and now documented:** a backend that processed a start whose answer never reached the broker may be sent the start again; a leader the table has no id for gets the charger's id unchanged. The simulation's invariants are written accordingly (it checks "never resend a start to a backend whose answer the broker holds").
+
+Tooling lesson: the mutation-check scripts rewrote files with CRLF line endings on Windows; three files were committed that way and fixed in a follow-up commit.
 
 ## 7. Priority
 

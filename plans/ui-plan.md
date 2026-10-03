@@ -1,6 +1,8 @@
 # Plan: web UI for the OCPP broker
 
-Status: proposal, nothing built. Written 2026-10-03.
+Status: Phase 0 backend built, the rest is proposal. Written 2026-10-03, updated 2026-10-04.
+
+Future OCPP 2.0.1 / 2.1 support is planned; see [roadmap.md](roadmap.md). The "Rules to follow now" there apply to everything in this plan (protocol-neutral state model, `ocpp_version` in responses, no hard-coded "1.6" in the UI).
 
 ## Decisions already made
 
@@ -136,20 +138,60 @@ Follow the project's existing approach (real sockets, mutation-checked):
 - **Contract:** the OpenAPI drift check above.
 - Keep `tests/test_docs.py` green: new endpoints and settings are documented in the same change.
 
+## The product, and what it means for the UI
+
+ocpp-broker connects **one charger to several OCPP backends**: one is the **leader** (the charger's only real conversation partner), the others are **followers** (observe-only copies of the charger's requests, and a standby that can take over). The broker can also be the backend itself. The UI is therefore a **topology and health console first**: for every charger, who is the leader, which followers are linked, whether links are up, what is buffered, and when failover happened. Tags, history and admin are supporting features.
+
+## Broker as the leader (local backend)
+
+Requirement (2026-10-04): when the broker itself is the charger's leader it must receive and answer the charger like a full OCPP backend.
+
+**What exists** (read from `charge_point.py`, `session.py`, `api_server.py`):
+
+| Area | State |
+|------|-------|
+| Charger to backend, standard OCPP 1.6 Core | **All 10 actions answered**: BootNotification, Authorize, Heartbeat, StatusNotification, MeterValues, StartTransaction, StopTransaction, DataTransfer, DiagnosticsStatusNotification, FirmwareStatusNotification. The `ocpp` library validates every payload. |
+| Backend to charger | **All 19 standard commands** can be sent through REST and return the charger's real reply. Nothing is sent automatically. |
+| Not implemented | The 12 OCPP 1.6 *Security* extension actions (SecurityEventNotification, SignCertificate, LogStatusNotification, SignedFirmwareStatusNotification, ExtendedTriggerMessage, and the backend-side CertificateSigned, DeleteCertificate, GetInstalledCertificateIds, GetLog, InstallCertificate, SignedUpdateFirmware). A charger sending one gets a `NotImplemented` CallError. |
+| **Topology** | **Broker mode and relay mode are exclusive.** With `connect_to_backend: false` the broker answers locally and `backends` is ignored: it cannot be the leader *and* copy traffic to followers, and it cannot be a standby that takes over from a failed external leader. |
+
+**Depth gaps** (the broker answers every message, but is a thin backend):
+
+1. **No per-charger state.** Boot details, connector statuses, the open transaction and last-seen time are only logged, or written to MongoDB if present. Nothing can be read back, so neither a UI nor smarter replies are possible. Without MongoDB everything is forgotten on restart.
+2. **BootNotification is always `Accepted`.** No `Pending`/`Rejected`, no list of known chargers; any id under an organization is accepted (credentials aside).
+3. **StartTransaction is not idempotent.** A charger that retries after a lost reply gets a second transaction id and a second transaction. An id is also issued for an invalid tag, and there is no concurrent-transaction, busy-connector or reservation handling.
+4. **StopTransaction is not validated**: it does not check the transaction exists, ignores duplicates poorly, and drops `transactionData`.
+5. **No offline detection** (a charger that stops heartbeating is only noticed when the socket dies).
+6. **No post-boot behaviour**: nothing configures the charger, triggers a status report or pushes the local authorization list.
+
+**Work items** (workstream B; the UI shows each result):
+
+| Id | Item |
+|----|------|
+| B1 | **Per-charger state model**, in memory for every session. In broker mode the handlers fill it; in relay mode it is filled by passively parsing the relayed frames (Boot, StatusNotification, Start/StopTransaction), so the console shows the same facts in both modes. This is also what the live console needs, so it is built once, in Phase 1. |
+| B2 | **Local leader.** A backend entry that means "this broker" (proposal: `local: true` on one `backends` item, leader or not). The local backend answers the charger through `BrokerChargePoint`; the other backends are followers receiving copies of the charger's requests, exactly as today. The session needs a tee on the charger's receive path. |
+| B3 | **Backend depth**: idempotent StartTransaction (a retry with the same charger, connector, tag, meter start and timestamp returns the first id), transaction validation on stop, `transactionData`, an optional boot policy (`Pending`/`Rejected` for unknown chargers), offline detection, and tag/reservation checks that a real backend performs. |
+| B4 | **Failover with a local member** (optional, see open question 7): a local standby that takes over when the external leader fails, and the reverse. |
+| B5 | **Conformance tests**: one table-driven test per standard action in both directions, run in broker mode, local-leader mode and relay mode, using the existing scripted charger and fake backend. |
+| B6 | Docs: leader-follower, configuration, broker_as_backend. |
+
 ## Phases
 
 Sizes are relative effort, not calendar promises: S ≈ days, M ≈ 1-2 weeks, L ≈ 2-4 weeks for one developer.
 
+Reordered on 2026-10-04: the topology console comes first and tags move behind it, because live leader/follower state is what this product is for.
+
 | Phase | Content | Size |
 |-------|---------|------|
-| **0. Foundations** | `ui/` scaffold, packaging into the wheel, CI (Node build, lint, test, wheel with UI, OpenAPI drift), `/ui` mount + SPA fallback + CSP, sign-in shell, `GET /api/system/info`, reserved names, `ui.enabled`. Fix prerequisites: `call_results` noise, MongoDB retry and live health. | M |
-| **1. Tags** | Tag pages on the **existing** API: table, edit, bulk, import wizard, export, stats, sync. No broker work, so it proves the whole pipeline early and is useful on day one. | S-M |
-| **2. Live operator console** | Session metadata; `/api/orgs`, `/api/chargers`; event bus + SSE; command catalog; chargers list/detail, command panel, backends view, overview. | L |
-| **3. History** | Indexes, retention, `ocpp_messages` and `commands` collections, history endpoints, status timeline, transactions, meter charts, message log. | L |
-| **4. Admin** | `ConfigStore`, validate/apply with backup, org/backend/credential CRUD, audit log, throttling, labelled keys. | L |
-| **5. Hardening** | A11y pass, empty/error/loading states, large-list performance (virtualised tables), docs and screenshots, release process. | M |
+| **0. Foundations** | **Backend done:** `/ui` serving, CSP, `ui.enabled`, `GET /api/system/info`. **Remaining:** `ui/` scaffold (Vite, React, TypeScript), sign-in shell, packaging into the wheel, CI (Node build, lint, test, wheel with UI, OpenAPI drift). | M |
+| **1. Live topology console** | B1 state model; `GET /api/orgs`, `GET /api/chargers`, `GET /api/chargers/{org}/{id}` (typed responses); event bus + SSE; command catalog; pages: overview, chargers, charger detail with topology (leader/followers/local, link state, buffered frames, failover events), command panel, backends. | L |
+| **2. Local leader and backend depth** | B2 to B6. Backend work, shown in the console from Phase 1. Can overlap with Phase 3. | L |
+| **3. Tags** | Tag pages on the existing API (add typed responses first): table, edit, bulk, import wizard, export, stats, sync. | S-M |
+| **4. History** | Indexes, retention, `ocpp_messages` and `commands` collections, history endpoints; remove the forgeable `/api/mongodb` POST routes first; transactions and status timeline before the raw message log. | L |
+| **5. Admin** | `ConfigStore`, validate/apply with backup, org/backend/credential CRUD, audit log, throttling, labelled keys. | L |
+| **6. Hardening** | A11y pass, empty/error/loading states, large-list performance (virtualised tables), docs and screenshots, release process. | M |
 
-Recommended order: 0 → 1 → 2 → 3 → 4 → 5. Phase 4 is last because it depends on a decision (file or MongoDB) and changes how the broker behaves at runtime; the others do not.
+Order: 0 → 1 → (2 and 3 in either order) → 4 → 5 → 6. Admin stays late because it depends on a decision (file or MongoDB) and changes how the broker behaves at runtime.
 
 ## Risks
 
@@ -169,4 +211,6 @@ Recommended order: 0 → 1 → 2 → 3 → 4 → 5. Phase 4 is last because it d
 2. **Admin config store:** start with editing `config.yaml` (option A) or move organizations into MongoDB (option B)?
 3. **Visibility:** should some API keys be limited to certain organizations, or is one key seeing everything fine for v1?
 4. **Retention defaults** for statuses, meter values and the message log, and whether the message log should be on by default.
-5. **Where the UI is exposed:** on the same port as chargers (as planned) with `ui.enabled` on by default, or off unless you opt in?
+5. **Where the UI is exposed:** on the same port as chargers (as planned) with `ui.enabled` on by default, or off unless you opt in? (Currently on by default; flip it in one line.)
+6. **Local leader semantics (B2):** is "broker is the leader, external backends are observe-only followers" the topology you mean? And should a local backend be configured as an entry in `backends` (proposal) or by a separate switch on the organization?
+7. **Failover with a local member (B4):** should the broker be able to take over as leader when the external leader fails (a built-in standby), and hand back afterwards? Today there is no automatic fail-back at all.

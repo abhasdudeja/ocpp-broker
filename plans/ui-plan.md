@@ -2,6 +2,8 @@
 
 Status: Phase 0 backend built, the rest is proposal. Written 2026-10-03, updated 2026-10-04.
 
+Transaction id mapping between the charger and its several backends (a correctness problem in relay mode today, shown in the console's charger detail) has its own plan: [transaction-ids.md](transaction-ids.md). Its stages T1 to T3 are proposed to come before further console phases.
+
 Future OCPP 2.0.1 / 2.1 support is planned; see [roadmap.md](roadmap.md). The "Rules to follow now" there apply to everything in this plan (protocol-neutral state model, `ocpp_version` in responses, no hard-coded "1.6" in the UI).
 
 ## Decisions already made

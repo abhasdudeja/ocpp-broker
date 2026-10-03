@@ -3,7 +3,7 @@ Tests for DataTransfer command handler.
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock
 
 from ocpp_broker.data_transfer_handler import DataTransferHandler, DataTransferStatus, create_data_transfer_handler
 from ocpp_broker.broker import OcppBroker

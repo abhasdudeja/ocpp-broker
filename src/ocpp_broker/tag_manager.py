@@ -9,10 +9,10 @@ Supports both MongoDB persistence and in-memory storage.
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 
 from .schemas.tags import (
-    OCPPTag, TagList, TagStatus, TagType, TagSearchRequest, 
+    OCPPTag, TagList, TagStatus, TagSearchRequest, 
     TagSearchResponse
 )
 
@@ -32,7 +32,7 @@ class TagManager:
     - Hybrid storage: MongoDB when available, in-memory fallback
     """
     
-    def __init__(self, config_data: Dict[str, Any] = None, mongodb_service=None):
+    def __init__(self, config_data: Optional[Dict[str, Any]] = None, mongodb_service=None):
         """
         Initialize TagManager.
         

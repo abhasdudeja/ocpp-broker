@@ -1,7 +1,6 @@
 import asyncio
 import argparse
 import logging
-import yaml
 from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, WebSocket
@@ -9,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from starlette.websockets import WebSocketDisconnect
 
+from ocpp_broker._version import __version__
 from ocpp_broker.api_server import mount_api_routers
 from ocpp_broker.auth import authenticate_charger, configured_api_key
 from ocpp_broker.broker import OcppBroker
@@ -26,7 +26,7 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 # FastAPI app creation
 # ---------------------------------------------------------------------------
-app = FastAPI(title="OCPP Broker", version="0.3.3")
+app = FastAPI(title="OCPP Broker", version=__version__)
 
 broker = OcppBroker()  # global broker instance
 

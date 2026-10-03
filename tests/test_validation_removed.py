@@ -5,7 +5,6 @@ mode and relay mode forwards frames untouched.
 
 import asyncio
 import importlib.util
-import json
 import logging
 
 import pytest

@@ -2,6 +2,7 @@ import os
 import yaml
 import logging
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger("ocpp_broker.config")
 
@@ -39,7 +40,7 @@ def _load_env_file():
         logger.warning(f"Error loading .env file: {e}")
 
 
-def load_config(path: str = None):
+def load_config(path: Optional[str] = None):
     """
     Load unified YAML configuration file with all broker features.
     Environment variables from .env file or system can override YAML values.

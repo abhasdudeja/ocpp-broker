@@ -22,6 +22,8 @@ class StarletteWebSocketAdapter:
         self._ws = websocket
         # Shared with ChargerSession so every writer to this socket is serialised.
         self._send_lock = send_lock or asyncio.Lock()
+        # Set by ChargerSession once the charge point exists; used when saving call results.
+        self._charge_point: Optional[Any] = None
 
     async def recv(self) -> str:
         # Schema validation is the ocpp library's job (route_message / call).
@@ -329,7 +331,7 @@ class BrokerChargePoint(OcppChargePoint):
         return call_result.StopTransaction(id_tag_info=tag_info)
 
     @on("DataTransfer")
-    async def on_data_transfer(self, vendor_id: str, message_id: str = None, data: str = None, **payload):
+    async def on_data_transfer(self, vendor_id: str, message_id: Optional[str] = None, data: Optional[str] = None, **payload):
         """
         Handle DataTransfer command from charger.
         DataTransfer allows chargers to send vendor-specific data to the central system.

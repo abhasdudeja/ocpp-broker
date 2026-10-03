@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from .backend_manager import BackendConnection
 from .registry import ChargerRegistry
@@ -27,7 +27,7 @@ class OcppBroker:
         self.tag_manager: Optional[TagManager] = None
         self.data_transfer_handler = None  # Will be created on first use
         self.mongodb_service = None  # Will be initialized if MongoDB is configured
-        self.config_data: Dict[str, object] = {}
+        self.config_data: Dict[str, Any] = {}
         self._cfg_path = "config.yaml"
         # Only used when MongoDB cannot supply transaction ids; see next_transaction_id.
         self._fallback_tx_counters: Dict[str, int] = {}

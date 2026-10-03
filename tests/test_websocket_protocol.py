@@ -8,16 +8,12 @@ Tests both:
 
 import pytest
 import asyncio
-import json
 from unittest.mock import Mock, AsyncMock, MagicMock, patch
 from fastapi import WebSocket
-from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketState
 
-from ocpp_broker.server import app
 from ocpp_broker.broker import OcppBroker
 from ocpp_broker.backend_manager import BackendConnection
-from ocpp_broker.config import load_config
 
 
 class TestChargerToBrokerProtocol:

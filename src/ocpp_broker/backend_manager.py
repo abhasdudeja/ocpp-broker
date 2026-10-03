@@ -1,12 +1,12 @@
 import asyncio
-import json
 import logging
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Deque, Optional, Set
+from typing import Any, Awaitable, Callable, Deque, Optional, Set
 
 import websockets
+from websockets.typing import Subprotocol
 
 from .sockets import locked_send
 
@@ -57,8 +57,8 @@ class BackendConnection:
         self.org = org
         self.is_leader = is_leader     # Leader/follower status
         self.subprotocol = subprotocol  # OCPP subprotocol (e.g., "ocpp1.6", "ocpp2.0.1")
-        self.websocket = None
-        self._connect_task = None
+        self.websocket: Any = None
+        self._connect_task: Optional[asyncio.Task] = None
         self._running = False
         self.connected_event = asyncio.Event()  # signals when backend connection is ready
         self._send_lock = asyncio.Lock()  # one writer at a time on the backend socket
@@ -177,7 +177,7 @@ class BackendConnection:
 
                 async with websockets.connect(
                     target_url,
-                    subprotocols=[self.subprotocol],  # Use configured subprotocol
+                    subprotocols=[Subprotocol(self.subprotocol)],  # Use configured subprotocol
                     ping_interval=20,  # Send ping every 20 seconds (OCPP compatible)
                     ping_timeout=20,  # Wait 20 seconds for pong response
                     close_timeout=5,  # Wait 5 seconds for close handshake

@@ -12,21 +12,20 @@ import logging
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from fastapi import Body, Depends, FastAPI, HTTPException, APIRouter, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from ._version import __version__
 from .auth import make_api_key_dependency
 from .session import CommandRejected
 
 # Import schemas and services
 from .schemas.tags import (
-    OCPPTag, TagList, TagSearchRequest, TagSearchResponse,
-    TagStatus, TagType
+    OCPPTag, TagSearchRequest, TagStatus, TagType
 )
 from .mongodb_service import (
-    MongoDBService,
     StatusNotificationRequest,
     MeterValuesRequest,
     BootNotificationRequest,
@@ -514,7 +513,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: OCPPCommandRequest = Body(..., description="OCPP command request")
     ):
         """Send a generic OCPP command to a charger"""
-        return await send_ocpp_command(org_name, charger_id, request.action, request.payload, request.timeout)
+        return await send_ocpp_command(org_name, charger_id, request.action, request.payload, request.timeout or 30)
     
     @router.get("/commands/{message_id}/response")
     async def get_command_response(message_id: str = Path(..., description="Message ID")):
@@ -532,7 +531,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: ChangeAvailabilityRequest = Body(..., description="Change availability request")
     ):
         """Change availability of a connector or charge point"""
-        payload = {
+        payload: Dict[str, Any] = {
             "connectorId": request.connector_id,
             "type": request.type
         }
@@ -545,7 +544,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: ChangeConfigurationRequest = Body(..., description="Change configuration request")
     ):
         """Change configuration parameter"""
-        payload = {
+        payload: Dict[str, Any] = {
             "key": request.key,
             "value": request.value
         }
@@ -566,7 +565,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: DataTransferRequest = Body(..., description="Data transfer request")
     ):
         """Send custom data to charger"""
-        payload = {
+        payload: Dict[str, Any] = {
             "vendorId": request.vendor_id
         }
         if request.message_id:
@@ -582,7 +581,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: GetConfigurationRequest = Body(..., description="Get configuration request")
     ):
         """Get configuration parameters"""
-        payload = {}
+        payload: Dict[str, Any] = {}
         if request.key:
             payload["key"] = request.key
         return await send_ocpp_command(org_name, charger_id, "GetConfiguration", payload)
@@ -594,7 +593,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: RemoteStartTransactionRequest = Body(..., description="Remote start transaction request")
     ):
         """Remotely start a transaction"""
-        payload = {
+        payload: Dict[str, Any] = {
             "idTag": request.id_tag
         }
         if request.connector_id is not None:
@@ -610,7 +609,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: RemoteStopTransactionRequest = Body(..., description="Remote stop transaction request")
     ):
         """Remotely stop a transaction"""
-        payload = {
+        payload: Dict[str, Any] = {
             "transactionId": request.transaction_id
         }
         return await send_ocpp_command(org_name, charger_id, "RemoteStopTransaction", payload)
@@ -622,7 +621,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: ResetRequest = Body(..., description="Reset request")
     ):
         """Reset the charge point"""
-        payload = {
+        payload: Dict[str, Any] = {
             "type": request.type
         }
         return await send_ocpp_command(org_name, charger_id, "Reset", payload)
@@ -634,7 +633,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: SendLocalListRequest = Body(..., description="Send local list request")
     ):
         """Send local authorization list"""
-        payload = {
+        payload: Dict[str, Any] = {
             "listVersion": request.list_version,
             "updateType": request.update_type
         }
@@ -649,7 +648,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: SetChargingProfileRequest = Body(..., description="Set charging profile request")
     ):
         """Set charging profile"""
-        payload = {
+        payload: Dict[str, Any] = {
             "connectorId": request.connector_id,
             "csChargingProfiles": request.cs_charging_profiles
         }
@@ -662,7 +661,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: UnlockConnectorRequest = Body(..., description="Unlock connector request")
     ):
         """Unlock a connector"""
-        payload = {
+        payload: Dict[str, Any] = {
             "connectorId": request.connector_id
         }
         return await send_ocpp_command(org_name, charger_id, "UnlockConnector", payload)
@@ -674,7 +673,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: UpdateFirmwareRequest = Body(..., description="Update firmware request")
     ):
         """Update firmware"""
-        payload = {
+        payload: Dict[str, Any] = {
             "location": request.location,
             "retrieveDate": request.retrieve_date
         }
@@ -690,7 +689,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: ClearChargingProfileRequest = Body(..., description="Clear charging profile request")
     ):
         """Clear charging profile"""
-        payload = {}
+        payload: Dict[str, Any] = {}
         if request.id is not None:
             payload["id"] = request.id
         if request.connector_id is not None:
@@ -708,7 +707,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: GetCompositeScheduleRequest = Body(..., description="Get composite schedule request")
     ):
         """Get composite charging schedule"""
-        payload = {
+        payload: Dict[str, Any] = {
             "connectorId": request.connector_id,
             "duration": request.duration
         }
@@ -723,7 +722,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: TriggerMessageRequest = Body(..., description="Trigger message request")
     ):
         """Trigger a message from charger"""
-        payload = {
+        payload: Dict[str, Any] = {
             "requestedMessage": request.requested_message
         }
         if request.connector_id is not None:
@@ -738,7 +737,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: GetDiagnosticsRequest = Body(..., description="Get diagnostics request")
     ):
         """Get diagnostics"""
-        payload = {
+        payload: Dict[str, Any] = {
             "location": request.location
         }
         if request.start_time:
@@ -768,7 +767,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: CancelReservationRequest = Body(..., description="Cancel reservation request")
     ):
         """Cancel a reservation"""
-        payload = {
+        payload: Dict[str, Any] = {
             "reservationId": request.reservation_id
         }
         return await send_ocpp_command(org_name, charger_id, "CancelReservation", payload)
@@ -780,7 +779,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
         request: ReserveNowRequest = Body(..., description="Reserve now request")
     ):
         """Create a reservation"""
-        payload = {
+        payload: Dict[str, Any] = {
             "connectorId": request.connector_id,
             "expiryDate": request.expiry_date,
             "idTag": request.id_tag,
@@ -789,9 +788,6 @@ def create_ocpp_command_api(broker) -> APIRouter:
         if request.parent_id_tag:
             payload["parentIdTag"] = request.parent_id_tag
         return await send_ocpp_command(org_name, charger_id, "ReserveNow", payload)
-    
-    # Store the pending_responses dict in the router for access from response handlers
-    router.pending_responses = pending_responses
     
     return router
 
@@ -1032,6 +1028,6 @@ def mount_api_routers(app: FastAPI, broker) -> None:
 
 def create_api(broker):
     """Create a standalone FastAPI app exposing every REST router for ``broker``."""
-    app = FastAPI(title="OCPP Broker API", version="1.0")
+    app = FastAPI(title="OCPP Broker API", version=__version__)
     mount_api_routers(app, broker)
     return app

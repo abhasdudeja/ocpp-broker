@@ -4,8 +4,7 @@ Tests for the tag management API endpoints.
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, AsyncMock, MagicMock
-from datetime import datetime
+from unittest.mock import Mock, AsyncMock
 
 from ocpp_broker.api_server import create_api
 from ocpp_broker.broker import OcppBroker

@@ -3,9 +3,8 @@ Tests for the OCPP command API endpoints.
 """
 
 import pytest
-import json
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, AsyncMock, MagicMock
+from unittest.mock import Mock, AsyncMock
 
 from ocpp_broker.api_server import create_api
 from ocpp_broker.broker import OcppBroker

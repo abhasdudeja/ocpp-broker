@@ -145,16 +145,6 @@ class BrokerChargePoint(OcppChargePoint):
             payload,
         )
 
-        # Save to MongoDB when broker is leader
-        await self._save_to_mongodb_if_enabled(
-            "boot_notification",
-            {
-                "charge_point_model": charge_point_model,
-                "charge_point_vendor": charge_point_vendor,
-                **payload
-            }
-        )
-        
         # Save boot notification data
         mongodb = getattr(self.broker, "mongodb_service", None)
         if mongodb and mongodb.is_connected():
@@ -180,12 +170,6 @@ class BrokerChargePoint(OcppChargePoint):
     async def on_authorize(self, id_tag: str, **payload):
         tag_info = await self._authorize_tag(id_tag)
         self.logger.info("Authorize for %s → %s", id_tag, tag_info.status)
-        
-        # Save to MongoDB when broker is leader
-        await self._save_to_mongodb_if_enabled(
-            "authorize",
-            {"id_tag": id_tag, **payload}
-        )
         
         # Save authorization data
         mongodb = getattr(self.broker, "mongodb_service", None)
@@ -233,12 +217,9 @@ class BrokerChargePoint(OcppChargePoint):
             payload,
         )
         
-        # Save to MongoDB when broker is leader
-        await self._save_to_mongodb_if_enabled(
-            "diagnostics_status_notification",
-            {"status": status, **payload}
-        )
-        
+        # No dedicated save_* exists for this message, so log the raw call.
+        await self._save_raw_message("DiagnosticsStatusNotification", {"status": status, **payload})
+
         return call_result.DiagnosticsStatusNotification()
     
     @on("FirmwareStatusNotification")
@@ -253,12 +234,9 @@ class BrokerChargePoint(OcppChargePoint):
             payload,
         )
         
-        # Save to MongoDB when broker is leader
-        await self._save_to_mongodb_if_enabled(
-            "firmware_status_notification",
-            {"status": status, **payload}
-        )
-        
+        # No dedicated save_* exists for this message, so log the raw call.
+        await self._save_raw_message("FirmwareStatusNotification", {"status": status, **payload})
+
         return call_result.FirmwareStatusNotification()
 
     @on("StatusNotification")
@@ -268,12 +246,6 @@ class BrokerChargePoint(OcppChargePoint):
             connector_id,
             status,
             payload,
-        )
-        
-        # Save to MongoDB when broker is leader
-        await self._save_to_mongodb_if_enabled(
-            "status_notification",
-            {"connector_id": connector_id, "status": status, **payload}
         )
         
         # Save status notification
@@ -297,12 +269,6 @@ class BrokerChargePoint(OcppChargePoint):
         readings = len(meter_value) if isinstance(meter_value, list) else 0
         self.logger.info(
             "MeterValues connector=%s count=%s payload=%s", connector_id, readings, payload
-        )
-        
-        # Save to MongoDB when broker is leader
-        await self._save_to_mongodb_if_enabled(
-            "meter_values",
-            {"connector_id": connector_id, "meter_value": meter_value, **payload}
         )
         
         # Save meter values
@@ -343,12 +309,6 @@ class BrokerChargePoint(OcppChargePoint):
         )
         tag_info = await self._authorize_tag(id_tag)
         
-        # Save to MongoDB when broker is leader
-        await self._save_to_mongodb_if_enabled(
-            "start_transaction",
-            {"connector_id": connector_id, "id_tag": id_tag, "transaction_id": transaction_id, **payload}
-        )
-        
         # Save transaction
         mongodb = getattr(self.broker, "mongodb_service", None)
         if mongodb and mongodb.is_connected():
@@ -374,23 +334,18 @@ class BrokerChargePoint(OcppChargePoint):
         id_tag = payload.get("id_tag")
         tag_info = await self._authorize_tag(id_tag) if id_tag else datatypes.IdTagInfo(status="Invalid")
         
-        # Save to MongoDB when broker is leader
-        await self._save_to_mongodb_if_enabled(
-            "stop_transaction",
-            {"transaction_id": transaction_id, **payload}
-        )
-        
-        # Save transaction stop
+        # Save transaction stop. StopTransaction carries no connector_id and the
+        # start-side fields are already stored, so only stop data is written.
         mongodb = getattr(self.broker, "mongodb_service", None)
         if mongodb and mongodb.is_connected():
-            connector_id = payload.get("connector_id", 0)
             await mongodb.save_transaction(
                 org_name=self.org_name,
                 charger_id=self.id,
                 transaction_id=transaction_id,
-                connector_id=connector_id,
-                id_tag=id_tag or "",
-                meter_start=payload.get("meter_stop"),
+                id_tag=id_tag,
+                meter_stop=payload.get("meter_stop"),
+                timestamp=self._parse_timestamp(payload.get("timestamp")),
+                stop_reason=payload.get("reason"),
                 transaction_type="stop"
             )
         
@@ -464,18 +419,6 @@ class BrokerChargePoint(OcppChargePoint):
                 vendor_id=vendor_id,
                 message_id=message_id,
                 data=data
-            )
-            
-            # Save to MongoDB when broker is leader
-            await self._save_to_mongodb_if_enabled(
-                "data_transfer",
-                {
-                    "vendor_id": vendor_id,
-                    "message_id": message_id,
-                    "data": data,
-                    "status": status,
-                    **payload
-                }
             )
             
             # Save data transfer
@@ -556,16 +499,11 @@ class BrokerChargePoint(OcppChargePoint):
             parent_id_tag=result.get("parent_id_tag"),
         )
 
-    async def _save_to_mongodb_if_enabled(self, action: str, payload: Dict[str, Any]):
+    async def _save_raw_message(self, action: str, payload: Dict[str, Any]):
         """
-        Save OCPP message to MongoDB if MongoDB is enabled and connected.
-        This is called when broker is acting as leader (backend).
-        Note: Heartbeat messages are handled separately and not saved here.
+        Persist a charger call verbatim. Only for actions with no dedicated
+        ``save_*`` method; everything else is stored once, structured.
         """
-        # Skip heartbeat - it's handled separately with update_heartbeat_timestamp()
-        if action.lower() in ["heartbeat", "heartbeats"]:
-            return
-        
         mongodb = getattr(self.broker, "mongodb_service", None)
         if mongodb and mongodb.is_connected():
             try:
@@ -583,4 +521,16 @@ class BrokerChargePoint(OcppChargePoint):
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> Optional[datetime]:
+        """OCPP timestamps arrive as ISO 8601 strings; the store wants datetimes."""
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
 

@@ -867,7 +867,9 @@ def create_mongodb_api(broker) -> APIRouter:
                 meter_start=request.meter_start,
                 timestamp=request.timestamp,
                 reservation_id=request.reservation_id,
-                transaction_type=request.transaction_type
+                transaction_type=request.transaction_type,
+                meter_stop=request.meter_stop,
+                stop_reason=request.stop_reason
             )
             return {"status": "success", "message": f"{request.transaction_type.capitalize()}Transaction saved"}
         except Exception as e:

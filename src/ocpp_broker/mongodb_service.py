@@ -358,68 +358,78 @@ class MongoDBService:
         org_name: str,
         charger_id: str,
         transaction_id: int,
-        connector_id: int,
-        id_tag: str,
+        connector_id: Optional[int] = None,
+        id_tag: Optional[str] = None,
         meter_start: Optional[int] = None,
         timestamp: Optional[datetime] = None,
         reservation_id: Optional[int] = None,
-        transaction_type: str = "start"  # "start" or "stop"
+        transaction_type: str = "start",  # "start" or "stop"
+        meter_stop: Optional[int] = None,
+        stop_reason: Optional[str] = None,
     ):
         """
         Save transaction data (StartTransaction or StopTransaction) to MongoDB.
-        
+
+        A start inserts the transaction. A stop only updates the stop-side
+        fields (meter_stop, stop_timestamp, stop_reason, stop_id_tag) on the
+        existing document, so the start values are never overwritten; if no
+        start was recorded the stop is stored as a partial document.
+
         Args:
             org_name: Organization name
             charger_id: Charger ID
             transaction_id: Transaction ID
-            connector_id: Connector ID
+            connector_id: Connector ID (start only; a StopTransaction has none)
             id_tag: ID tag
-            meter_start: Optional meter start value
-            timestamp: Optional timestamp (defaults to now)
-            reservation_id: Optional reservation ID
+            meter_start: Meter value at start (start only)
+            timestamp: Event timestamp (defaults to now)
+            reservation_id: Optional reservation ID (start only)
             transaction_type: "start" or "stop"
+            meter_stop: Meter value at stop (stop only)
+            stop_reason: Optional StopTransaction reason (stop only)
         """
         if not self._connected:
             logger.warning("MongoDB not connected, skipping transaction save")
             return
-        
+
         try:
             collection = self._get_collection("transactions")
-            document = {
-                "org_name": org_name,
-                "charger_id": charger_id,
-                "transaction_id": transaction_id,
-                "connector_id": connector_id,
-                "id_tag": id_tag,
-                "meter_start": meter_start,
-                "reservation_id": reservation_id,
-                "transaction_type": transaction_type,
-                "timestamp": timestamp or datetime.now(timezone.utc)
-            }
-            
+            event_time = timestamp or datetime.now(timezone.utc)
+
             if transaction_type == "start":
-                await collection.insert_one(document)
-            else:  # stop
-                # Update the existing transaction
+                await collection.insert_one({
+                    "org_name": org_name,
+                    "charger_id": charger_id,
+                    "transaction_id": transaction_id,
+                    "connector_id": connector_id,
+                    "id_tag": id_tag,
+                    "meter_start": meter_start,
+                    "reservation_id": reservation_id,
+                    "transaction_type": "start",
+                    "timestamp": event_time
+                })
+            else:
+                stop_fields = {
+                    "transaction_type": "stop",
+                    "meter_stop": meter_stop,
+                    "stop_timestamp": event_time,
+                    "stop_reason": stop_reason,
+                }
+                if id_tag:
+                    stop_fields["stop_id_tag"] = id_tag
                 await collection.update_one(
                     {
                         "org_name": org_name,
                         "charger_id": charger_id,
-                        "transaction_id": transaction_id,
-                        "transaction_type": "start"
+                        "transaction_id": transaction_id
                     },
-                    {
-                        "$set": {
-                            **document,
-                            "transaction_type": "stop"
-                        }
-                    }
+                    {"$set": stop_fields},
+                    upsert=True
                 )
-            
+
             logger.debug(f"Saved transaction: {transaction_type} {transaction_id} for {charger_id}")
         except Exception as e:
             logger.error(f"Error saving transaction: {e}", exc_info=True)
-    
     async def save_authorization(
         self,
         org_name: str,
@@ -738,7 +748,9 @@ class TransactionRequest(BaseModel):
     transaction_id: int = Field(..., description="Transaction ID")
     connector_id: int = Field(..., description="Connector ID")
     id_tag: str = Field(..., description="ID tag")
-    meter_start: Optional[int] = Field(None, description="Meter start value")
+    meter_start: Optional[int] = Field(None, description="Meter start value (start only)")
+    meter_stop: Optional[int] = Field(None, description="Meter stop value (stop only)")
+    stop_reason: Optional[str] = Field(None, description="StopTransaction reason (stop only)")
     reservation_id: Optional[int] = Field(None, description="Reservation ID")
     transaction_type: str = Field("start", description="Transaction type: 'start' or 'stop'")
     timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")

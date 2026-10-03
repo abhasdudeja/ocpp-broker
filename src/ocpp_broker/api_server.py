@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from ._version import __version__
 from .auth import make_api_key_dependency
 from .session import CommandRejected
+from .tag_manager import TagSyncUnavailable
 
 # Import schemas and services
 from .schemas.tags import (
@@ -428,6 +429,7 @@ def create_tag_api(broker) -> APIRouter:
                 headers={"Content-Disposition": f'attachment; filename="{filename}-tags.csv"'},
             )
         return Response(content=body, media_type="application/json")
+
     @router.post("/organizations/{org_name}/tags/authorize")
     async def authorize_tag(
         org_name: str = Path(..., description="Organization name"),
@@ -464,15 +466,23 @@ def create_tag_api(broker) -> APIRouter:
     
     @router.post("/sync")
     async def sync_tags_from_mongodb(org_name: Optional[str] = Query(None, description="Organization name (optional, syncs all if not provided)")):
-        """Sync tags from MongoDB to cache"""
+        """
+        Reload tags from MongoDB into the broker's cache.
+
+        MongoDB is authoritative for any organization that has stored tags; an
+        organization with none is seeded from memory (e.g. config.yaml tags).
+        """
         try:
-            await tag_manager.sync_from_mongodb(org_name)
+            organizations = await tag_manager.sync_from_mongodb(org_name)
             return {
                 "success": True,
-                "message": f"Synced tags from MongoDB{' for ' + org_name if org_name else ' (all organizations)'}"
+                "message": f"Synced tags from MongoDB{' for ' + org_name if org_name else ' (all organizations)'}",
+                "organizations": organizations,
             }
         except HTTPException:
             raise
+        except TagSyncUnavailable as e:
+            raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
             tag_logger.error(f"Error syncing tags from MongoDB: {e}")
             raise HTTPException(status_code=500, detail=str(e))

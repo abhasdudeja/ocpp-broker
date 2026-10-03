@@ -25,6 +25,10 @@ from .schemas.tags import (
 logger = logging.getLogger("ocpp_broker.tag_manager")
 
 
+class TagSyncUnavailable(RuntimeError):
+    """MongoDB is not connected, so there is nothing to sync with."""
+
+
 class TagManager:
     """
     Manages OCPP tags and authorization lists.
@@ -165,7 +169,7 @@ class TagManager:
                 tag_dict = await self.mongodb_service.get_tag(org_name, id_tag)
                 if tag_dict:
                     # Convert to OCPPTag and cache
-                    tag = OCPPTag(**tag_dict)
+                    tag = self._tag_from_document(tag_dict)
                     self._tags[tag_key] = tag
                     return tag
             except Exception as e:
@@ -300,7 +304,7 @@ class TagManager:
             if not org_tags_in_cache:
                 try:
                     tags_dicts = await self.mongodb_service.list_tags(org_name=org_name)
-                    tags = [OCPPTag(**tag_dict) for tag_dict in tags_dicts]
+                    tags = self._tags_from_documents(tags_dicts)
                     if tags:
                         list_version = await self.mongodb_service.get_tag_list_version(org_name)
                         tag_list = TagList(
@@ -320,6 +324,89 @@ class TagManager:
         return self._tag_lists.get(org_name)
     
     # ------------------------------------------------------------------
+    # MongoDB documents <-> tags
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _tag_from_document(doc: Dict[str, Any]) -> OCPPTag:
+        """
+        Build a tag from a stored document. MongoDB adds ``org_name`` and keeps
+        timestamps as (naive UTC) datetimes, while OCPPTag holds ISO strings.
+        """
+        data = {k: v for k, v in doc.items() if k != "org_name"}
+        for field in ("created_at", "updated_at"):
+            value = data.get(field)
+            if isinstance(value, datetime):
+                data[field] = (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
+        return OCPPTag(**data)
+
+    @classmethod
+    def _tags_from_documents(cls, docs: List[Dict[str, Any]]) -> List[OCPPTag]:
+        """Convert stored documents; an unreadable one is logged and skipped, not fatal."""
+        tags = []
+        for doc in docs:
+            try:
+                tags.append(cls._tag_from_document(doc))
+            except Exception as e:
+                logger.warning(f"Skipping unreadable stored tag {doc.get('id_tag')!r}: {_describe(e)}")
+        return tags
+
+    async def sync_from_mongodb(self, org_name: Optional[str] = None) -> Dict[str, Dict[str, int]]:
+        """
+        Reconcile the in-memory tags with MongoDB (one organization, or all).
+
+        MongoDB is authoritative once it holds tags for an organization: the
+        cache (and tag list) is replaced by what is stored, so a tag removed or
+        revoked directly in MongoDB disappears here too. An organization that is
+        in memory but has *nothing* stored (e.g. tags seeded from config.yaml)
+        is bootstrapped the other way, pushed into MongoDB instead.
+
+        Returns ``{org: {"loaded": n, "seeded": n, "dropped": n}}``. Raises
+        TagSyncUnavailable if MongoDB is not connected.
+        """
+        mongo = self.mongodb_service
+        if mongo is None or not mongo.is_connected():
+            raise TagSyncUnavailable("MongoDB is not connected")
+
+        summary: Dict[str, Dict[str, int]] = {}
+        async with self._lock:  # no add/update/delete may interleave with the swap
+            documents: Dict[Any, List[Dict[str, Any]]] = {}
+            for doc in await mongo.list_tags(org_name=org_name):
+                documents.setdefault(doc.get("org_name"), []).append(doc)
+            orgs = {org_name} if org_name else set(documents) | set(self._tag_lists)
+
+            for org in sorted(o for o in orgs if o):
+                prefix = f"{org}:"
+                cached = {key: tag for key, tag in self._tags.items() if key.startswith(prefix)}
+                stored = documents.get(org, [])
+
+                if stored:
+                    tags = self._tags_from_documents(stored)
+                    for key in cached:
+                        self._tags.pop(key)
+                    for tag in tags:
+                        self._tags[f"{org}:{tag.id_tag}"] = tag
+                    dropped = len(set(cached) - {f"{org}:{t.id_tag}" for t in tags})
+                    self._tag_lists[org] = TagList(
+                        list_version=await mongo.get_tag_list_version(org),
+                        tags=tags,
+                        updated_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                    if dropped:
+                        logger.warning(f"Sync dropped {dropped} in-memory tag(s) for {org} that MongoDB does not have")
+                    summary[org] = {"loaded": len(tags), "seeded": 0, "dropped": dropped}
+                else:
+                    seeded = 0
+                    for tag in cached.values():
+                        if await mongo.save_tag(org, tag.model_dump()):
+                            seeded += 1
+                    if seeded and org in self._tag_lists:
+                        await mongo.update_tag_list_version(org, self._tag_lists[org].list_version)
+                    summary[org] = {"loaded": 0, "seeded": seeded, "dropped": 0}
+
+        logger.info(f"Synced tags with MongoDB: {summary}")
+        return summary
+
+    # ------------------------------------------------------------------
     # Helpers shared by statistics, validation, bulk, import and export
     # ------------------------------------------------------------------
     async def _load_org_tags(self, org_name: str) -> List[OCPPTag]:
@@ -328,8 +415,8 @@ class TagManager:
         if self._use_mongodb and self.mongodb_service.is_connected():
             if not any(key.startswith(prefix) for key in self._tags):
                 try:
-                    for tag_dict in await self.mongodb_service.list_tags(org_name=org_name):
-                        tag = OCPPTag(**tag_dict)
+                    stored = await self.mongodb_service.list_tags(org_name=org_name)
+                    for tag in self._tags_from_documents(stored):
                         self._tags[f"{org_name}:{tag.id_tag}"] = tag
                 except Exception as e:
                     logger.warning(f"Error loading tags from MongoDB: {e}")

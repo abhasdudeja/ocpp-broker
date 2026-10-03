@@ -140,9 +140,14 @@ def _apply_defaults(cfg):
     cfg["api"].setdefault("port", 8080)
     cfg["api"].setdefault("enable_swagger", True)
 
+    # Web console (served at /ui)
+    if not isinstance(cfg.get("ui"), dict):  # absent, or an empty `ui:` block
+        cfg["ui"] = {}
+    cfg["ui"].setdefault("enabled", True)
+
     # Organizations defaults
     cfg.setdefault("organizations", [])
-    
+
     # Tag management defaults
     cfg.setdefault("tag_management", {})
     cfg["tag_management"].setdefault("global", {"enabled": False})

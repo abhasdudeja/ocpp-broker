@@ -122,8 +122,8 @@ server {
     ssl_certificate     /etc/ssl/ocpp/fullchain.pem;
     ssl_certificate_key /etc/ssl/ocpp/privkey.pem;
 
-    # REST API, docs and management routes: restrict to your own network
-    location ~ ^/(api|orgs|docs|redoc|openapi\.json)(/|$) {
+    # REST API, web console, docs and management routes: restrict to your own network
+    location ~ ^/(api|ui|orgs|docs|redoc|openapi\.json)(/|$) {
         allow 10.0.0.0/8;
         deny all;
         proxy_pass http://127.0.0.1:8765;
@@ -142,7 +142,7 @@ server {
 ```
 
 <!-- docs-test: skip -->
-- The REST API and the charger WebSocket are on the same port, so the proxy is the place to keep the API off the public internet. The regex above would also catch a charger URL such as `/api/CP1`, so do not name an organization `api`, `orgs`, `docs` or `redoc`.
+- The REST API and the charger WebSocket are on the same port, so the proxy is the place to keep the API off the public internet. The regex above would also catch a charger URL such as `/api/CP1`, so do not name an organization `api`, `ui`, `orgs`, `docs` or `redoc`. (The broker itself has no such clash: the web console at `/ui` is plain HTTP and the charger endpoint only accepts WebSocket upgrades.)
 - The broker pings chargers every 20 s (`security.websocket.ping_interval`), so a proxy `proxy_read_timeout` comfortably above that will not cut idle chargers.
 - When the proxy runs on the same host, set `broker.host: 127.0.0.1` so the plain-text port is not reachable from outside.
 - Point load-balancer or uptime checks at `GET /health`.

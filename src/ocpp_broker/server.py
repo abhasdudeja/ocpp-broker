@@ -12,6 +12,7 @@ from ocpp_broker._version import __version__
 from ocpp_broker.api_server import mount_api_routers
 from ocpp_broker.auth import authenticate_charger, configured_api_key
 from ocpp_broker.broker import OcppBroker
+from ocpp_broker.ui import create_ui_router
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -34,6 +35,10 @@ broker = OcppBroker()  # global broker instance
 # charger WebSocket endpoint. They resolve everything through ``broker`` at
 # request time, so ``main_async`` must configure this instance, not replace it.
 mount_api_routers(app, broker)
+
+# The web console is static files and carries no secrets, so it is not behind the
+# API key; it asks for the key itself and sends it with every API call.
+app.include_router(create_ui_router(broker))
 
 
 async def _deny_unauthorized(websocket: WebSocket) -> None:

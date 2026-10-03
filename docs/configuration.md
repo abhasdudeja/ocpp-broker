@@ -43,6 +43,9 @@ security:
     ping_interval: 20               # seconds between pings to chargers
     ping_timeout: 20                # a charger that does not answer a ping in time is dropped
 
+ui:
+  enabled: true                     # serve the web console at /ui (default true)
+
 data_transfer:                      # broker mode only; see "DataTransfer" below
   enabled: true
   known_vendors: []
@@ -188,6 +191,16 @@ MongoDB is optional. Without it nothing is persisted, tags live only in memory a
 | `security.websocket.ping_timeout` | `20` | Seconds to wait for the pong before the connection is closed. |
 
 Requests need `X-API-Key: <key>` or `Authorization: Bearer <key>`. `/health`, `/docs`, `/redoc` and `/openapi.json` do not need the key.
+
+## Web console
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `ui.enabled` | `true` | Serve the bundled web console at `/ui` on the broker's port. With `false`, every `/ui` path answers `404`. |
+
+The console files are static and need no key to download; the console itself asks for the API key and sends it with every API call. They are on the same port as the chargers, so keep `/ui` off the public internet in the same way as `/api` (see [Deployment](deployment.md)). A release package includes the console; a source checkout answers `503` at `/ui/` until it has been built (`npm ci && npm run build` in `ui/`).
+
+Changing the setting needs a restart, like every other setting; there is no live reload.
 
 ## Environment variables
 

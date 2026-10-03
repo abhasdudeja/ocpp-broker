@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import time
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from .backend_manager import BackendConnection
@@ -20,6 +22,9 @@ class OcppBroker:
     """
 
     def __init__(self):
+        # Shown by GET /api/system/info; lets an operator tell instances apart
+        self.instance_id = uuid.uuid4().hex[:8]
+        self.started_at = datetime.now(timezone.utc)
         self.org_backends: Dict[str, Dict[str, BackendConnection]] = {}
         self.org_registries: Dict[str, ChargerRegistry] = {}
         # Keyed by (org_name, charger_id): the same charger id may exist in several orgs.

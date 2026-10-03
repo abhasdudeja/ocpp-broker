@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from ._version import __version__
 from .auth import make_api_key_dependency
 from .session import CommandRejected
+from .system_api import create_system_api
 from .tag_manager import TagSyncUnavailable
 
 # Import schemas and services
@@ -1124,6 +1125,7 @@ def mount_api_routers(app: FastAPI, broker) -> None:
     app.include_router(create_ocpp_command_api(broker), dependencies=protect)
     app.include_router(create_mongodb_api(broker), dependencies=protect)
     app.include_router(create_management_api(broker), dependencies=protect)
+    app.include_router(create_system_api(broker), dependencies=protect)
 
 
 def create_api(broker):

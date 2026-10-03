@@ -74,7 +74,30 @@ GET /api/mongodb/health
 {"status": "not_configured", "connected": false}
 ```
 
-When MongoDB is configured: `{"status": "connected" | "disconnected", "connected": true | false, "database": "ocpp_broker"}`.
+When MongoDB is configured: `{"status": "connected" | "disconnected", "connected": true | false, "database": "ocpp_broker"}`. `connected` only reflects whether the connection at startup succeeded; it is never re-checked.
+
+## System information
+
+```http
+GET /api/system/info
+```
+
+```json
+{
+  "version": "0.5",
+  "instance_id": "3f9c1a7e",
+  "started_at": "2026-10-04T08:12:31.402117Z",
+  "uptime_seconds": 5231.4,
+  "api_auth": "api_key",
+  "ui_enabled": true,
+  "ui_built": true,
+  "organizations": 2,
+  "connected_chargers": 14,
+  "mongodb": {"configured": true, "connected": true, "reachable": true, "database": "ocpp_broker"}
+}
+```
+
+Needs the API key, so it is also the cheapest call to check a key with (`401` wrong or missing key, `503` no key configured). `instance_id` is random per process. `connected_chargers` counts this process only, because sessions are not shared between instances. Unlike the other MongoDB health route, `mongodb.reachable` pings the server on every call (2 second limit), while `connected` is the startup result.
 
 ## Charger WebSocket
 

@@ -4,6 +4,7 @@ Organizes data by organization and charger.
 
 Also provides REST API endpoints for external systems to save OCPP data to MongoDB.
 """
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, List
@@ -62,6 +63,16 @@ class MongoDBService:
     def is_connected(self) -> bool:
         """Check if connected to MongoDB."""
         return self._connected
+
+    async def ping(self, timeout: float = 2.0) -> bool:
+        """Ask the server now; ``is_connected`` only remembers how startup went."""
+        if self.client is None:
+            return False
+        try:
+            await asyncio.wait_for(self.client.admin.command("ping"), timeout)
+        except Exception:
+            return False
+        return True
     
     def _get_collection(self, collection_name: str) -> AsyncIOMotorCollection:
         """Get a collection from the database."""

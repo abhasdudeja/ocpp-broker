@@ -3,6 +3,8 @@ import json
 import logging
 import websockets
 
+from .sockets import locked_send
+
 logger = logging.getLogger("ocpp_broker.backend_manager")
 
 
@@ -23,6 +25,7 @@ class BackendConnection:
         self._connect_task = None
         self._running = False
         self.connected_event = asyncio.Event()  # signals when backend connection is ready
+        self._send_lock = asyncio.Lock()  # one writer at a time on the backend socket
 
     async def connect(self):
         """Start backend connection loop and wait until it's connected."""
@@ -206,7 +209,7 @@ class BackendConnection:
         
         if self.websocket and not self._is_websocket_closed():
             try:
-                await self.websocket.send(message)
+                await locked_send(self._send_lock, self.websocket.send, message)
                 logger.debug(f"[{self.id}] → backend: {message[:200]}")
             except Exception as e:
                 logger.warning(f"⚠️ Error sending to backend for {self.id}: {e}")

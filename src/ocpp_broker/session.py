@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 
 from .backend_manager import BackendConnection
 from .middleware import process_charger_to_backend
+from .sockets import locked_send
 from .charge_point import BrokerChargePoint, StarletteWebSocketAdapter
 
 logger = logging.getLogger("ocpp_broker.session")
@@ -60,6 +61,8 @@ class ChargerSession:
         self.handler_task: Optional[asyncio.Task] = None
         self.finished = asyncio.Event()
         self._closed = asyncio.Event()
+        # Serialises every write to the charger socket (see sockets.locked_send).
+        self._send_lock = asyncio.Lock()
         # message id -> future resolved with the charger's CallResult/CallError
         # frame (relay mode only; broker mode uses BrokerChargePoint.call)
         self._pending_calls: Dict[str, asyncio.Future] = {}
@@ -129,10 +132,24 @@ class ChargerSession:
         
         logger.debug(f"Session closed for charger {self.charger_id}")
 
+    async def _send_text(self, message: str):
+        """Write one frame to the charger; any failure surfaces as ConnectionError."""
+        try:
+            await locked_send(self._send_lock, self.websocket.send_text, message)
+        except asyncio.TimeoutError as exc:
+            logger.error("Charger %s did not accept a frame in time; dropping the connection", self.charger_id)
+            try:
+                await self.websocket.close(code=1011, reason="Send timed out")
+            except Exception:
+                pass
+            raise ConnectionError(f"Send to charger {self.charger_id} timed out") from exc
+        except Exception as exc:
+            raise ConnectionError(f"Send to charger {self.charger_id} failed: {exc}") from exc
+
     async def send_to_charger(self, message: str):
         try:
-            await self.websocket.send_text(message)
-        except Exception as exc:
+            await self._send_text(message)
+        except ConnectionError as exc:
             logger.warning("Failed to deliver backend message to %s: %s", self.charger_id, exc)
 
     # ------------------------------------------------------------------ #
@@ -216,7 +233,7 @@ class ChargerSession:
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending_calls[message_id] = future
         try:
-            await self.websocket.send_text(json.dumps([2, message_id, action, payload]))
+            await self._send_text(json.dumps([2, message_id, action, payload]))
             frame = await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
             return CommandResult(message_id, "timeout", error=f"No response within {timeout}s")
@@ -329,7 +346,8 @@ class ChargerSession:
         adapter = StarletteWebSocketAdapter(
             self.websocket, 
             validate_messages=validate_messages,
-            org_entry=self.org_entry
+            org_entry=self.org_entry,
+            send_lock=self._send_lock,
         )
         self.charge_point = BrokerChargePoint(
             charge_point_id=self.charger_id,

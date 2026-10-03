@@ -1,9 +1,12 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as OcppChargePoint, call_result, datatypes
+
+from .sockets import locked_send
 
 logger = logging.getLogger("ocpp_broker.charge_point")
 
@@ -15,8 +18,16 @@ class StarletteWebSocketAdapter:
     WebSocket instance.
     """
 
-    def __init__(self, websocket, validate_messages: bool = False, org_entry: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        websocket,
+        validate_messages: bool = False,
+        org_entry: Optional[Dict[str, Any]] = None,
+        send_lock: Optional[asyncio.Lock] = None,
+    ):
         self._ws = websocket
+        # Shared with ChargerSession so every writer to this socket is serialised.
+        self._send_lock = send_lock or asyncio.Lock()
         self.validate_messages = validate_messages
         self.org_entry = org_entry
 
@@ -95,7 +106,7 @@ class StarletteWebSocketAdapter:
         except Exception:
             pass  # Ignore parsing errors
         
-        await self._ws.send_text(message)
+        await locked_send(self._send_lock, self._ws.send_text, message)
 
     async def close(self, code: int = 1000, reason: str | None = None):
         await self._ws.close(code=code, reason=reason)

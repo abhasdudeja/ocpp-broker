@@ -92,6 +92,92 @@ class FakeBackend:
         return [json.loads(m) for m in self.received]
 
 
+class ScriptedBackend(FakeBackend):
+    """
+    A central system that answers like one, including numbering transactions
+    itself, so tests can give two backends different (or colliding) id sequences.
+
+    ``first_id`` / ``step`` set the id sequence; ``reply_delay`` answers late;
+    ``mute`` records everything but never answers; ``skip_starts`` ignores that
+    many StartTransactions entirely (as if the backend had been down for them).
+    What the backend ended up believing is in ``transactions``; any frame that
+    quoted an id it never issued lands in ``unknown`` (that is the bug being tested).
+    """
+
+    def __init__(self, first_id: int = 1, step: int = 1, reply_delay: float = 0.0, mute: bool = False, subprotocol="ocpp1.6"):
+        super().__init__(subprotocol)
+        self._next = first_id
+        self.step = step
+        self.reply_delay = reply_delay
+        self.mute = mute
+        self.skip_starts = 0
+        self.transactions: dict[int, dict] = {}
+        self.unknown: list[tuple[str, int]] = []
+        self.calls: list[list] = []
+        self._pending: set = set()
+
+    async def _handle(self, ws):
+        self.clients.append(ws)
+        self.paths.append(ws.request.path)
+        try:
+            async for message in ws:
+                self.received.append(message)
+                frame = json.loads(message)
+                if isinstance(frame, list) and frame and frame[0] == 2:
+                    self.calls.append(frame)
+                    reply = self._process(frame)
+                    if reply is not None and not self.mute:
+                        task = asyncio.ensure_future(self._reply(ws, frame[1], reply))
+                        self._pending.add(task)
+                        task.add_done_callback(self._pending.discard)
+        except websockets.ConnectionClosed:
+            pass
+
+    async def _reply(self, ws, message_id, payload):
+        if self.reply_delay:
+            await asyncio.sleep(self.reply_delay)
+        try:
+            await ws.send(json.dumps([3, message_id, payload]))
+        except websockets.ConnectionClosed:
+            pass
+
+    def _process(self, frame):
+        action, payload = frame[2], frame[3]
+        if action == "StartTransaction":
+            if self.skip_starts > 0:
+                self.skip_starts -= 1
+                return None
+            tx_id = self._next
+            self._next += self.step
+            self.transactions[tx_id] = {"start": payload, "meter_values": [], "stop": None}
+            return {"transactionId": tx_id, "idTagInfo": {"status": "Accepted"}}
+        if action in ("MeterValues", "StopTransaction"):
+            tx_id = payload.get("transactionId")
+            if tx_id is not None:
+                if tx_id not in self.transactions:
+                    self.unknown.append((action, tx_id))
+                elif action == "MeterValues":
+                    self.transactions[tx_id]["meter_values"].append(payload)
+                else:
+                    self.transactions[tx_id]["stop"] = payload
+            return {"idTagInfo": {"status": "Accepted"}} if action == "StopTransaction" else {}
+        if action == "BootNotification":
+            return {"status": "Accepted", "currentTime": "2026-10-04T00:00:00Z", "interval": 300}
+        if action == "Heartbeat":
+            return {"currentTime": "2026-10-04T00:00:00Z"}
+        if action == "Authorize":
+            return {"idTagInfo": {"status": "Accepted"}}
+        return {}
+
+    def started(self) -> list[dict]:
+        return [t["start"] for t in self.transactions.values()]
+
+    async def command(self, action: str, payload: dict, message_id: str = "cmd-1"):
+        """Send a CALL to the charger (only the leader's reaches it)."""
+        await self.send([2, message_id, action, payload])
+        return message_id
+
+
 async def wait_for(predicate, timeout: float = 3.0, interval: float = 0.01):
     """Poll until ``predicate()`` is truthy or fail the test."""
     loop = asyncio.get_running_loop()

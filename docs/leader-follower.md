@@ -49,10 +49,14 @@ Keys the code reads for this feature:
 | `backends[].url` | required | WebSocket base URL. The charger id is appended: `ws://primary.example.com/ocpp/CP001`. A trailing `/` is stripped. |
 | `backends[].leader` | none | Marks the leader. |
 | `backends[].ocpp_subprotocol` | the org's `ocpp_subprotocol` (default `ocpp1.6`) | Subprotocol requested from that backend. |
-| `backends[].id` | n/a | Only used in one log line when a leader is chosen automatically. |
+| `backends[].id` | the URL | Names the backend in the transaction id table and in log lines. Keep it stable and unique; if two backends share a name the second becomes `name#2`. |
 | `backend_buffer_size` | `200` | Maximum frames held for the leader while it is unreachable. |
 | `backend_outage_timeout` | `30` | Seconds a held frame may wait before it is given up on. |
 | `leader_failover_timeout` | `15` | Seconds the leader may stay unreachable before a follower is promoted. `0` disables failover. |
+| `transaction_ids.mapping` | on when there is more than one backend | Translate transaction ids per backend; see [Transaction ids](#transaction-ids). `true` or `false` forces it. |
+| `transaction_ids.follower_wait` | `5` | Seconds the broker holds copies for a follower that has not yet said which id it issued. |
+| `transaction_ids.dedupe_start` | `true` | Answer a retried `StartTransaction` from the stored result instead of starting a second transaction. |
+| `transaction_ids.retain_closed` | `86400` | Seconds a finished transaction stays in the table, so a retried `StopTransaction` still maps. |
 
 The per-charger lists `backends[].chargers`, `chargers:` and similar `id` lists are **not read**. Every charger that connects to the organization gets the same set of backends.
 
@@ -68,7 +72,7 @@ Every other backend is a follower. A relay-mode organization with an empty `back
 
 ## What happens to each frame
 
-**Charger to backends.** Each text frame from the charger is forwarded untouched to the leader (no validation in relay mode). If the frame is a CALL (message type 2), a copy is also sent to every follower. CALLRESULTs and CALLERRORs are not copied: they answer the leader's own calls, and followers did not make any.
+**Charger to backends.** Each text frame from the charger is forwarded to the leader without validation, unchanged except for transaction ids when the organization has followers (see [Transaction ids](#transaction-ids)). If the frame is a CALL (message type 2), a copy is also sent to every follower. CALLRESULTs and CALLERRORs are not copied: they answer the leader's own calls, and followers did not make any.
 
 **Leader to charger.** Every frame from the leader is forwarded to the charger. If MongoDB is connected, CALLs from the leader are also recorded.
 
@@ -77,6 +81,23 @@ Every other backend is a follower. A relay-mode organization with an empty `back
 **Copies to followers are best-effort.** They are sent in the background, never block the leader's path, are not buffered when the follower is down (the copy is dropped), and a failure to deliver one never affects the charger or the leader.
 
 **Commands from the REST API** (`POST /api/ocpp/organizations/{org}/chargers/{id}/commands`) go straight to the charger regardless of leader state. In relay mode the CALL is sent exactly as given (no payload validation, any action name accepted), and the charger's reply is matched by message id and handed to the REST caller. It is **not** forwarded to any backend.
+
+## Transaction ids
+
+In OCPP 1.6 the **backend** chooses a transaction's id (in its `StartTransaction` reply) and the charger then quotes it in `MeterValues` and `StopTransaction`. With several backends there are several ids for one charging session, and a follower that is sent the leader's id would attach the reading to a different transaction of its own, or find none.
+
+The broker therefore keeps a **transaction id table** for each charger and speaks to every backend in its own ids. It is on by default when an organization has more than one backend and has no effect with a single backend. The table lives in the broker, not in the socket, so it survives the charger reconnecting in the middle of a charge.
+
+- **What the charger sees.** The leader's own id, whenever that id is not already in use for another of the charger's transactions. Leader traffic is then byte-identical to a setup without the table. If the leader issues an id the charger already holds (this can happen after a failover), the charger is given a fresh, unused id instead.
+- **Learning ids.** A follower's answer to its copy of a `StartTransaction` tells the broker which id the follower issued. Answers from followers are still never forwarded to the charger.
+- **Copies to followers.** In `MeterValues` and `StopTransaction` the id is replaced by the one that follower issued. A follower for which the broker has no id (it was down for the start, or never answered) is **skipped for that transaction**: it is never sent an id that might belong to another of its transactions. A warning is logged when this happens.
+- **A slow follower.** Copies for a follower are queued, in order, until it has said which id it issued, for at most `transaction_ids.follower_wait` seconds. The leader is never delayed. After the wait the queued copies for that transaction are dropped and the follower is skipped for it.
+- **Retried starts.** If the charger sends the same `StartTransaction` again (same connector, tag, meter reading and timestamp), the broker answers it with the id it already issued and does not send a second start to the leader or the followers. This covers a retry after the broker answered with `Backend unavailable, please retry`. `transaction_ids.dedupe_start: false` turns this off.
+- **Other messages.** Only `StartTransaction` replies, `MeterValues` and `StopTransaction` (charger side) and `RemoteStopTransaction`, `SetChargingProfile` and `RemoteStartTransaction` (backend side, in the nested charging profile) quote a transaction id. Everything else is forwarded as before.
+
+What the table does not cover: reservation ids, charging profile ids, the local authorization list version and configuration values are also chosen by a backend and stored by the charger, and are not translated. `DataTransfer` payloads are vendor-defined and are never inspected.
+
+Without MongoDB or any persistence the table is held in memory only: after a broker restart it is empty. The leader keeps working (its ids are the charger's ids), but followers lose track of transactions that were already running.
 
 ## Leader outage: store-and-forward
 

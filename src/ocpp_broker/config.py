@@ -200,7 +200,7 @@ def _apply_defaults(cfg):
             if removed in org:
                 logger.warning(
                     "Organization %s: '%s' is no longer supported and is ignored. Messages are validated "
-                    "by the ocpp library when the broker acts as the backend; relay mode forwards them untouched.",
+                    "by the ocpp library when the broker acts as the backend; relay mode forwards them without validating.",
                     name,
                     removed,
                 )
@@ -210,7 +210,8 @@ def _apply_defaults(cfg):
         org.setdefault("tag_management", {"enabled": False})
         org.setdefault("tags", [])
         _normalize_charger_auth(org)
-        
+        _validate_transaction_ids(org)
+
         # Set backend defaults
         for backend in org.get("backends", []):
             backend.setdefault("ocpp_subprotocol", org.get("ocpp_subprotocol", "ocpp1.6"))
@@ -271,6 +272,26 @@ def _normalize_charger_auth(org):
             "HTTP Basic auth (OCPP security profile 1).",
             name,
         )
+
+
+def _validate_transaction_ids(org):
+    """Check the organization's optional ``transaction_ids`` block (see transaction_ids.table_for_org)."""
+    name = org["name"]
+    section = org.get("transaction_ids")
+    if section is None:
+        return
+    if not isinstance(section, dict):
+        raise ValueError(f"Organization {name}: transaction_ids must be a mapping")
+    for key in ("mapping", "dedupe_start"):
+        if section.get(key) is not None and not isinstance(section[key], bool):
+            raise ValueError(f"Organization {name}: transaction_ids.{key} must be true or false")
+    for key in ("follower_wait", "retain_closed"):
+        value = section.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0):
+            raise ValueError(f"Organization {name}: transaction_ids.{key} must be a positive number of seconds")
+    unknown = sorted(set(section) - {"mapping", "follower_wait", "dedupe_start", "retain_closed"})
+    if unknown:
+        logger.warning("Organization %s: unknown transaction_ids setting(s) %s are ignored", name, ", ".join(unknown))
 
 
 def _validate_config(cfg):

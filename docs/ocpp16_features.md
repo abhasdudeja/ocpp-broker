@@ -10,7 +10,7 @@ OCPP has two directions, and the broker supports each differently:
 
 | Direction | Broker mode (`connect_to_backend: false`) | Relay mode (`connect_to_backend: true`) |
 |-----------|-------------------------------------------|------------------------------------------|
-| **Charger to central system** (requests the charger initiates) | The broker answers all ten of them itself | Forwarded to the leader backend unchanged; followers get a copy |
+| **Charger to central system** (requests the charger initiates) | The broker answers all ten of them itself | Forwarded to the leader backend unchanged; followers get a copy. `MeterValues` and `StopTransaction` quote a transaction id, which each follower receives as its own (see [Transaction ids](leader-follower.md#transaction-ids)) |
 | **Central system to charger** (commands) | Sent through the broker's REST API; the broker returns the charger's reply | The backend sends them over its own link and they reach the charger; you can also send them through the REST API |
 
 ## Charger-initiated messages (broker mode)

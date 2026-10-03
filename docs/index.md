@@ -3,7 +3,7 @@
 An OCPP 1.6 broker between chargers and your central system. Per organization it either:
 
 - **answers chargers itself** (broker mode): authorization from a tag list, transaction ids, optional MongoDB storage; or
-- **relays them to your own backends** (relay mode): frames are forwarded unchanged, buffered while a backend is down, copied to observer backends, and moved to another backend if the leader stays unreachable.
+- **relays them to your own backends** (relay mode): frames are forwarded unchanged (apart from transaction ids, which are translated per backend when there are several), buffered while a backend is down, copied to observer backends, and moved to another backend if the leader stays unreachable.
 
 A REST API on the same port manages tags and sends OCPP commands to connected chargers, returning the charger's actual reply.
 

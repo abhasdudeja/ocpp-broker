@@ -8,8 +8,9 @@ async def process_charger_to_backend(charger_id: str, message: str):
     """
     Parse a charger frame on its way to the backend.
 
-    The frame is forwarded untouched: in relay mode the broker is a transparent
-    proxy, and in broker mode the ocpp library validates.
+    The frame is returned unchanged: in relay mode the broker does not validate
+    (the transaction id table in ``transaction_ids`` is the one place frames are
+    rewritten), and in broker mode the ocpp library validates.
 
     Returns:
         Tuple of (message_to_forward, parsed_json_or_none)

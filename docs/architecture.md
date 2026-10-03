@@ -23,7 +23,7 @@ BROKER mode (connect_to_backend: false)        RELAY mode (connect_to_backend: t
 ```
 
 - **Broker mode**: the broker is the central system. It answers the ten charger-initiated actions it implements (BootNotification, Authorize, Heartbeat, DiagnosticsStatusNotification, FirmwareStatusNotification, StatusNotification, MeterValues, StartTransaction, StopTransaction, DataTransfer). Any other action gets a `NotImplemented` CallError. The `ocpp` library validates every CALL and CALLRESULT against the OCPP 1.6 JSON schemas.
-- **Relay mode**: the broker is a transparent proxy to one or more backend central systems, with one set of backend sockets per charger. Frames are forwarded untouched; there is no validation. See [Leader-Follower](leader-follower.md) for multi-backend behaviour.
+- **Relay mode**: the broker is a transparent proxy to one or more backend central systems, with one set of backend sockets per charger. Frames are forwarded unchanged and are not validated, with one exception: when an organization has more than one backend, the transaction ids in six message types are translated so each backend is spoken to in its own ids (see [Transaction ids](leader-follower.md#transaction-ids)). See [Leader-Follower](leader-follower.md) for multi-backend behaviour.
 
 ## Modules
 
@@ -42,6 +42,7 @@ BROKER mode (connect_to_backend: false)        RELAY mode (connect_to_backend: t
 | `config.py` | Loads `config.yaml`, applies defaults and environment overrides, validates. |
 | `sockets.py` | `locked_send`: serialised, time-bounded socket writes. |
 | `middleware.py` | `process_charger_to_backend`: parses a relay frame as JSON for logging/routing and returns it unchanged. A pass-through, not a pipeline. |
+| `transaction_ids.py` | `TransactionIdTable`: relay mode with followers. One record per transaction, mapping the id the charger holds to each backend's own id, plus the per-follower copy queue. Pure logic with no I/O; `session.py` feeds it frames. The broker keeps one table per charger so it outlives a socket. |
 | `registry.py` | `ChargerRegistry`: a per-organization set of charger ids, written on BootNotification in broker mode. Nothing reads it. |
 
 ### server.py: the entry point

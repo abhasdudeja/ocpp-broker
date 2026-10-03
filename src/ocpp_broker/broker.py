@@ -10,6 +10,7 @@ from .registry import ChargerRegistry
 from .config import load_config
 from .tag_manager import TagManager
 from .session import ChargerSession
+from .transaction_ids import TransactionIdTable, table_for_org
 
 logger = logging.getLogger("ocpp_broker.broker")
 
@@ -29,6 +30,9 @@ class OcppBroker:
         self.org_registries: Dict[str, ChargerRegistry] = {}
         # Keyed by (org_name, charger_id): the same charger id may exist in several orgs.
         self.sessions: Dict[Tuple[str, str], ChargerSession] = {}
+        # Transaction id tables outlive sessions: a charger's socket drops and
+        # reconnects in the middle of a charge, and the mapping must survive that.
+        self.transaction_tables: Dict[Tuple[str, str], TransactionIdTable] = {}
         self.tag_manager: Optional[TagManager] = None
         self.data_transfer_handler = None  # Will be created on first use
         self.mongodb_service = None  # Will be initialized if MongoDB is configured
@@ -135,6 +139,7 @@ class OcppBroker:
             # Only drop our own entry: a newer connection may have replaced us.
             if self.sessions.get(key) is session:
                 del self.sessions[key]
+            self.release_transaction_table(org_name, charger_id)
             session.finished.set()
             logger.info("🧹 Cleaned up charger %s session.", charger_id)
 
@@ -143,6 +148,23 @@ class OcppBroker:
     # ------------------------------------------------------------------
     def get_registry(self, org_name: str) -> ChargerRegistry:
         return self.org_registries[org_name]
+
+    def transaction_table(self, org_name: str, charger_id: str, org_entry: Dict[str, Any]) -> Optional[TransactionIdTable]:
+        """The charger's transaction id table (created on first use), or None when mapping is off."""
+        key = (org_name, charger_id)
+        table = self.transaction_tables.get(key)
+        if table is None:
+            table = table_for_org(org_entry)
+            if table is not None:
+                self.transaction_tables[key] = table
+        return table
+
+    def release_transaction_table(self, org_name: str, charger_id: str) -> None:
+        """Drop a charger's table once nothing in it is worth keeping and no session uses it."""
+        key = (org_name, charger_id)
+        table = self.transaction_tables.get(key)
+        if table is not None and key not in self.sessions and table.is_idle():
+            del self.transaction_tables[key]
 
     async def next_transaction_id(self, org_name: str) -> int:
         """
@@ -196,11 +218,18 @@ class OcppBroker:
 
         if not backend_conn.is_leader:
             # Followers are observe-only: they receive a copy of the charger's CALLs
-            # and reply to them, but only the leader may talk to the charger.
+            # and reply to them, but only the leader may talk to the charger. Their
+            # answers are never forwarded; the id table only reads which transaction
+            # id a follower issued for a start.
+            session.note_follower_frame(backend_conn, message)
             logger.debug(
                 "Ignored message from follower backend %s (org=%s)", backend_conn.id, backend_conn.org
             )
             return
+
+        # The charger must see its own transaction ids, not the leader's, when they differ
+        frames = session.frames_for_charger(backend_conn, message)
+        message = frames[0]
 
         # Save command to MongoDB when broker is leader
         try:
@@ -231,7 +260,8 @@ class OcppBroker:
             logger.debug(f"Could not parse message for MongoDB saving: {e}")
         
         try:
-            await session.send_to_charger(message)
+            for frame in frames:
+                await session.send_to_charger(frame)
             logger.info("[%s] ← from backend", backend_conn.id)
         except Exception as exc:
             logger.warning(

@@ -1,0 +1,380 @@
+"""
+Transaction id mapping in the relay path, over real sockets: a charger, a leader
+and a follower that each number transactions their own way.
+"""
+
+import asyncio
+import json
+
+import pytest
+
+from ocpp_broker import backend_manager
+from ocpp_broker.broker import OcppBroker
+from ocpp_broker.config import _apply_defaults
+
+from .fakes import FakeCharger, ScriptedBackend, wait_for
+
+
+@pytest.fixture(autouse=True)
+def fast_reconnect(monkeypatch):
+    monkeypatch.setattr(backend_manager, "RECONNECT_DELAY", 0.05)
+
+
+async def start_relay(leader, follower, **org):
+    broker = OcppBroker()
+    broker.config_data = {
+        "organizations": [
+            {
+                "name": "OrgA",
+                "connect_to_backend": True,
+                "backends": [
+                    {"id": "lead", "url": leader.url, "leader": True},
+                    {"id": "follow", "url": follower.url},
+                ],
+                **org,
+            }
+        ]
+    }
+    charger = FakeCharger()
+    task = asyncio.create_task(broker.handle_charger(charger, "/OrgA/CP1"))
+    await wait_for(lambda: ("OrgA", "CP1") in broker.sessions)
+    session = broker.sessions[("OrgA", "CP1")]
+    await wait_for(
+        lambda: session.backend_conn
+        and session.follower_conns
+        and all(c.is_ready() for c in [session.backend_conn, *session.follower_conns])
+    )
+    return broker, session, charger, task
+
+
+async def finish(charger, task, *backends):
+    await charger.close()
+    await asyncio.wait_for(task, timeout=5)
+    for backend in backends:
+        await backend.stop()
+
+
+def start_frame(mid, tag="A", meter=0, ts="2026-10-04T10:00:00Z", connector=1):
+    return [2, mid, "StartTransaction", {"connectorId": connector, "idTag": tag, "meterStart": meter, "timestamp": ts}]
+
+
+def meter_frame(tx, mid, value=1):
+    return [2, mid, "MeterValues", {"connectorId": 1, "transactionId": tx, "meterValue": [{"timestamp": "t", "sampledValue": [{"value": str(value)}]}]}]
+
+
+def stop_frame(tx, mid, meter_stop=100):
+    return [2, mid, "StopTransaction", {"transactionId": tx, "meterStop": meter_stop, "timestamp": "2026-10-04T11:00:00Z"}]
+
+
+async def begin(charger, mid, **kwargs):
+    """Start a transaction; returns the id the charger is told."""
+    charger.deliver(start_frame(mid, **kwargs))
+    reply = await charger.next_reply()
+    assert reply[1] == mid
+    return reply[2]["transactionId"]
+
+
+# --------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_each_backend_is_spoken_to_in_its_own_transaction_ids():
+    leader, follower = await ScriptedBackend(first_id=10).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    try:
+        tx = await begin(charger, "s1")
+        assert tx == 10, "the charger holds the leader's id"
+
+        meter, stop = meter_frame(tx, "mv1"), stop_frame(tx, "st1")
+        charger.deliver(meter)
+        charger.deliver(stop)
+        await wait_for(lambda: follower.transactions.get(1, {}).get("stop"))
+
+        assert follower.transactions[1]["stop"]["meterStop"] == 100
+        assert len(follower.transactions[1]["meter_values"]) == 1
+        assert follower.unknown == [] and leader.unknown == []
+        assert json.dumps(meter) in leader.received and json.dumps(stop) in leader.received, "leader traffic is byte-identical"
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_follower_that_missed_a_start_is_not_made_to_end_someone_elses_transaction():
+    leader, follower = await ScriptedBackend().start(), await ScriptedBackend().start()
+    broker, session, charger, task = await start_relay(leader, follower, transaction_ids={"follower_wait": 0.3})
+    try:
+        a = await begin(charger, "sA", tag="A", meter=1)
+        follower.skip_starts = 1  # the follower is down for B
+        b = await begin(charger, "sB", tag="B", meter=2)
+        c = await begin(charger, "sC", tag="C", meter=3)
+        assert (a, b, c) == (1, 2, 3)
+
+        charger.deliver(stop_frame(b, "stB", meter_stop=111))
+        await asyncio.sleep(0.8)  # long enough for the wait for the follower's answer to run out
+        assert follower.transactions[2]["start"]["idTag"] == "C"
+        assert follower.transactions[2]["stop"] is None, "B's stop must not end the follower's transaction 2, which is C"
+
+        charger.deliver(stop_frame(c, "stC", meter_stop=333))
+        await wait_for(lambda: follower.transactions[2]["stop"])
+        assert follower.transactions[2]["stop"]["meterStop"] == 333
+        assert follower.unknown == []
+        assert leader.transactions[b]["stop"]["meterStop"] == 111, "the leader still gets everything"
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_without_mapping_the_same_sequence_corrupts_the_followers_transaction():
+    """Characterisation of the bug the table fixes: with mapping switched off, B's stop ends C on the follower."""
+    leader, follower = await ScriptedBackend().start(), await ScriptedBackend().start()
+    broker, session, charger, task = await start_relay(leader, follower, transaction_ids={"mapping": False})
+    try:
+        assert session._ids is None
+        await begin(charger, "sA", tag="A", meter=1)
+        follower.skip_starts = 1
+        b = await begin(charger, "sB", tag="B", meter=2)
+        await begin(charger, "sC", tag="C", meter=3)
+
+        charger.deliver(stop_frame(b, "stB", meter_stop=111))
+        await wait_for(lambda: follower.transactions[2]["stop"])
+        assert follower.transactions[2]["start"]["idTag"] == "C"
+        assert follower.transactions[2]["stop"]["meterStop"] == 111, "silent misattribution: C was ended with B's reading"
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_slow_follower_gets_its_copies_in_order_under_its_own_id():
+    leader, follower = await ScriptedBackend(first_id=10).start(), await ScriptedBackend(first_id=1, reply_delay=0.3).start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    try:
+        tx = await begin(charger, "s1")
+        for i in range(3):
+            charger.deliver(meter_frame(tx, f"mv{i}", value=i))
+        charger.deliver([2, "hb", "Heartbeat", {}])
+        charger.deliver(stop_frame(tx, "st"))
+
+        await wait_for(lambda: follower.transactions.get(1, {}).get("stop"), timeout=3)
+        assert [c[1] for c in follower.calls] == ["s1", "mv0", "mv1", "mv2", "hb", "st"], "order is kept"
+        assert follower.unknown == []
+        assert len(leader.calls) == 6, "the leader never waited for the follower"
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_follower_that_never_answers_does_not_hold_up_the_leader_or_receive_wrong_ids():
+    leader, follower = await ScriptedBackend(first_id=10).start(), await ScriptedBackend(first_id=1, mute=True).start()
+    broker, session, charger, task = await start_relay(leader, follower, transaction_ids={"follower_wait": 0.3})
+    try:
+        tx = await begin(charger, "s1")
+        charger.deliver(meter_frame(tx, "mv1"))
+        charger.deliver([2, "hb", "Heartbeat", {}])
+        await wait_for(lambda: len(leader.calls) == 3, timeout=1)  # at once, not after the wait
+
+        await asyncio.sleep(0.7)
+        assert [c[2] for c in follower.calls] == ["StartTransaction", "Heartbeat"], "the meter values were dropped, not sent with the wrong id"
+        assert follower.unknown == []
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_retried_start_gets_the_same_id_and_the_backends_see_one_transaction():
+    leader, follower = await ScriptedBackend(first_id=10).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    try:
+        first = await begin(charger, "s1")
+        charger.deliver(start_frame("s1-retry"))
+        retry = await charger.next_reply()
+        assert retry == [3, "s1-retry", {"transactionId": first, "idTagInfo": {"status": "Accepted"}}]
+
+        await asyncio.sleep(0.2)
+        assert len(leader.transactions) == 1 and len(follower.transactions) == 1
+        assert sum(1 for c in leader.calls if c[2] == "StartTransaction") == 1
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_the_leaders_reply_reaches_the_charger_unchanged_when_ids_do_not_collide():
+    leader, follower = await ScriptedBackend(first_id=10).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    try:
+        charger.deliver(start_frame("s1"))
+        await wait_for(lambda: charger.sent)
+        assert charger.sent[0] == json.dumps([3, "s1", {"transactionId": 10, "idTagInfo": {"status": "Accepted"}}])
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_follower_that_was_down_for_the_start_is_skipped_at_once_not_after_a_wait():
+    leader, follower = await ScriptedBackend(first_id=10).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    try:
+        await follower.stop()
+        await wait_for(lambda: not session.follower_conns[0].is_ready())
+        tx = await begin(charger, "s1")
+
+        await follower.start(port=follower.port)
+        await wait_for(lambda: session.follower_conns[0].is_ready())
+        charger.deliver(meter_frame(tx, "mv1"))
+        charger.deliver(stop_frame(tx, "st1"))
+        await wait_for(lambda: len(leader.calls) == 3)
+        await asyncio.sleep(0.2)
+
+        assert follower.calls == [], "it never saw the start, so it must not be sent this transaction's readings"
+        assert session._ids.next_expiry_in() is None, "nothing is held waiting for a follower that was never asked"
+        assert session._ids.snapshot()[0]["degraded"] == ["follow"]
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_several_followers_each_get_their_own_ids():
+    leader = await ScriptedBackend(first_id=10).start()
+    one, two = await ScriptedBackend(first_id=100).start(), await ScriptedBackend(first_id=500, step=7).start()
+    broker = OcppBroker()
+    broker.config_data = {
+        "organizations": [
+            {
+                "name": "OrgA",
+                "connect_to_backend": True,
+                "backends": [
+                    {"id": "lead", "url": leader.url, "leader": True},
+                    {"id": "one", "url": one.url},
+                    {"id": "two", "url": two.url},
+                ],
+            }
+        ]
+    }
+    charger = FakeCharger()
+    task = asyncio.create_task(broker.handle_charger(charger, "/OrgA/CP1"))
+    try:
+        await wait_for(lambda: ("OrgA", "CP1") in broker.sessions)
+        session = broker.sessions[("OrgA", "CP1")]
+        await wait_for(lambda: len(session.follower_conns) == 2 and all(c.is_ready() for c in [session.backend_conn, *session.follower_conns]))
+
+        first = await begin(charger, "s1", tag="A", meter=1)
+        second = await begin(charger, "s2", tag="B", meter=2)
+        charger.deliver(stop_frame(second, "st2", meter_stop=222))
+        charger.deliver(stop_frame(first, "st1", meter_stop=111))
+        await wait_for(lambda: one.transactions[101]["stop"] and two.transactions[507]["stop"])
+
+        assert (one.transactions[100]["stop"]["meterStop"], one.transactions[101]["stop"]["meterStop"]) == (111, 222)
+        assert (two.transactions[500]["stop"]["meterStop"], two.transactions[507]["stop"]["meterStop"]) == (111, 222)
+        assert one.unknown == [] and two.unknown == []
+    finally:
+        await charger.close()
+        await asyncio.wait_for(task, timeout=5)
+        for backend in (leader, one, two):
+            await backend.stop()
+
+
+# --------------------------------------------------------------------------
+# Switching it on and off
+# --------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_mapping_is_on_by_default_when_there_is_a_follower():
+    leader, follower = await ScriptedBackend().start(), await ScriptedBackend().start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    try:
+        assert session._ids is not None
+        assert broker.transaction_tables[("OrgA", "CP1")] is session._ids
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_single_backend_has_no_table_and_nothing_changes():
+    leader = await ScriptedBackend().start()
+    broker = OcppBroker()
+    broker.config_data = {
+        "organizations": [
+            {"name": "OrgA", "connect_to_backend": True, "backends": [{"id": "only", "url": leader.url, "leader": True}]}
+        ]
+    }
+    charger = FakeCharger()
+    task = asyncio.create_task(broker.handle_charger(charger, "/OrgA/CP1"))
+    try:
+        await wait_for(lambda: ("OrgA", "CP1") in broker.sessions)
+        session = broker.sessions[("OrgA", "CP1")]
+        await wait_for(lambda: session.backend_conn and session.backend_conn.is_ready())
+        assert session._ids is None and broker.transaction_tables == {}
+        frame = start_frame("s1")
+        charger.deliver(frame)
+        await wait_for(lambda: leader.received)
+        assert leader.received == [json.dumps(frame)]
+    finally:
+        await charger.close()
+        await asyncio.wait_for(task, timeout=5)
+        await leader.stop()
+
+
+@pytest.mark.asyncio
+async def test_mapping_can_be_forced_on_for_a_single_backend():
+    leader = await ScriptedBackend().start()
+    broker = OcppBroker()
+    broker.config_data = {
+        "organizations": [
+            {
+                "name": "OrgA",
+                "connect_to_backend": True,
+                "transaction_ids": {"mapping": True},
+                "backends": [{"id": "only", "url": leader.url, "leader": True}],
+            }
+        ]
+    }
+    charger = FakeCharger()
+    task = asyncio.create_task(broker.handle_charger(charger, "/OrgA/CP1"))
+    try:
+        await wait_for(lambda: ("OrgA", "CP1") in broker.sessions)
+        session = broker.sessions[("OrgA", "CP1")]
+        await wait_for(lambda: session.backend_conn and session.backend_conn.is_ready())
+        assert session._ids is not None
+        assert await begin(charger, "s1") == 1
+    finally:
+        await charger.close()
+        await asyncio.wait_for(task, timeout=5)
+        await leader.stop()
+
+
+@pytest.mark.asyncio
+async def test_the_table_is_dropped_when_the_charger_is_gone_and_nothing_is_left_in_it():
+    leader, follower = await ScriptedBackend().start(), await ScriptedBackend().start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    await charger.close()
+    await asyncio.wait_for(task, timeout=5)
+    try:
+        assert broker.transaction_tables == {}
+    finally:
+        await leader.stop()
+        await follower.stop()
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        {"mapping": "yes"},
+        {"dedupe_start": 1},
+        {"follower_wait": 0},
+        {"follower_wait": "fast"},
+        {"retain_closed": -5},
+        {"follower_wait": True},
+        "on",
+    ],
+)
+def test_bad_transaction_id_settings_are_rejected_at_load_time(block):
+    with pytest.raises(ValueError, match="transaction_ids"):
+        _apply_defaults({"organizations": [{"name": "A", "transaction_ids": block}]})
+
+
+def test_good_and_missing_transaction_id_settings_load():
+    cfg = {
+        "organizations": [
+            {"name": "A"},
+            {"name": "B", "transaction_ids": None},
+            {"name": "C", "transaction_ids": {"mapping": False, "follower_wait": 2.5, "dedupe_start": False, "retain_closed": 60}},
+        ]
+    }
+    _apply_defaults(cfg)
+    assert len(cfg["organizations"]) == 3

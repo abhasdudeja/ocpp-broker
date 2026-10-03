@@ -84,7 +84,7 @@ organizations:
     connect_to_backend: true
     ocpp_subprotocol: "ocpp1.6"
     backends:
-      - id: primary                       # label only; shown in a log line
+      - id: primary                       # names the backend in the transaction id table and logs; keep it stable
         url: ws://primary.example.com/ocpp
         leader: true
       - id: observer
@@ -103,6 +103,29 @@ organizations:
 | `backend_buffer_size` | `200` | Frames held per charger while the leader is unreachable. A full buffer refuses new frames. |
 | `backend_outage_timeout` | `30` | Seconds a held request may wait. Then the charger gets a `CALLERROR` (`InternalError`). |
 | `leader_failover_timeout` | `15` | Seconds the leader may be unreachable before the first healthy follower is promoted. `0` disables failover. |
+
+#### Transaction ids: `transaction_ids`
+
+With more than one backend the broker translates transaction ids so each backend is spoken to in its own ids ([why and how](leader-follower.md#transaction-ids)). Optional; the defaults below apply when the block is absent.
+
+```yaml
+organizations:
+  - name: "orgB"
+    transaction_ids:
+      mapping: true          # default: on when the organization has more than one backend
+      follower_wait: 5       # seconds to hold copies for a follower that has not yet given its id
+      dedupe_start: true     # answer a retried StartTransaction from the stored result
+      retain_closed: 86400   # seconds a finished transaction stays in the table
+```
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `mapping` | on with more than one backend, otherwise off | `true` or `false` forces it for this organization. |
+| `follower_wait` | `5` | Positive number of seconds. |
+| `dedupe_start` | `true` | `false` makes a retried start a second transaction, as without the table. |
+| `retain_closed` | `86400` | Positive number of seconds. |
+
+A wrong type or a value that is not positive is rejected when the file is loaded.
 
 ### Charger authentication: `charger_auth`
 

@@ -9,7 +9,7 @@ BASE=http://localhost:8765
 
 ## 1. Relay to a backend with a follower
 
-In relay mode (`connect_to_backend: true`, the default) the broker opens one WebSocket per charger to each configured backend at `{url}/{charger_id}` and forwards frames untouched, with no validation.
+In relay mode (`connect_to_backend: true`, the default) the broker opens one WebSocket per charger to each configured backend at `{url}/{charger_id}` and forwards frames without validation. They are unchanged except that, with several backends, transaction ids are translated per backend (see [Transaction ids](../leader-follower.md#transaction-ids)).
 
 - The **leader** (`leader: true`) gets every frame from the charger, and only its frames reach the charger.
 - **Followers** get a copy of every CALL the charger sends. Their replies are discarded and nothing is buffered for them.

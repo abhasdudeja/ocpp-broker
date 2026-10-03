@@ -129,7 +129,7 @@ Failover needs a connected follower, and the leader must stay unreachable for `l
 
 ### Messages are not validated
 
-In relay mode frames are forwarded untouched in both directions, so malformed messages are the backend's problem. Validation by the broker only exists in broker mode.
+In relay mode frames are forwarded in both directions without validation (only the transaction ids in six message types are translated when there are several backends), so malformed messages are the backend's problem. Validation by the broker only exists in broker mode.
 
 ## REST API
 

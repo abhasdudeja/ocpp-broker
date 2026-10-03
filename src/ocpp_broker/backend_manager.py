@@ -50,10 +50,14 @@ class BackendConnection:
         outage_timeout: float = DEFAULT_OUTAGE_TIMEOUT,
         on_undeliverable: Optional[Callable[[str], Awaitable[None]]] = None,
         on_disconnected: Optional[Callable[["BackendConnection"], None]] = None,
+        key: Optional[str] = None,
     ):
         self.broker = broker
         self.id = charger_id            # Charger ID used for backend identification
         self.url = url.rstrip("/")      # Base URL (from config)
+        # Names this backend in the transaction id table; stable across reconnects
+        # and failover (the configured ``id``, else the URL).
+        self.key = key or self.url
         self.org = org
         self.is_leader = is_leader     # Leader/follower status
         self.subprotocol = subprotocol  # OCPP subprotocol (e.g., "ocpp1.6", "ocpp2.0.1")

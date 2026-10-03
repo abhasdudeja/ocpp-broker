@@ -546,6 +546,26 @@ class TransactionIdTable:
         return rows
 
 
+def table_for_org(org_entry: Dict[str, Any]) -> Optional[TransactionIdTable]:
+    """
+    A table configured from the organization's ``transaction_ids`` block, or None
+    when mapping is off. Mapping is on by default when the organization has at
+    least one follower (more than one backend) and can be forced either way with
+    ``transaction_ids.mapping``; with a single backend there is nothing to map.
+    """
+    settings = org_entry.get("transaction_ids") or {}
+    mapping = settings.get("mapping")
+    if mapping is None:
+        mapping = len(org_entry.get("backends") or []) > 1
+    if not mapping:
+        return None
+    return TransactionIdTable(
+        follower_wait=float(settings.get("follower_wait", 5.0)),
+        dedupe_start=bool(settings.get("dedupe_start", True)),
+        retain_closed=float(settings.get("retain_closed", 86400.0)),
+    )
+
+
 def backend_keys(backends: Iterable[Dict[str, Any]]) -> List[str]:
     """
     Stable, unique key per configured backend: its ``id`` if given, else its URL.

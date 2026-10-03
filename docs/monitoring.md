@@ -134,7 +134,7 @@ journalctl -u ocpp-broker | grep -E "FAILOVER|NOT DURABLE|Backend unavailable|Re
 If MongoDB is enabled (`mongodb.enabled: true` or `MONGODB_ENABLED=true`) the broker writes OCPP data to these collections of the configured database. Which collections fill depends on the mode:
 
 - **Broker mode** (`connect_to_backend: false`): the broker handles the charger's messages and stores them. `charger_statuses` (every StatusNotification), `charger_statuses_latest` (one document per org/charger/connector), `meter_values`, `charger_configurations` (per charger, updated on BootNotification, with `last_boot_time`), `transactions` (start inserts; stop updates the same document), `authorizations`, `data_transfers`, and `charger_heartbeats_latest` (one document per charger with `last_heartbeat`; heartbeats are not stored individually).
-- **Relay mode**: frames are forwarded untouched and not stored. Only commands are recorded: calls from the leader backend to the charger, and commands/results issued through the REST API, in per-action collections.
+- **Relay mode**: frames are forwarded without being stored. Only commands are recorded: calls from the leader backend to the charger, and commands/results issued through the REST API, in per-action collections.
 - Both modes: `tags`, `tag_list_versions`, and `counters` (transaction id sequences, `_id` = `transaction_id:<org>`).
 
 Useful for monitoring, for example when was a charger last heard from:

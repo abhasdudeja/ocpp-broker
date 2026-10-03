@@ -16,6 +16,7 @@ from .backend_manager import DEFAULT_MAX_BUFFERED, DEFAULT_OUTAGE_TIMEOUT, Backe
 from .middleware import process_charger_to_backend
 from .sockets import locked_send
 from .charge_point import BrokerChargePoint, StarletteWebSocketAdapter
+from .transaction_ids import TransactionIdTable, backend_keys
 
 logger = logging.getLogger("ocpp_broker.session")
 
@@ -72,6 +73,10 @@ class ChargerSession:
         # Observe-only fan-out sends and the leader-failover watcher
         self._background: set[asyncio.Task] = set()
         self._failover_task: Optional[asyncio.Task] = None
+        # Relay mode with followers: translates transaction ids per backend (None = off).
+        # Owned by the broker so it outlives this socket; see transaction_ids.py.
+        self._ids: Optional[TransactionIdTable] = None
+        self._hold_timer: Optional[asyncio.TimerHandle] = None
 
     async def evict(self, grace: float = 5.0):
         """
@@ -123,6 +128,9 @@ class ChargerSession:
         for task in [*self._background, self._failover_task]:
             if task is not None:
                 task.cancel()
+        if self._hold_timer is not None:
+            self._hold_timer.cancel()
+            self._hold_timer = None
 
         # Forget our backend links, unless a newer session already replaced them
         links = self.broker.org_backends.get(self.org_name, {}).get(self.charger_id)
@@ -307,8 +315,11 @@ class ChargerSession:
         # Get OCPP subprotocol from organization config, backend config, or default to "ocpp1.6"
         org_subprotocol = self.org_entry.get("ocpp_subprotocol", "ocpp1.6")
         
-        leader_config = next((b for b in backends if b.get("leader")), backends[0])
-        follower_configs = [b for b in backends if b is not leader_config]
+        keys = backend_keys(backends)
+        leader_index = next((i for i, b in enumerate(backends) if b.get("leader")), 0)
+        leader_config = backends[leader_index]
+        follower_configs = [(keys[i], b) for i, b in enumerate(backends) if i != leader_index]
+        self._ids = self.broker.transaction_table(self.org_name, self.charger_id, self.org_entry)
 
         # Get subprotocol for leader (backend-specific or org-level or default)
         leader_subprotocol = leader_config.get("ocpp_subprotocol", org_subprotocol)
@@ -325,15 +336,16 @@ class ChargerSession:
             outage_timeout=self.org_entry.get("backend_outage_timeout", DEFAULT_OUTAGE_TIMEOUT),
             on_undeliverable=self._reject_charger_call,
             on_disconnected=self._on_backend_link_lost,
+            key=keys[leader_index],
         )
-        logger.info("🔗 Establishing leader backend for charger %s -> %s (subprotocol: %s)", 
+        logger.info("🔗 Establishing leader backend for charger %s -> %s (subprotocol: %s)",
                    self.charger_id, leader_config["url"], leader_subprotocol)
         # Do not block the charger on the backend: frames buffer until it is reachable.
         await self.backend_conn.connect(wait=False)
         self.broker.org_backends.setdefault(self.org_name, {}).setdefault(self.charger_id, {})["leader"] = self.backend_conn
 
         # Follower connections
-        for follower_cfg in follower_configs:
+        for follower_key, follower_cfg in follower_configs:
             # Get subprotocol for follower (backend-specific or org-level or default)
             follower_subprotocol = follower_cfg.get("ocpp_subprotocol", org_subprotocol)
             follower_conn = BackendConnection(
@@ -345,6 +357,7 @@ class ChargerSession:
                 subprotocol=follower_subprotocol,
                 max_buffered=0,  # followers are best-effort; never block on them
                 on_disconnected=self._on_backend_link_lost,
+                key=follower_key,
             )
             self.follower_conns.append(follower_conn)
             logger.info("🔗 Establishing follower backend for charger %s -> %s (subprotocol: %s)", 
@@ -377,6 +390,73 @@ class ChargerSession:
             await follower.send(message)
         except Exception as exc:
             logger.debug("[%s] could not copy frame to follower %s: %s", self.charger_id, follower.url, exc)
+
+    # ------------------------------------------------------------------ #
+    # Transaction id table (relay mode with followers)                   #
+    # ------------------------------------------------------------------ #
+    def _follower_states(self) -> Dict[str, bool]:
+        """Each follower's key and whether a frame can be written to it right now."""
+        return {f.key: f.is_ready() for f in self.follower_conns}
+
+    def _send_to_followers(self, pairs: list[tuple[str, str]]) -> None:
+        """Send (follower key, frame) pairs; frames for one follower go out in order in one task."""
+        grouped: Dict[str, list[str]] = {}
+        for key, frame in pairs:
+            grouped.setdefault(key, []).append(frame)
+        for key, frames in grouped.items():
+            follower = next((f for f in self.follower_conns if f.key == key), None)
+            if follower is not None:
+                self._spawn(self._send_batch_to_follower(follower, frames))
+
+    async def _send_batch_to_follower(self, follower: BackendConnection, frames: list[str]) -> None:
+        for frame in frames:
+            await self._send_to_follower(follower, frame)
+
+    def _arm_hold_timer(self) -> None:
+        """Wake up when the oldest copy waiting for a follower's id must be given up on."""
+        if self._ids is None:
+            return
+        if self._hold_timer is not None:
+            self._hold_timer.cancel()
+            self._hold_timer = None
+        delay = self._ids.next_expiry_in()
+        if delay is not None and not self._closed.is_set():
+            self._hold_timer = asyncio.get_running_loop().call_later(delay + 0.01, self._on_hold_timer)
+
+    def _on_hold_timer(self) -> None:
+        self._hold_timer = None
+        if self._ids is None or self._closed.is_set():
+            return
+        self._send_to_followers(self._ids.expire_holds())
+        self._arm_hold_timer()
+
+    def frames_for_charger(self, conn: BackendConnection, message: str) -> list[str]:
+        """
+        What to send the charger for a frame from the leader: the frame itself, or,
+        with the id table on, the frame in the charger's transaction ids (plus any
+        replies owed to retried starts that were waiting on the same answer).
+        """
+        if self._ids is None:
+            return [message]
+        try:
+            parsed = json.loads(message)
+        except ValueError:
+            return [message]
+        plan = self._ids.from_leader(conn.key, parsed, message)
+        return [plan.frame, *plan.extra]
+
+    def note_follower_frame(self, conn: BackendConnection, message: str) -> None:
+        """A follower spoke. Its answer to a start copy tells the id table which id it issued."""
+        if self._ids is None:
+            return
+        try:
+            parsed = json.loads(message)
+        except ValueError:
+            return
+        released = self._ids.from_follower(conn.key, parsed)
+        if released:
+            self._send_to_followers(released)
+        self._arm_hold_timer()
 
     def _on_backend_link_lost(self, conn: BackendConnection) -> None:
         """A backend link dropped. If it was the leader, start watching for failover."""
@@ -428,6 +508,9 @@ class ChargerSession:
 
         self.follower_conns = [f for f in self.follower_conns if f is not new_leader] + [old_leader]
         self.backend_conn = new_leader
+        if self._ids is not None:
+            self._ids.leader_changed(new_leader.key)
+            self._arm_hold_timer()
         links = self.broker.org_backends.get(self.org_name, {}).get(self.charger_id)
         if links is not None:
             links["leader"] = new_leader
@@ -447,6 +530,10 @@ class ChargerSession:
             error = [4, parsed[1], "InternalError", "Backend unavailable, please retry", {}]
             logger.warning("[%s] answering %s with CallError: backend unavailable", self.charger_id, parsed[2] if len(parsed) > 2 else "CALL")
             await self.send_to_charger(json.dumps(error))
+            if self._ids is not None and len(parsed) > 2 and parsed[2] == "StartTransaction":
+                # The attempt is over; retries that were waiting on it are answered too
+                for waiting in self._ids.start_failed(parsed[1]):
+                    await self.send_to_charger(waiting)
         else:
             logger.warning("[%s] dropped an undeliverable frame: %s", self.charger_id, message[:200])
 
@@ -471,6 +558,17 @@ class ChargerSession:
         except Exception as exc:
             logger.exception("ChargePoint %s terminated with error: %s", self.charger_id, exc)
 
+    async def _relay_with_ids(self, message: str, parsed: Any) -> None:
+        """Send one charger frame on, each backend getting its own transaction ids."""
+        assert self._ids is not None and self.backend_conn is not None
+        plan = self._ids.from_charger(parsed, message, self.backend_conn.key, self._follower_states())
+        if plan.reply is not None:
+            await self.send_to_charger(plan.reply)  # a retried start: answered from the stored result
+        if plan.to_leader is not None:
+            await self.backend_conn.send(plan.to_leader)
+        self._send_to_followers(plan.to_followers)
+        self._arm_hold_timer()
+
     async def _relay_loop(self):
         if not self.backend_conn:
             logger.warning("⚠️ No backend connection for charger %s", self.charger_id)
@@ -487,8 +585,11 @@ class ChargerSession:
                 if parsed and isinstance(parsed, list) and len(parsed) >= 3:
                     action = parsed[2]
                     logger.info("[%s] → %s → backend", self.charger_id, action)
-                await self.backend_conn.send(msg_out)
-                self._fan_out_to_followers(msg_out, parsed)
+                if self._ids is None:
+                    await self.backend_conn.send(msg_out)
+                    self._fan_out_to_followers(msg_out, parsed)
+                else:
+                    await self._relay_with_ids(msg_out, parsed)
             except Exception as exc:
                 logger.info("[%s] relay stopped: %s", self.charger_id, exc)
                 break

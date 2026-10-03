@@ -69,7 +69,6 @@ def mock_broker_with_tag_manager():
     broker.tag_manager.authorize_tag = AsyncMock(return_value={"status": "Accepted"})
     
     broker.org_backends = {}
-    broker.org_leaders = {}
     broker.sessions = {}
     broker.config_data = {}
     
@@ -82,7 +81,6 @@ def mock_broker_without_tag_manager():
     broker = Mock(spec=OcppBroker)
     broker.tag_manager = None
     broker.org_backends = {}
-    broker.org_leaders = {}
     broker.sessions = {}
     broker.config_data = {}
     return broker

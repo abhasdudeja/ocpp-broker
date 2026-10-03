@@ -18,7 +18,6 @@ def mock_broker_with_sessions():
     broker = Mock(spec=OcppBroker)
     broker.sessions = {}
     broker.org_backends = {}
-    broker.org_leaders = {}
     broker.config_data = {}
     
     return broker

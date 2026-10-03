@@ -41,12 +41,6 @@ mongodb_logger = logging.getLogger("ocpp_broker.mongodb_api")
 # Request Models for OCPP Commands
 # ============================================================================
 
-class BackendModel(BaseModel):
-    id: str
-    url: str
-    leader: Optional[bool] = False
-
-
 class OCPPCommandRequest(BaseModel):
     """Generic OCPP command request"""
     action: str = Field(..., description="OCPP action name")
@@ -977,268 +971,48 @@ def create_mongodb_api(broker) -> APIRouter:
         }
     
     return router
-    
-    @router.post("/status-notification", summary="Save StatusNotification to MongoDB")
-    async def save_status_notification(request: StatusNotificationRequest = Body(...)):
-        """Save a StatusNotification to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_status_notification(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                connector_id=request.connector_id,
-                status=request.status,
-                error_code=request.error_code,
-                info=request.info,
-                timestamp=request.timestamp,
-                vendor_id=request.vendor_id,
-                vendor_error_code=request.vendor_error_code
-            )
-            return {"status": "success", "message": "StatusNotification saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving status notification: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/meter-values", summary="Save MeterValues to MongoDB")
-    async def save_meter_values(request: MeterValuesRequest = Body(...)):
-        """Save MeterValues to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_meter_values(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                connector_id=request.connector_id,
-                transaction_id=request.transaction_id,
-                meter_value=request.meter_value,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "MeterValues saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving meter values: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/boot-notification", summary="Save BootNotification to MongoDB")
-    async def save_boot_notification(request: BootNotificationRequest = Body(...)):
-        """Save BootNotification to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_boot_notification(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                charge_point_model=request.charge_point_model,
-                charge_point_vendor=request.charge_point_vendor,
-                firmware_version=request.firmware_version,
-                iccid=request.iccid,
-                imsi=request.imsi,
-                meter_type=request.meter_type,
-                meter_serial_number=request.meter_serial_number,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "BootNotification saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving boot notification: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/transaction", summary="Save Transaction to MongoDB")
-    async def save_transaction(request: MongoDBTransactionRequest = Body(...)):
-        """Save StartTransaction or StopTransaction to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        if request.transaction_type not in ["start", "stop"]:
-            raise HTTPException(status_code=400, detail="transaction_type must be 'start' or 'stop'")
-        
-        try:
-            await mongodb.save_transaction(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                transaction_id=request.transaction_id,
-                connector_id=request.connector_id,
-                id_tag=request.id_tag,
-                meter_start=request.meter_start,
-                timestamp=request.timestamp,
-                reservation_id=request.reservation_id,
-                transaction_type=request.transaction_type
-            )
-            return {"status": "success", "message": f"{request.transaction_type.capitalize()}Transaction saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving transaction: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/authorization", summary="Save Authorization to MongoDB")
-    async def save_authorization(request: MongoDBAuthorizationRequest = Body(...)):
-        """Save Authorization to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_authorization(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                id_tag=request.id_tag,
-                status=request.status,
-                expiry_date=request.expiry_date,
-                parent_id_tag=request.parent_id_tag,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "Authorization saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving authorization: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/data-transfer", summary="Save DataTransfer to MongoDB")
-    async def save_data_transfer(request: MongoDBDataTransferRequest = Body(...)):
-        """Save DataTransfer to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_data_transfer(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                vendor_id=request.vendor_id,
-                message_id=request.message_id,
-                data=request.data,
-                status=request.status,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "DataTransfer saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving data transfer: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/ocpp-message", summary="Save generic OCPP message to MongoDB")
-    async def save_ocpp_message(request: OCPPMessageRequest = Body(...)):
-        """Save a generic OCPP message to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        if request.message_type not in ["call", "call_result", "call_error"]:
-            raise HTTPException(status_code=400, detail="message_type must be 'call', 'call_result', or 'call_error'")
-        
-        try:
-            await mongodb.save_ocpp_message(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                message_type=request.message_type,
-                action=request.action,
-                payload=request.payload,
-                direction=request.direction,
-                message_id=request.message_id,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "OCPP message saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving OCPP message: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.get("/health", summary="Check MongoDB connection status")
-    async def mongodb_health():
-        """Check if MongoDB service is connected."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb:
-            return {"status": "not_configured", "connected": False}
-        
-        return {
-            "status": "connected" if mongodb.is_connected() else "disconnected",
-            "connected": mongodb.is_connected(),
-            "database": mongodb.database_name
-        }
-    
-    return router
 
 
 # ============================================================================
 # Main API Creation
 # ============================================================================
 
+def create_management_api(broker) -> APIRouter:
+    """Read-only view of the backend links held for each organization's chargers."""
+    router = APIRouter(tags=["Broker Management"])
+
+    @router.get("/orgs/{org}/backends")
+    async def list_backends(org: str):
+        chargers = broker.org_backends.get(org)
+        if chargers is None:
+            raise HTTPException(status_code=404, detail="Organization not found")
+        links = []
+        for charger_id, conns in chargers.items():
+            members = [conns.get("leader"), *conns.get("followers", [])]
+            for conn in members:
+                if conn is None:
+                    continue
+                links.append({
+                    "charger_id": charger_id,
+                    "url": conn.url,
+                    "leader": conn.is_leader,
+                    "connected": conn.connected_event.is_set(),
+                })
+        return links
+
+    return router
+
+
 def mount_api_routers(app: FastAPI, broker) -> None:
-    """Mount every REST router (tags, OCPP commands, MongoDB) on ``app``."""
+    """Mount every REST router (tags, OCPP commands, MongoDB, management) on ``app``."""
     app.include_router(create_tag_api(broker))
     app.include_router(create_ocpp_command_api(broker))
     app.include_router(create_mongodb_api(broker))
+    app.include_router(create_management_api(broker))
 
 
 def create_api(broker):
-    """
-    Create FastAPI app bound to a running OcppBroker instance.
-    Includes all API endpoints: Tag Management, OCPP Commands, MongoDB, and Broker Management.
-    """
+    """Create a standalone FastAPI app exposing every REST router for ``broker``."""
     app = FastAPI(title="OCPP Broker API", version="1.0")
     mount_api_routers(app, broker)
-
-    # Broker Management API
-    @app.get("/orgs")
-    async def list_orgs():
-        return [
-            {
-                "name": org,
-                "num_backends": len(broker.org_backends.get(org, {})),
-                "leader": getattr(broker.org_leaders.get(org), "id", None)
-            }
-            for org in broker.org_backends.keys()
-        ]
-
-    @app.get("/orgs/{org}/backends")
-    async def list_backends(org: str):
-        backs = broker.org_backends.get(org)
-        if backs is None:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        return [
-            {
-                "id": b.id,
-                "url": b.url,
-                "leader": b.is_leader,
-                "connected": (b.websocket is not None and not getattr(b.websocket, "closed", True))
-            }
-            for b in backs.values()
-        ]
-
-    @app.post("/orgs/{org}/backends")
-    async def add_backend(org: str, backend: BackendModel):
-        if org not in broker.org_backends:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        if backend.id in broker.org_backends[org]:
-            raise HTTPException(status_code=400, detail="Backend already exists")
-
-        # add backend asynchronously
-        await broker.add_backend_dynamic(org, backend.model_dump())
-        return {"status": "created", "backend": backend.id}
-
-    @app.delete("/orgs/{org}/backends/{backend_id}")
-    async def remove_backend(org: str, backend_id: str):
-        if org not in broker.org_backends:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        removed = await broker.remove_backend_dynamic(org, backend_id)
-        if not removed:
-            raise HTTPException(status_code=404, detail="Backend not found")
-        return {"status": "removed", "backend": backend_id}
-
-    @app.post("/orgs/{org}/leader/{backend_id}")
-    async def set_leader(org: str, backend_id: str):
-        if org not in broker.org_backends:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        success = broker.promote_leader(org, backend_id)
-        if not success:
-            raise HTTPException(status_code=404, detail="Backend not found")
-        return {"status": "leader_updated", "leader": backend_id}
-
-    @app.post("/reload")
-    async def reload_config():
-        await broker.reload_from_config()
-        return {"status": "config_reloaded"}
-
     return app

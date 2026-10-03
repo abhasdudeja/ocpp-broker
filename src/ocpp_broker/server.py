@@ -50,6 +50,7 @@ async def _deny_unauthorized(websocket: WebSocket) -> None:
         # The ASGI server does not support denial responses; close instead (HTTP 403).
         await websocket.close(code=1008, reason="Unauthorized")
 
+
 # ---------------------------------------------------------------------------
 # WebSocket endpoint for chargers
 # ---------------------------------------------------------------------------
@@ -198,6 +199,7 @@ def apply_cors(application: FastAPI, cfg: dict) -> None:
         allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     )
 
+
 # ---------------------------------------------------------------------------
 # Config loader
 # ---------------------------------------------------------------------------
@@ -259,6 +261,7 @@ def build_uvicorn_config(application: FastAPI, cfg: dict) -> uvicorn.Config:
         ws_ping_timeout=ws_cfg.get("ping_timeout", 20),
     )
 
+
 def _log_api_security(cfg: dict) -> None:
     if configured_api_key(cfg):
         logger.info("REST API protected by API key")
@@ -269,6 +272,7 @@ def _log_api_security(cfg: dict) -> None:
             "REST API is DISABLED: every /api request returns 503 until security.api_key "
             "(or OCPP_BROKER_API_KEY) is set"
         )
+
 
 # ---------------------------------------------------------------------------
 # Main async runner

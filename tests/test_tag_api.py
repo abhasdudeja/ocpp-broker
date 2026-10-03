@@ -84,6 +84,7 @@ def real_tag_client():
     broker.config_data = {}
     return TestClient(create_api(broker), headers=AUTH_HEADERS)
 
+
 @pytest.fixture
 def api_client_with_tags(mock_broker_with_tag_manager):
     """Create API client with tag manager"""
@@ -217,6 +218,7 @@ class TestTagSearch:
         data = real_tag_client.get("/api/tags/organizations/Nobody/statistics").json()
         assert data["total_tags"] == 0 and data["tags_by_status"] == {}
 
+
 class TestTagOperations:
     """Tests for tag operations"""
     
@@ -253,6 +255,7 @@ class TestTagOperations:
             "/api/tags/organizations/Org1/tags/validate", json={"id_tag": "X" * 21, "status": "Accepted"}
         )
         assert response.status_code == 422
+
     def test_authorize_tag(self, api_client_with_tags, mock_broker_with_tag_manager):
         """Test authorizing a tag"""
         # The endpoint expects a string in the body, not a JSON object
@@ -346,6 +349,7 @@ class TestTagOperations:
 
     def test_export_defaults_to_json_without_a_body(self, real_tag_client):
         assert real_tag_client.post("/api/tags/organizations/Org1/tags/export").json()["count"] == 3
+
 
 class TestTagOrganizations:
     """Tests for organization listing"""

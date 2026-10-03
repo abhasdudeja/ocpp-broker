@@ -3,6 +3,7 @@ import logging
 
 logger = logging.getLogger("ocpp_broker.registry")
 
+
 class ChargerRegistry:
     """
     Keeps a list of registered chargers from multiple backends.

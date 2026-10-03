@@ -215,10 +215,11 @@ def _apply_defaults(cfg):
         if len(leaders) > 1:
             logger.warning(f"Organization {name} has multiple leaders; using first one only.")
             for b in org["backends"]:
-                b["leader"] = (b == leaders[0])
+                b["leader"] = b is leaders[0]  # identity: two identical entries are still two backends
         elif len(leaders) == 0 and org["backends"]:
             org["backends"][0]["leader"] = True
-            logger.info(f"Organization {name}: auto-marked {org['backends'][0]['id']} as leader.")
+            first = org["backends"][0]
+            logger.info(f"Organization {name}: auto-marked {first.get('id') or first.get('url')} as leader.")
 
     return cfg
 
@@ -265,6 +266,7 @@ def _normalize_charger_auth(org):
             "HTTP Basic auth (OCPP security profile 1).",
             name,
         )
+
 
 def _validate_config(cfg):
     """Validate configuration structure and values"""

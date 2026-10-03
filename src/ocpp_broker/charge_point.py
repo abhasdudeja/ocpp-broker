@@ -28,6 +28,7 @@ class StarletteWebSocketAdapter:
     async def recv(self) -> str:
         # Schema validation is the ocpp library's job (route_message / call).
         return await self._ws.receive_text()
+
     async def send(self, message: str):
         # Save call results/errors to MongoDB when broker is leader
         try:

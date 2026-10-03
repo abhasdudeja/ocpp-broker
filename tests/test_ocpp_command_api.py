@@ -192,6 +192,7 @@ class TestGenericCommand:
 
     def test_unknown_message_id_is_404(self, api_client):
         assert api_client.get("/api/ocpp/commands/nope/response").status_code == 404
+
     def test_send_command_charger_not_found(self, api_client, mock_broker_with_sessions):
         """Test sending command to non-existent charger"""
         mock_broker_with_sessions.sessions = {}

@@ -432,6 +432,7 @@ class ChargerSession:
         if links is not None:
             links["leader"] = new_leader
             links["followers"] = self.follower_conns
+
     async def _reject_charger_call(self, message: str):
         """
         The backend could not take a frame from the charger (outage or full
@@ -448,6 +449,7 @@ class ChargerSession:
             await self.send_to_charger(json.dumps(error))
         else:
             logger.warning("[%s] dropped an undeliverable frame: %s", self.charger_id, message[:200])
+
     async def _run_local_charge_point(self):
         logger.info(
             "🎯 Broker acting as backend for charger %s (org: %s)", self.charger_id, self.org_name

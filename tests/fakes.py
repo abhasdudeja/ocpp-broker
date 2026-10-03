@@ -44,6 +44,7 @@ class FakeCharger:
             await asyncio.sleep(0.01)
         raise AssertionError("no reply from broker")
 
+
 class FakeBackend:
     """A real websockets server standing in for the central system."""
 
@@ -100,6 +101,7 @@ async def wait_for(predicate, timeout: float = 3.0, interval: float = 0.01):
             return
         await asyncio.sleep(interval)
     raise AssertionError("condition not reached in time")
+
 
 class ScriptedCharger:
     """A charge point driven by the test, speaking OCPP-J over a real WebSocket."""

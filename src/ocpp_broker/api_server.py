@@ -1125,6 +1125,7 @@ def mount_api_routers(app: FastAPI, broker) -> None:
     app.include_router(create_mongodb_api(broker), dependencies=protect)
     app.include_router(create_management_api(broker), dependencies=protect)
 
+
 def create_api(broker):
     """Create a standalone FastAPI app exposing every REST router for ``broker``."""
     app = FastAPI(title="OCPP Broker API", version=__version__)

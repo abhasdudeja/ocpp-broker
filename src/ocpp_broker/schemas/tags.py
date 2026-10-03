@@ -65,6 +65,7 @@ class TagSearchResponse(BaseModel):
     limit: int
     offset: int
 
+
 class TagStatistics(BaseModel):
     """Counts of an organization's tags."""
     total_tags: int

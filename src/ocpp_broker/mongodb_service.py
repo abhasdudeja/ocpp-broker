@@ -85,6 +85,7 @@ class MongoDBService:
             return_document=ReturnDocument.AFTER,
         )
         return int(doc["seq"])
+
     def _get_collection_name_for_action(self, action: str) -> str:
         """
         Get the collection name for a specific OCPP action.
@@ -447,6 +448,7 @@ class MongoDBService:
             logger.debug(f"Saved transaction: {transaction_type} {transaction_id} for {charger_id}")
         except Exception as e:
             logger.error(f"Error saving transaction: {e}", exc_info=True)
+
     async def save_authorization(
         self,
         org_name: str,

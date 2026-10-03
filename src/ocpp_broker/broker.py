@@ -179,6 +179,7 @@ class OcppBroker:
         counter += 1
         self._fallback_tx_counters[org_name] = counter
         return counter
+
     async def forward_backend_message(self, backend_conn: BackendConnection, message: str):
         """Deliver backend messages to the connected charger websocket."""
         session = self.sessions.get((backend_conn.org, backend_conn.id))

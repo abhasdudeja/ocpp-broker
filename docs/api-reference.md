@@ -1,787 +1,366 @@
 # API Reference
 
-Complete reference for the OCPP broker REST and WebSocket APIs.
+The broker exposes a charger WebSocket endpoint and a REST API on **one port** (`broker.port`, default `8765`). Interactive documentation generated from the code is always available at `/docs` (Swagger UI), `/redoc` and `/openapi.json`; this page describes behaviour the generated docs cannot.
 
-## 🌐 REST API
+All examples assume:
 
-### **Base URL**
+```bash
+export BROKER=http://localhost:8765
+export OCPP_BROKER_API_KEY=change-me     # the key the broker was started with
 ```
-http://localhost:8765
+
+## Authentication
+
+Every REST route under `/api` and `/orgs` requires the API key, sent as either header:
+
+```
+X-API-Key: <key>
+Authorization: Bearer <key>
 ```
 
-### **Authentication**
-Currently, the API does not require authentication. In production deployments, consider implementing API keys or OAuth2.
+The broker reads the key from the `OCPP_BROKER_API_KEY` environment variable or `security.api_key` in `config.yaml` (the variable wins).
 
-## 📊 Health Endpoints
+| Situation | Response |
+|-----------|----------|
+| Missing or wrong key | `401` `{"detail": "Missing or invalid API key"}` with `WWW-Authenticate: Bearer` |
+| No key configured | `503` `{"detail": "REST API disabled: set security.api_key or OCPP_BROKER_API_KEY"}` |
+| No key configured and `security.allow_unauthenticated_api: true` | open access (development only) |
 
-### **Health Check**
+`/health`, `/docs`, `/redoc` and `/openapi.json` need no key.
+
+## Errors
+
+There is no custom error envelope. Errors use FastAPI's default body:
+
+```json
+{"detail": "Charger orgA/NOPE not connected"}
+```
+
+Request bodies that fail validation return `422` with a list:
+
+```json
+{"detail": [{"type": "missing", "loc": ["body", "type"], "msg": "Field required", "input": {}}]}
+```
+
+| Status | Meaning |
+|--------|---------|
+| `400` | The operation was refused (for example adding a tag that already exists) or import text could not be parsed |
+| `401` | Missing or wrong API key |
+| `404` | Charger not connected, tag not found, or organization unknown |
+| `422` | Invalid request body, or (broker mode) an OCPP command that fails the OCPP 1.6 schema |
+| `503` | No API key configured, MongoDB not available, tag management unavailable, or the charger is unreachable |
+| `504` | The charger did not answer a command in time |
+
+There is no rate limiting.
+
+## Health
 
 ```http
 GET /health
-```
-
-**Response:**
-```json
-{
-  "status": "ok"
-}
-```
-
-**Status Codes:**
-- `200 OK` - Service is healthy
-- `503 Service Unavailable` - Service is unhealthy
-
-### **Health Check (HEAD)**
-
-```http
 HEAD /health
 ```
 
-**Response:**
-- `200 OK` - Service is healthy
-- `503 Service Unavailable` - Service is unhealthy
-
-## 🏢 Organization Endpoints
-
-### **List Organizations**
-
-```http
-GET /api/organizations
-```
-
-**Response:**
 ```json
-[
-  {
-    "name": "MyChargingStation",
-    "connect_to_backend": false,
-    "chargers": ["CHARGER_001", "CHARGER_002"],
-    "backends": []
-  },
-  {
-    "name": "ProductionCharging",
-    "connect_to_backend": true,
-    "chargers": [],
-    "backends": [
-      {
-        "id": "production_backend",
-        "url": "ws://your-backend.com/ocpp",
-        "leader": true,
-        "chargers": ["PROD_001", "PROD_002"]
-      }
-    ]
-  }
-]
+{"status": "ok"}
 ```
 
-### **Get Organization**
+Always `200` while the process is serving. It does not check MongoDB or backends.
 
 ```http
-GET /api/organizations/{org_name}
+GET /api/mongodb/health
 ```
 
-**Parameters:**
-- `org_name` (string) - Name of the organization
+```json
+{"status": "not_configured", "connected": false}
+```
 
-**Response:**
+When MongoDB is configured: `{"status": "connected" | "disconnected", "connected": true | false, "database": "ocpp_broker"}`.
+
+## Charger WebSocket
+
+```
+ws://HOST:8765/{org_name}/{charger_id}
+```
+
+| Requirement | Detail |
+|-------------|--------|
+| Subprotocol | The client must send `Sec-WebSocket-Protocol` including the organization's `ocpp_subprotocol` (default `ocpp1.6`). Otherwise the upgrade is refused with HTTP `403` (nothing is accepted, so the client sees a failed handshake, not a close code). |
+| Authentication | If the organization has `charger_auth.credentials`, send `Authorization: Basic base64(charger_id:password)`. Failure is HTTP `401` with `WWW-Authenticate: Basic` on the upgrade. |
+| Organization | Must exist in the configuration. Otherwise the socket is accepted and closed with code `4002` (`Unknown organization`). |
+| Liveness | The server pings every `security.websocket.ping_interval` seconds and closes a socket that does not answer within `ping_timeout`. |
+| Reconnects | A second connection with the same organization and charger id closes the first one with code `4003` and replaces it. |
+
+```python
+import asyncio, base64, json, websockets
+
+async def main():
+    token = base64.b64encode(b"CP001:my-key").decode()
+    async with websockets.connect(
+        "ws://localhost:8765/orgA/CP001",
+        subprotocols=["ocpp1.6"],
+        additional_headers={"Authorization": f"Basic {token}"},   # only if the org uses charger_auth
+    ) as ws:
+        await ws.send(json.dumps([2, "1", "BootNotification",
+                                  {"chargePointVendor": "Acme", "chargePointModel": "X1"}]))
+        print(await ws.recv())
+
+asyncio.run(main())
+```
+
+```
+[3,"1",{"currentTime":"2026-10-03T06:22:22.088867+00:00","interval":300,"status":"Accepted"}]
+```
+
+`GET /ocpp-check` is a WebSocket test endpoint that accepts an `ocpp1.6`, `ocpp2.0` or `ocpp2.0.1` subprotocol and closes immediately. There is no WebSocket endpoint for backends: the broker connects out to them.
+
+OCPP-J frames: CALL `[2, id, "Action", {payload}]`, CALLRESULT `[3, id, {payload}]`, CALLERROR `[4, id, "Code", "Description", {details}]`.
+
+In broker mode the broker answers `BootNotification`, `Authorize`, `Heartbeat`, `StatusNotification`, `MeterValues`, `StartTransaction`, `StopTransaction`, `DataTransfer`, `DiagnosticsStatusNotification` and `FirmwareStatusNotification`. Any other action gets a `NotImplemented` CALLERROR. See [Broker-as-Backend](broker_as_backend.md).
+
+## OCPP commands (`/api/ocpp`)
+
+Send an OCPP request to a connected charger and get its reply. The call **waits** for the charger (up to the timeout).
+
+### Connected chargers
+
+```http
+GET /api/ocpp/organizations/{org_name}/chargers
+GET /api/ocpp/organizations/{org_name}/chargers/{charger_id}/status
+```
+
+```json
+{"organization": "orgA", "chargers": [{"charger_id": "CP001", "organization": "orgA", "mode": "broker", "connected": true}]}
+```
+
+```json
+{"charger_id": "CP001", "organization": "orgA", "mode": "broker", "connected": true, "has_backend": false}
+```
+
+`mode` is `broker` or `relay`. `has_backend` is true when the session holds a backend link (relay mode). Only chargers connected right now are listed; an unknown or disconnected charger is `404`.
+
+### Generic command
+
+```http
+POST /api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands
+```
+
+```bash
+curl -X POST "$BROKER/api/ocpp/organizations/orgA/chargers/CP001/commands" \
+  -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"action": "Reset", "payload": {"type": "Soft"}, "timeout": 10}'
+```
+
+| Field | Description |
+|-------|-------------|
+| `action` | Any OCPP 1.6 central-system-to-charger action |
+| `payload` | The OCPP payload with **camelCase** keys (`connectorId`, `idTag`) |
+| `timeout` | Seconds to wait for the charger, 1-300, default 30 |
+
+### Typed commands
+
+`POST .../chargers/{charger_id}/commands/{Action}` builds the OCPP payload from a **snake_case** body. These routes always use the default 30 second timeout; use the generic route to choose another.
+
+| Route | Body fields |
+|-------|-------------|
+| `ChangeAvailability` | `connector_id` (0 = whole charger), `type` (`Inoperative` or `Operative`) |
+| `ChangeConfiguration` | `key`, `value` |
+| `ClearCache` | none |
+| `DataTransfer` | `vendor_id`, optional `message_id`, `data` |
+| `GetConfiguration` | optional `key` (list); send `{}` for all keys |
+| `RemoteStartTransaction` | `id_tag`, optional `connector_id`, `charging_profile` (object) |
+| `RemoteStopTransaction` | `transaction_id` |
+| `Reset` | `type` (`Hard` or `Soft`) |
+| `SendLocalList` | `list_version`, `update_type` (`Full` or `Differential`), optional `local_authorization_list` |
+| `SetChargingProfile` | `connector_id`, `cs_charging_profiles` (object, OCPP camelCase keys inside) |
+| `UnlockConnector` | `connector_id` |
+| `UpdateFirmware` | `location`, `retrieve_date` (ISO 8601), optional `retry_interval` |
+| `ClearChargingProfile` | optional `id`, `connector_id`, `charging_profile_purpose`, `stack_level` |
+| `GetCompositeSchedule` | `connector_id`, `duration`, optional `charging_rate_unit` (`W` or `A`) |
+| `TriggerMessage` | `requested_message`, optional `connector_id` |
+| `GetDiagnostics` | `location`, optional `start_time`, `stop_time`, `retry_interval`, `retries` |
+| `GetLocalListVersion` | none |
+| `CancelReservation` | `reservation_id` |
+| `ReserveNow` | `connector_id`, `expiry_date`, `id_tag`, `reservation_id`, optional `parent_id_tag` |
+
+```bash
+curl -X POST "$BROKER/api/ocpp/organizations/orgA/chargers/CP001/commands/ChangeAvailability" \
+  -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"connector_id": 1, "type": "Inoperative"}'
+```
+
+### Command response
+
 ```json
 {
-  "name": "MyChargingStation",
-  "connect_to_backend": false,
-  "chargers": ["CHARGER_001", "CHARGER_002"],
-  "backends": []
-}
-```
-
-**Status Codes:**
-- `200 OK` - Organization found
-- `404 Not Found` - Organization not found
-
-## 🔌 Charger Endpoints
-
-### **List Chargers**
-
-```http
-GET /api/chargers
-```
-
-**Response:**
-```json
-[
-  {
-    "id": "CHARGER_001",
-    "organization": "MyChargingStation",
-    "status": "connected",
-    "last_seen": "2024-10-18T20:46:02.911118+00:00"
-  },
-  {
-    "id": "CHARGER_002",
-    "organization": "MyChargingStation",
-    "status": "disconnected",
-    "last_seen": "2024-10-18T20:45:02.911118+00:00"
-  }
-]
-```
-
-### **Get Charger**
-
-```http
-GET /api/chargers/{charger_id}
-```
-
-**Parameters:**
-- `charger_id` (string) - ID of the charger
-
-**Response:**
-```json
-{
-  "id": "CHARGER_001",
-  "organization": "MyChargingStation",
-  "status": "connected",
-  "last_seen": "2024-10-18T20:46:02.911118+00:00",
-  "backend_connection": {
-    "connected": false,
-    "backend_id": null
-  }
-}
-```
-
-**Status Codes:**
-- `200 OK` - Charger found
-- `404 Not Found` - Charger not found
-
-### **Charger Status**
-
-```http
-GET /api/chargers/{charger_id}/status
-```
-
-**Response:**
-```json
-{
-  "id": "CHARGER_001",
-  "status": "connected",
-  "last_seen": "2024-10-18T20:46:02.911118+00:00",
-  "message_count": 42,
-  "last_message": {
-    "type": "Heartbeat",
-    "timestamp": "2024-10-18T20:46:02.911118+00:00"
-  }
-}
-```
-
-## 🔗 Backend Endpoints
-
-### **List Backends**
-
-```http
-GET /api/backends
-```
-
-**Response:**
-```json
-[
-  {
-    "id": "production_backend",
-    "organization": "ProductionCharging",
-    "url": "ws://your-backend.com/ocpp",
-    "leader": true,
-    "status": "connected",
-    "chargers": ["PROD_001", "PROD_002"]
-  }
-]
-```
-
-### **Get Backend**
-
-```http
-GET /api/backends/{backend_id}
-```
-
-**Parameters:**
-- `backend_id` (string) - ID of the backend
-
-**Response:**
-```json
-{
-  "id": "production_backend",
-  "organization": "ProductionCharging",
-  "url": "ws://your-backend.com/ocpp",
-  "leader": true,
-  "status": "connected",
-  "chargers": ["PROD_001", "PROD_002"],
-  "connection_info": {
-    "connected_at": "2024-10-18T20:46:02.911118+00:00",
-    "last_ping": "2024-10-18T20:46:02.911118+00:00",
-    "message_count": 156
-  }
-}
-```
-
-### **Backend Status**
-
-```http
-GET /api/backends/{backend_id}/status
-```
-
-**Response:**
-```json
-{
-  "id": "production_backend",
-  "status": "connected",
-  "last_ping": "2024-10-18T20:46:02.911118+00:00",
-  "message_count": 156,
-  "error_count": 0,
-  "uptime": "2h 15m 30s"
-}
-```
-
-## 📊 Metrics Endpoints
-
-### **System Metrics**
-
-```http
-GET /api/metrics
-```
-
-**Response:**
-```json
-{
-  "system": {
-    "uptime": "2h 15m 30s",
-    "memory_usage": "45.2MB",
-    "cpu_usage": "12.5%"
-  },
-  "connections": {
-    "total_chargers": 5,
-    "connected_chargers": 4,
-    "total_backends": 2,
-    "connected_backends": 2
-  },
-  "messages": {
-    "total_processed": 1250,
-    "successful": 1245,
-    "failed": 5,
-    "rate_per_minute": 12.5
-  }
-}
-```
-
-### **Organization Metrics**
-
-```http
-GET /api/organizations/{org_name}/metrics
-```
-
-**Response:**
-```json
-{
-  "organization": "MyChargingStation",
-  "chargers": {
-    "total": 2,
-    "connected": 2,
-    "disconnected": 0
-  },
-  "messages": {
-    "total_processed": 450,
-    "successful": 448,
-    "failed": 2
-  },
-  "backends": {
-    "total": 0,
-    "connected": 0
-  }
-}
-```
-
-## 📝 Log Endpoints
-
-### **System Logs**
-
-```http
-GET /api/logs
-```
-
-**Query Parameters:**
-- `level` (string, optional) - Log level filter (DEBUG, INFO, WARNING, ERROR)
-- `limit` (integer, optional) - Number of log entries to return (default: 100)
-- `offset` (integer, optional) - Number of log entries to skip (default: 0)
-
-**Response:**
-```json
-{
-  "logs": [
-    {
-      "timestamp": "2024-10-18T20:46:02.911118+00:00",
-      "level": "INFO",
-      "message": "Charger CHARGER_001 connected",
-      "source": "ocpp_broker.broker"
-    },
-    {
-      "timestamp": "2024-10-18T20:45:02.911118+00:00",
-      "level": "DEBUG",
-      "message": "Processing BootNotification from CHARGER_001",
-      "source": "ocpp_broker.command_router"
-    }
-  ],
-  "total": 1250,
-  "limit": 100,
-  "offset": 0
-}
-```
-
-### **Charger Logs**
-
-```http
-GET /api/chargers/{charger_id}/logs
-```
-
-**Response:**
-```json
-{
-  "charger_id": "CHARGER_001",
-  "logs": [
-    {
-      "timestamp": "2024-10-18T20:46:02.911118+00:00",
-      "level": "INFO",
-      "message": "BootNotification received",
-      "source": "ocpp_broker.broker"
-    }
-  ],
-  "total": 25
-}
-```
-
-## 🔌 WebSocket API
-
-### **Charger Connections**
-
-**Endpoint:**
-```
-ws://localhost:8765/{org_name}/{charger_id}
-```
-
-**Subprotocol:**
-```
-ocpp1.6
-```
-
-**Example:**
-```javascript
-const ws = new WebSocket('ws://localhost:8765/MyChargingStation/CHARGER_001', 'ocpp1.6');
-```
-
-### **Backend Connections**
-
-**Endpoint:**
-```
-ws://localhost:8765/backend/{org_name}/{backend_id}
-```
-
-**Subprotocol:**
-```
-ocpp1.6
-```
-
-**Example:**
-```javascript
-const ws = new WebSocket('ws://localhost:8765/backend/ProductionCharging/production_backend', 'ocpp1.6');
-```
-
-## 📨 OCPP Message Format
-
-### **Call Message (Type 2)**
-
-```json
-[2, "unique-message-id", "ActionName", {
-  "parameter1": "value1",
-  "parameter2": "value2"
-}]
-```
-
-**Example:**
-```json
-[2, "12345", "BootNotification", {
-  "chargePointVendor": "Siemens",
-  "chargePointModel": "SL/01"
-}]
-```
-
-### **Call Result Message (Type 3)**
-
-```json
-[3, "unique-message-id", {
-  "parameter1": "value1",
-  "parameter2": "value2"
-}]
-```
-
-**Example:**
-```json
-[3, "12345", {
-  "currentTime": "2024-10-18T20:46:02.911118+00:00",
-  "interval": 300,
-  "status": "Accepted"
-}]
-```
-
-### **Call Error Message (Type 4)**
-
-```json
-[4, "unique-message-id", "ErrorCode", "ErrorDescription", {
-  "errorDetails": "value"
-}]
-```
-
-**Example:**
-```json
-[4, "12345", "NotImplemented", "Action not supported", {}]
-```
-
-## 🔧 Configuration API
-
-### **Get Configuration**
-
-```http
-GET /api/config
-```
-
-**Response:**
-```json
-{
-  "broker": {
-    "host": "0.0.0.0",
-    "port": 8765,
-    "log_level": "INFO"
-  },
-  "organizations": [
-    {
-      "name": "MyChargingStation",
-      "connect_to_backend": false,
-      "chargers": ["CHARGER_001", "CHARGER_002"]
-    }
-  ]
-}
-```
-
-### **Reload Configuration**
-
-```http
-POST /api/config/reload
-```
-
-**Response:**
-```json
-{
+  "message_id": "fbaecb17-5a3e-440e-b218-e824793edf0f",
+  "organization": "orgA",
+  "charger_id": "CP001",
+  "action": "Reset",
   "status": "success",
-  "message": "Configuration reloaded successfully"
+  "response": {"status": "Accepted"},
+  "error": null,
+  "timestamp": "2026-10-03T06:22:22.142596+00:00"
 }
 ```
 
-**Status Codes:**
-- `200 OK` - Configuration reloaded successfully
-- `400 Bad Request` - Configuration validation failed
-- `500 Internal Server Error` - Configuration reload failed
+| `status` | HTTP | Meaning |
+|----------|------|---------|
+| `success` | `200` | The charger answered with a CALLRESULT; its payload (camelCase) is in `response` |
+| `error` | `200` | The charger answered with a CALLERROR; `error` is `"Code: description"`, for example `"NotSupported: Hard reset not supported"` |
+| `timeout` | `504` | No answer in time (same body, `error` is `"No response within 1s"`) |
 
-## 🚨 Error Responses
+Other outcomes: `404` charger not connected, `503` the charger disconnected or could not be written to, `422` invalid command.
 
-### **Standard Error Format**
+- **Broker mode:** the request is validated against the OCPP 1.6 schema before anything is sent (`422` for an unknown action, a missing or unknown field, or a bad value). The call goes through the `ocpp` library, so the reply is validated too.
+- **Relay mode:** the frame is sent exactly as given, with no validation, and the charger's reply is intercepted by message id; it is **not** forwarded to the backend. Commands issued by the backend itself still reach the charger.
+- A `success` or `error` result is also saved to MongoDB (as `call_result` / `call_error`) when MongoDB is enabled.
 
-```json
-{
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human-readable error message",
-    "details": {
-      "field": "Additional error details"
-    }
-  }
-}
-```
-
-### **Common Error Codes**
-
-| Code | Description | HTTP Status |
-|------|-------------|-------------|
-| `INVALID_REQUEST` | Invalid request format | 400 |
-| `NOT_FOUND` | Resource not found | 404 |
-| `VALIDATION_ERROR` | Request validation failed | 400 |
-| `INTERNAL_ERROR` | Internal server error | 500 |
-| `SERVICE_UNAVAILABLE` | Service temporarily unavailable | 503 |
-
-### **Error Examples**
-
-**404 Not Found:**
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Charger CHARGER_001 not found",
-    "details": {
-      "charger_id": "CHARGER_001"
-    }
-  }
-}
-```
-
-**400 Bad Request:**
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Invalid request parameters",
-    "details": {
-      "field": "organization",
-      "message": "Organization name is required"
-    }
-  }
-}
-```
-
-## 📊 Rate Limiting
-
-### **Rate Limits**
-
-- **API Requests**: 1000 requests per minute per IP
-- **WebSocket Connections**: 100 connections per IP
-- **Message Processing**: 100 messages per second per connection
-
-### **Rate Limit Headers**
+### Looking up an earlier command
 
 ```http
-X-RateLimit-Limit: 1000
-X-RateLimit-Remaining: 999
-X-RateLimit-Reset: 1640995200
+GET /api/ocpp/commands/{message_id}/response
 ```
 
-### **Rate Limit Exceeded**
+Returns the same body as the original call (`status` is `pending` while it waits). The broker keeps the last 1000 outcomes in memory, so an older or unknown id is `404`.
+
+## Tags (`/api/tags`)
+
+Tags authorize `Authorize` and `StartTransaction` in broker mode. See [Tag Management](tag-management.md) for the model and workflows.
+
+| Method and route | Purpose |
+|------------------|---------|
+| `GET /api/tags/status` | Whether tag management is active |
+| `GET /api/tags/organizations` | Organizations that have a tag list |
+| `GET /api/tags/organizations/{org}/list` | The organization's full tag list |
+| `GET /api/tags/organizations/{org}/tags` | Search (query: `id_tag`, `status`, `tag_type`, `parent_id_tag`, `limit` 1-1000 default 100, `offset`) |
+| `POST /api/tags/organizations/{org}/tags` | Add a tag |
+| `GET`, `PUT`, `DELETE /api/tags/organizations/{org}/tags/{id_tag}` | Read, replace, delete |
+| `POST /api/tags/organizations/{org}/tags/authorize` | Authorize a tag; the body is a bare JSON string |
+| `GET /api/tags/organizations/{org}/statistics` | Counts by status and type |
+| `POST /api/tags/organizations/{org}/tags/validate` | Check a tag without storing it (query `for_update=true` skips the duplicate check) |
+| `POST /api/tags/organizations/{org}/tags/bulk` | `{"operation": "add" \| "update" \| "delete", "tags": [...]}` |
+| `POST /api/tags/organizations/{org}/tags/import` | `{"source": "json" \| "csv", "data": "...", "overwrite_existing": false, "validate_only": false}` |
+| `POST /api/tags/organizations/{org}/tags/export` | `{"format": "json" \| "csv", "include_metadata": true}`; CSV is returned as a download |
+| `POST /api/tags/sync` | Reload from MongoDB (query `org_name` optional); `503` without MongoDB |
+
+Tag fields:
+
+| Field | Notes |
+|-------|-------|
+| `id_tag` | 1-20 printable ASCII characters (required) |
+| `status` | `Accepted`, `Blocked`, `Expired`, `Invalid` or `ConcurrentTx` (required) |
+| `tag_type` | `RFID` (default), `NFC`, `QRCode`, `MobileApp`, `UserId` |
+| `expiry_date` | ISO 8601 string |
+| `parent_id_tag`, `description`, `metadata` | optional |
+| `created_at`, `updated_at` | set by the broker |
+
+```bash
+curl -X POST "$BROKER/api/tags/organizations/orgA/tags" \
+  -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"id_tag": "USER1", "status": "Accepted", "tag_type": "RFID", "metadata": {"dept": "IT"}}'
+```
+
+```json
+{"success": true, "message": "Tag USER1 added successfully"}
+```
+
+Adding an existing tag is `400` `{"detail": "Failed to add tag"}`; reading a missing one is `404` `{"detail": "Tag not found"}`.
+
+**Status**
+
+```json
+{"enabled": true, "message": "Tag management is active", "mongodb_persistence": false, "organizations": ["orgA"]}
+```
+
+**Full list.** The organization's tag list as stored: `{"list_version": 1, "tags": [...], "created_at": ..., "updated_at": ...}`. For an organization with no list the answer is `{"listVersion": 0, "tags": []}` (note the different key spelling).
+
+**Authorize**
+
+```bash
+curl -X POST "$BROKER/api/tags/organizations/orgA/tags/authorize" \
+  -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" -d '"ADMIN001"'
+```
+
+```json
+{"idTag": "ADMIN001", "idTagInfo": {"status": "Accepted", "expiryDate": null, "parentIdTag": null}}
+```
+
+An unknown tag answers `Invalid`; a tag past its expiry (or with an unreadable `expiry_date`) answers `Expired`.
+
+**Statistics**
+
+```json
+{"total_tags": 2, "active_tags": 1, "expired_tags": 1, "blocked_tags": 0,
+ "tags_by_type": {"RFID": 2}, "tags_by_status": {"Accepted": 2}}
+```
+
+`active_tags` counts `Accepted` tags that have not passed their expiry; `expired_tags` counts tags with status `Expired` or a past expiry.
+
+**Validate**
+
+```json
+{"is_valid": false,
+ "errors": ["Tag ADMIN001 already exists in organization orgA",
+            "parent_id_tag 'GHOST' does not exist in organization orgA"],
+ "warnings": []}
+```
+
+Errors: non-printable id, duplicate, unreadable `expiry_date`, missing or self-referencing parent. A past `expiry_date` is only a warning.
+
+**Bulk.** Items succeed or fail independently:
+
+```json
+{"operation": "add", "total": 2, "succeeded": 1, "failed": 1,
+ "results": [{"id_tag": "B1", "success": true, "error": null},
+             {"id_tag": "ADMIN001", "success": false, "error": "already exists"}]}
+```
+
+**Import.** JSON may be `{"tags": [...]}` or a bare list; CSV needs the header `id_tag,status,tag_type,expiry_date,parent_id_tag,description` (a `metadata` column holds JSON). Bad records are reported and the rest are imported; existing tags are skipped unless `overwrite_existing` is true; `validate_only` changes nothing. Text that cannot be parsed at all is `400`.
+
+```json
+{"source": "json", "validate_only": false, "total": 2, "imported": 1, "updated": 0, "skipped": 0,
+ "errors": [{"record": 2, "id_tag": "I2", "error": "status: Input should be 'Accepted', 'Blocked', 'Expired', 'Invalid' or 'ConcurrentTx'"}]}
+```
+
+**Export.** CSV (`text/csv`, `Content-Disposition: attachment; filename="orgA-tags.csv"`) or JSON `{"organization", "exported_at", "count", "tags": [...]}`. `include_metadata: false` omits `created_at`, `updated_at` and `metadata`. Both formats can be imported again.
+
+**Sync.** With MongoDB enabled, `POST /api/tags/sync` reloads tags and answers `{"success": true, "message": "...", "organizations": {"orgA": {"loaded": 3, "seeded": 0, "dropped": 0}}}`. See [Tag Management](tag-management.md#syncing-with-mongodb). Without MongoDB: `503` `{"detail": "MongoDB is not connected"}`.
+
+## MongoDB data API (`/api/mongodb`)
+
+These routes let an external system write OCPP records into the broker's MongoDB database. Every route returns `503` `{"detail": "MongoDB service not available"}` when MongoDB is not connected, and `{"status": "success", "message": "..."}` otherwise. See [MongoDB Integration](mongodb-integration.md).
+
+| Route | Required fields (all take `org_name`, `charger_id`, optional `timestamp`) |
+|-------|------------------------------------|
+| `POST /status-notification` | `connector_id`, `status`; optional `error_code`, `info`, `vendor_id`, `vendor_error_code` |
+| `POST /meter-values` | `connector_id`, `meter_value` (list of objects); optional `transaction_id` |
+| `POST /boot-notification` | `charge_point_model`, `charge_point_vendor`; optional `firmware_version`, `iccid`, `imsi`, `meter_type`, `meter_serial_number` |
+| `POST /transaction` | `transaction_id`, `connector_id`, `id_tag`, `transaction_type` (`start` or `stop`, default `start`); optional `meter_start`, `meter_stop`, `stop_reason`, `reservation_id` |
+| `POST /authorization` | `id_tag`, `status`; optional `expiry_date`, `parent_id_tag` |
+| `POST /data-transfer` | `vendor_id`; optional `message_id`, `data`, `status` |
+| `POST /ocpp-message` | `message_type` (`call`, `call_result`, `call_error`), `action`, `payload`; optional `direction`, `message_id` |
+| `GET /health` | see [Health](#health) |
+
+## Backends (`/orgs`)
 
 ```http
-HTTP/1.1 429 Too Many Requests
-Content-Type: application/json
-
-{
-  "error": {
-    "code": "RATE_LIMIT_EXCEEDED",
-    "message": "Rate limit exceeded",
-    "details": {
-      "limit": 1000,
-      "remaining": 0,
-      "reset_time": "2024-10-18T21:00:00Z"
-    }
-  }
-}
+GET /orgs/{org}/backends
 ```
 
-## 🏷️ Tag Management Endpoints
-
-### **Tag Management Status**
-
-```http
-GET /api/tags/status
-```
-
-**Response:**
 ```json
-{
-  "enabled": true,
-  "message": "Tag management is active",
-  "organizations": ["MyChargingStation", "ProductionCharging"]
-}
+[{"charger_id": "CP001", "url": "ws://backend.example.com/ocpp", "leader": true, "connected": true}]
 ```
 
-### **Add Tag**
+One entry per backend link of every charger currently connected in relay mode (the leader and each follower). `url` is the configured base URL; `connected` says whether that link is up right now. An organization that has had no relay-mode charger since the broker started is `404` `{"detail": "Organization not found"}`; once its chargers have all left the list is empty.
 
-```http
-POST /api/tags/organizations/{org_name}/tags
-```
+There are no endpoints to list organizations, add or remove backends, promote a leader or reload the configuration; change `config.yaml` and restart the broker.
 
-**Request Body:**
-```json
-{
-  "id_tag": "USER123456",
-  "status": "Accepted",
-  "tag_type": "RFID",
-  "description": "Employee access card",
-  "expiry_date": "2024-12-31T23:59:59Z",
-  "metadata": {
-    "role": "employee",
-    "department": "Engineering"
-  }
-}
-```
+## Related documentation
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Tag USER123456 added successfully"
-}
-```
-
-### **Get Tag**
-
-```http
-GET /api/tags/organizations/{org_name}/tags/{id_tag}
-```
-
-**Response:**
-```json
-{
-  "id_tag": "USER123456",
-  "status": "Accepted",
-  "tag_type": "RFID",
-  "description": "Employee access card",
-  "expiry_date": "2024-12-31T23:59:59Z",
-  "created_at": "2024-01-15T10:30:00Z",
-  "updated_at": "2024-01-15T10:30:00Z",
-  "metadata": {
-    "role": "employee",
-    "department": "Engineering"
-  }
-}
-```
-
-### **Search Tags**
-
-```http
-GET /api/tags/organizations/{org_name}/tags?status=Accepted&tag_type=RFID&limit=50
-```
-
-**Response:**
-```json
-{
-  "tags": [
-    {
-      "id_tag": "USER123456",
-      "status": "Accepted",
-      "tag_type": "RFID",
-      "description": "Employee access card"
-    }
-  ],
-  "total": 1,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-### **Tag Statistics**
-
-```http
-GET /api/tags/organizations/{org_name}/statistics
-```
-
-**Response:**
-```json
-{
-  "total_tags": 150,
-  "active_tags": 120,
-  "expired_tags": 20,
-  "blocked_tags": 10,
-  "tags_by_type": {
-    "RFID": 100,
-    "QRCode": 30,
-    "MobileApp": 20
-  },
-  "tags_by_status": {
-    "Accepted": 120,
-    "Blocked": 10,
-    "Expired": 20
-  }
-}
-```
-
-### **Authorize Tag**
-
-```http
-POST /api/tags/organizations/{org_name}/tags/authorize
-```
-
-**Request Body:**
-```json
-"USER123456"
-```
-
-**Response:**
-```json
-{
-  "idTag": "USER123456",
-  "idTagInfo": {
-    "status": "Accepted",
-    "expiryDate": "2024-12-31T23:59:59Z",
-    "parentIdTag": null
-  }
-}
-```
-
-### **Bulk Operations**
-
-```http
-POST /api/tags/organizations/{org_name}/tags/bulk
-```
-
-**Request Body:**
-```json
-{
-  "operation": "add",
-  "tags": [
-    {
-      "id_tag": "BULK001",
-      "status": "Accepted",
-      "tag_type": "RFID",
-      "description": "Bulk user 1"
-    },
-    {
-      "id_tag": "BULK002",
-      "status": "Accepted",
-      "tag_type": "RFID",
-      "description": "Bulk user 2"
-    }
-  ]
-}
-```
-
-### **Import Tags**
-
-```http
-POST /api/tags/organizations/{org_name}/tags/import
-```
-
-**Request Body:**
-```json
-{
-  "source": "json",
-  "data": "{\"tags\": [{\"id_tag\": \"IMPORT001\", \"status\": \"Accepted\", \"tag_type\": \"RFID\"}]}",
-  "overwrite_existing": false
-}
-```
-
-### **Export Tags**
-
-```http
-POST /api/tags/organizations/{org_name}/tags/export
-```
-
-**Request Body:**
-```json
-{
-  "format": "csv",
-  "include_metadata": true
-}
-```
-
-**Response:** File download (CSV/JSON/XML format)
-
-## 🔗 Related Documentation
-
-- [Quick Start Guide](quick-start.md)
+- [Quick Start](quick-start.md)
 - [Configuration Guide](configuration.md)
-- [OCPP 1.6 Features](ocpp16-features.md)
-- [Broker-as-Backend Mode](broker-as-backend.md)
+- [Broker-as-Backend Mode](broker_as_backend.md)
+- [Leader/Follower](leader-follower.md)
 - [Tag Management](tag-management.md)
-- [Production Deployment](deployment.md)
+- [MongoDB Integration](mongodb-integration.md)
 - [Troubleshooting](troubleshooting.md)
-
----
-
-*Last updated: October 2024*

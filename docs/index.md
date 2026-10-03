@@ -1,20 +1,35 @@
-# ⚡ OCPP Multi-Organization Broker
+# OCPP Broker
 
-Welcome to the **OCPP Multi-Organization Broker** documentation.
+An OCPP 1.6 broker between chargers and your central system. Per organization it either:
 
-This broker:
-- Acts as an OCPP proxy between chargers and multiple backends
-- Supports multiple organizations with independent configurations
-- Provides comprehensive tag management for authorization
-- Offers both traditional proxy mode and broker-as-backend mode
-- Includes a REST API for dynamic control and runtime management
-- Supports OCPP 1.6 with full command coverage
+- **answers chargers itself** (broker mode): authorization from a tag list, transaction ids, optional MongoDB storage; or
+- **relays them to your own backends** (relay mode): frames are forwarded unchanged, buffered while a backend is down, copied to observer backends, and moved to another backend if the leader stays unreachable.
 
-## Quick Start
+A REST API on the same port manages tags and sends OCPP commands to connected chargers, returning the charger's actual reply.
 
-1. Configure `config.yaml` with your organizations and backends.
-2. Create and activate a virtual environment, then install requirements:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
+## Quick start
+
+```bash
+pip install ocpp-broker
+export OCPP_BROKER_API_KEY=change-me      # needed for the REST API
+ocpp-broker-server -c config.yaml
+curl http://localhost:8765/health
+```
+
+Chargers connect to `ws://localhost:8765/{organization}/{charger id}`.
+
+A minimal `config.yaml`:
+
+```yaml
+broker:
+  port: 8765
+
+organizations:
+  - name: "MyOrg"
+    connect_to_backend: false   # false = broker mode; true (the default) = relay mode, needs `backends`
+    tags:
+      - id_tag: "ADMIN001"
+        status: "Accepted"
+```
+
+Continue with the [Quick Start](quick-start.md), or see the full [documentation index](README.md).

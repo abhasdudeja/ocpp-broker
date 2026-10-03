@@ -1,572 +1,285 @@
 # Configuration Guide
 
-Complete guide to configuring the unified OCPP broker for various deployment scenarios.
+The broker is configured with one YAML file. This page lists every setting the code reads, what it does and its default. Settings that are accepted but have no effect are listed at the end so you do not rely on them.
 
-## 📋 Configuration Overview
+## Where the configuration comes from
 
-The OCPP broker uses a **unified YAML configuration file** (`config.yaml`) that includes all features:
-- **Broker settings** (host, port, OCPP version, features)
-- **API server configuration** (REST API settings)
-- **Organizations** and their backends with full OCPP 1.6 support
-- **Tag management** for authorization and access control
-- **OCPP 1.6 features** (smart charging, firmware management, etc.)
-- **Security and logging** settings
-- **Leader-follower logic** for multi-backend deployments
+`ocpp-broker-server` looks for the file in this order:
 
-## 🔧 Basic Configuration
+1. `-c /path/to/config.yaml` (`--config`)
+2. `config.yaml` in the current working directory
+3. `config.yaml` at the root of the source tree (only meaningful for a checkout, not an installed package)
 
-### **Minimal Configuration**
+If no file is found (or the `-c` path does not exist) the broker starts with built-in defaults **and no organizations**, so every charger is refused (`Unknown organization`, close code 4002). A warning is logged.
 
-```yaml
-# config.yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
+Environment variables override a few values ([see below](#environment-variables)). A `.env` file in the working directory is loaded first, so it can supply them.
 
-organizations:
-  - name: "DefaultOrg"
-    connect_to_backend: false
-    chargers:
-      - "CHARGER_001"
-```
+The whole broker (charger WebSocket, REST API, Swagger UI at `/docs`, `/health`) listens on **one** port: `broker.port`.
 
-### **Broker Settings**
+## Annotated reference
 
 ```yaml
 broker:
-  host: 0.0.0.0          # Broker host address
-  port: 8765             # Broker port
-  log_level: "INFO"      # Logging level (DEBUG, INFO, WARNING, ERROR)
-  max_connections: 1000  # Maximum concurrent connections
-  timeout: 30            # Connection timeout in seconds
-```
+  host: 0.0.0.0              # bind address (default 0.0.0.0)
+  port: 8765                 # must be a positive integer (default 8765)
 
-## 🏢 Organization Configuration
+mongodb:                     # optional; see mongodb-integration.md
+  enabled: false             # default false
+  connection_string: "mongodb://localhost:27017"
+  database_name: "ocpp_broker"
 
-### **Basic Organization**
+ocpp:
+  commands:
+    core:
+      heartbeat_interval: 300   # seconds; sent as `interval` in the BootNotification reply (broker mode)
 
-```yaml
-organizations:
-  - name: "MyChargingStation"
-    connect_to_backend: false  # Broker acts as backend
-    chargers:
-      - "CHARGER_001"
-      - "CHARGER_002"
-```
-
-### **Organization with External Backend**
-
-```yaml
-organizations:
-  - name: "ProductionCharging"
-    connect_to_backend: true
-    backends:
-      - id: "production_backend"
-        url: "ws://your-backend.com/ocpp"
-        leader: true
-        chargers:
-          - "PROD_001"
-          - "PROD_002"
-```
-
-### **Multiple Backends (Leader-Follower)**
-
-```yaml
-organizations:
-  - name: "MultiBackendOrg"
-    connect_to_backend: true
-    backends:
-      - id: "leader_backend"
-        url: "ws://leader-backend.com/ocpp"
-        leader: true
-        chargers:
-          - "CHARGER_001"
-      - id: "follower_backend"
-        url: "ws://follower-backend.com/ocpp"
-        leader: false
-        chargers:
-          - "CHARGER_001"
-```
-
-## 🎯 Broker-as-Backend Mode
-
-### **Local Processing Configuration**
-
-```yaml
-organizations:
-  - name: "LocalCharging"
-    connect_to_backend: false  # Broker acts as backend
-    chargers:
-      - "LOCAL_001"
-      - "LOCAL_002"
-```
-
-**Benefits:**
-- No external backend dependencies
-- Local OCPP command processing
-- Reduced latency
-- Simplified deployment
-
-### **Enhanced OCPP 1.6 Configuration**
-
-```yaml
-organizations:
-  - name: "AdvancedCharging"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-      - firmware_management
-      - local_auth_list
-      - reservation
-    chargers:
-      - "ADVANCED_001"
-```
-
-## 🔗 Backend Configuration
-
-### **Single Backend**
-
-```yaml
-organizations:
-  - name: "SingleBackendOrg"
-    connect_to_backend: true
-    backends:
-      - id: "main_backend"
-        url: "ws://backend.example.com/ocpp"
-        leader: true
-        chargers:
-          - "CHARGER_001"
-          - "CHARGER_002"
-```
-
-### **Multiple Backends**
-
-```yaml
-organizations:
-  - name: "MultiBackendOrg"
-    connect_to_backend: true
-    backends:
-      - id: "primary_backend"
-        url: "ws://primary-backend.com/ocpp"
-        leader: true
-        chargers:
-          - "CHARGER_001"
-          - "CHARGER_002"
-      - id: "secondary_backend"
-        url: "ws://secondary-backend.com/ocpp"
-        leader: false
-        chargers:
-          - "CHARGER_001"
-          - "CHARGER_002"
-```
-
-### **Backend with Authentication**
-
-```yaml
-organizations:
-  - name: "SecureBackendOrg"
-    connect_to_backend: true
-    backends:
-      - id: "secure_backend"
-        url: "ws://secure-backend.com/ocpp"
-        leader: true
-        auth:
-          username: "ocpp_user"
-          password: "secure_password"
-        chargers:
-          - "SECURE_001"
-```
-
-## 🚀 OCPP 1.6 Features
-
-### **Core Profile (Default)**
-
-```yaml
-organizations:
-  - name: "CoreProfileOrg"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-    chargers:
-      - "CORE_001"
-```
-
-**Supported Commands:**
-- Authorize, BootNotification, Heartbeat
-- StatusNotification, MeterValues
-- StartTransaction, StopTransaction
-- ChangeAvailability, ChangeConfiguration
-- ClearCache, DataTransfer, GetConfiguration
-- RemoteStartTransaction, RemoteStopTransaction
-- Reset, SendLocalList, SetChargingProfile
-- UnlockConnector, UpdateFirmware
-
-### **Smart Charging Profile**
-
-```yaml
-organizations:
-  - name: "SmartChargingOrg"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-    chargers:
-      - "SMART_001"
-```
-
-**Additional Commands:**
-- ClearChargingProfile
-- GetCompositeSchedule
-- SetChargingProfile
-- TriggerMessage
-
-### **Firmware Management Profile**
-
-```yaml
-organizations:
-  - name: "FirmwareOrg"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - firmware_management
-    chargers:
-      - "FIRMWARE_001"
-```
-
-**Additional Commands:**
-- GetDiagnostics
-- UpdateFirmware
-
-### **Local Authorization List Profile**
-
-```yaml
-organizations:
-  - name: "LocalAuthOrg"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - local_auth_list
-    chargers:
-      - "LOCAL_AUTH_001"
-```
-
-**Additional Commands:**
-- GetLocalListVersion
-- SendLocalList
-
-### **Reservation Profile**
-
-```yaml
-organizations:
-  - name: "ReservationOrg"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - reservation
-    chargers:
-      - "RESERVATION_001"
-```
-
-**Additional Commands:**
-- CancelReservation
-- ReserveNow
-
-### **Complete OCPP 1.6 Configuration**
-
-```yaml
-organizations:
-  - name: "FullOCPP16Org"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-      - firmware_management
-      - local_auth_list
-      - reservation
-    chargers:
-      - "FULL_001"
-```
-
-## 🔐 Security Configuration
-
-### **TLS/SSL Configuration**
-
-```yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-  tls:
-    enabled: true
-    cert_file: "/path/to/cert.pem"
-    key_file: "/path/to/key.pem"
-    ca_file: "/path/to/ca.pem"
-```
-
-### **Authentication**
-
-```yaml
-organizations:
-  - name: "SecureOrg"
-    connect_to_backend: true
-    backends:
-      - id: "secure_backend"
-        url: "wss://secure-backend.com/ocpp"
-        leader: true
-        auth:
-          username: "ocpp_user"
-          password: "secure_password"
-        chargers:
-          - "SECURE_001"
-```
-
-## 📊 Monitoring Configuration
-
-### **Logging Configuration**
-
-```yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-  log_level: "INFO"
-  log_file: "/var/log/ocpp-broker.log"
-  log_format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-```
-
-### **Metrics Configuration**
-
-```yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-  metrics:
-    enabled: true
-    port: 9090
-    path: "/metrics"
-```
-
-## 🌐 Network Configuration
-
-### **CORS Configuration**
-
-```yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
+security:
+  api_key: "..."                    # REST API key; prefer the OCPP_BROKER_API_KEY environment variable
+  allow_unauthenticated_api: false  # true = REST API needs no key (development only)
   cors:
-    enabled: true
-    origins: ["*"]
-    methods: ["GET", "POST", "PUT", "DELETE"]
-    headers: ["*"]
+    allow_origins: []               # explicit origins; empty = no CORS headers
+    allow_credentials: false        # never combined with "*"
+  websocket:
+    ping_interval: 20               # seconds between pings to chargers
+    ping_timeout: 20                # a charger that does not answer a ping in time is dropped
+
+data_transfer:                      # broker mode only; see "DataTransfer" below
+  enabled: true
+  known_vendors: []
+  known_message_ids: []
+
+organizations:
+  - name: "orgA"                    # required, unique; first path segment of the charger URL
+    connect_to_backend: false       # false = broker mode, true = relay mode (DEFAULT IS TRUE)
+    ocpp_subprotocol: "ocpp1.6"     # WebSocket subprotocol the charger must request
+    tags: []                        # initial authorization tags (see tag-management.md)
+    charger_auth: {}                # HTTP Basic credentials for chargers
+    backends: []                    # relay mode only
+    backend_buffer_size: 200
+    backend_outage_timeout: 30
+    leader_failover_timeout: 15
 ```
 
-### **Proxy Configuration**
+## Organizations
+
+An organization is a namespace for chargers. A charger connects to `ws://HOST:PORT/{org name}/{charger id}`; the same charger id may exist in several organizations and they stay independent. Organization names must be unique and every organization needs a `name`, otherwise the file is rejected at startup.
+
+### Mode: `connect_to_backend`
+
+| Value | Mode | What happens |
+|-------|------|--------------|
+| `false` | **Broker mode** | The broker is the central system. It answers the charger itself ([Broker-as-Backend](broker_as_backend.md)). |
+| `true` | **Relay mode** | The broker opens a WebSocket per charger to each backend and forwards frames both ways ([Leader/Follower](leader-follower.md)). |
+
+**The default is `true`**: an organization without `connect_to_backend` is a relay organization and must list `backends`, or its chargers cannot be served. Always set the key explicitly.
+
+### Relay mode: `backends`
+
+```yaml
+organizations:
+  - name: "orgB"
+    connect_to_backend: true
+    ocpp_subprotocol: "ocpp1.6"
+    backends:
+      - id: primary                       # label only; shown in a log line
+        url: ws://primary.example.com/ocpp
+        leader: true
+      - id: observer
+        url: ws://secondary.example.com/ocpp
+        ocpp_subprotocol: "ocpp1.6"       # optional; defaults to the organization's
+```
+
+- `url` is a base URL. For a charger `CP001` the broker connects to `{url}/CP001` (a trailing `/` on `url` is removed).
+- `leader: true` marks the backend that talks to the charger. If none is marked the first is used; if several are marked only the first counts (a warning is logged).
+- Every other backend is a **follower**: it receives a copy of the charger's requests and its replies are discarded.
+- Backends cannot be given credentials: the broker does not send an `Authorization` header to them.
+- A relay organization with an empty `backends` list fails each charger session with an error.
+
+| Relay tuning | Default | Meaning |
+|--------------|---------|---------|
+| `backend_buffer_size` | `200` | Frames held per charger while the leader is unreachable. A full buffer refuses new frames. |
+| `backend_outage_timeout` | `30` | Seconds a held request may wait. Then the charger gets a `CALLERROR` (`InternalError`). |
+| `leader_failover_timeout` | `15` | Seconds the leader may be unreachable before the first healthy follower is promoted. `0` disables failover. |
+
+### Charger authentication: `charger_auth`
+
+HTTP Basic authentication on the WebSocket upgrade (OCPP 1.6 security profile 1). The username must be the charger id from the URL.
+
+```yaml
+organizations:
+  - name: "orgA"
+    connect_to_backend: false
+    charger_auth:
+      credentials:
+        CP001:
+          password_hash: "pbkdf2_sha256$200000$<salt>$<hash>"   # from: python -m ocpp_broker.auth
+        CP002: "a-plain-text-key"                                # shorthand for {password: ...}; discouraged
+```
+
+- Authentication is enforced for an organization as soon as it lists `credentials` (or sets `required: true`). A charger that is not listed, or sends no or wrong credentials, is refused with HTTP `401` and a `WWW-Authenticate: Basic` header.
+- An organization with no `credentials` accepts any charger. A warning is logged at startup.
+- `required: true` with no credentials rejects every charger (a warning is logged).
+- Generate a hash with `ocpp-broker-hash-password` (or `python -m ocpp_broker.auth`).
+- This does not encrypt anything. Put the broker behind a TLS-terminating reverse proxy if the network is not trusted; the broker itself has no TLS settings.
+
+### Initial tags: `tags`
+
+```yaml
+    tags:
+      - id_tag: "ADMIN001"
+        status: "Accepted"          # Accepted | Blocked | Expired | Invalid | ConcurrentTx
+        tag_type: "RFID"            # RFID | NFC | QRCode | MobileApp | UserId (default RFID)
+        expiry_date: "2030-12-31T23:59:59Z"
+        parent_id_tag: null
+        description: "Administrator card"
+        metadata: {department: "IT"}
+```
+
+Tags are loaded into memory at startup and are used to answer `Authorize` and `StartTransaction` in broker mode. See [Tag Management](tag-management.md).
+
+## DataTransfer
+
+Applies to broker mode (relay mode forwards `DataTransfer` untouched). The section is system-wide, not per organization.
+
+```yaml
+data_transfer:
+  enabled: true                  # false: every DataTransfer is answered NotImplemented
+  validate_vendors: true         # default true
+  validate_message_ids: true     # default true
+  known_vendors: ["ABB", "Siemens"]
+  known_message_ids: ["MSG001"]
+  vendors:
+    ABB:
+      allowed_message_ids: ["MSG001"]
+      auto_accept: true          # default true; false answers Rejected
+      require_message_id: false  # default false; true answers UnknownMessageId when absent
+  vendor_messages:
+    "ABB:MSG001":
+      auto_accept: true
+```
+
+Behaviour:
+
+- A vendor not in `known_vendors` or `vendors` is answered `UnknownVendorId`, but only when `validate_vendors` is true and at least one vendor is known. The same rule applies to message ids (`UnknownMessageId`).
+- The known message ids are the union of `known_message_ids`, the ids in `vendor_messages` keys and every vendor's `allowed_message_ids`.
+- A vendor listed under `vendors` is handled by its settings; otherwise the request is accepted and `data` is echoed back (JSON is re-serialised, anything else returned as is).
+- With no `data_transfer` section at all, every DataTransfer is accepted.
+
+## MongoDB
+
+```yaml
+mongodb:
+  enabled: true
+  connection_string: "mongodb://localhost:27017"
+  database_name: "ocpp_broker"
+```
+
+MongoDB is optional. Without it nothing is persisted, tags live only in memory and transaction ids come from a non-durable counter (a warning is logged). See [MongoDB Integration](mongodb-integration.md).
+
+## Security section
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `security.api_key` | none | REST API key. The `OCPP_BROKER_API_KEY` environment variable wins over it. |
+| `security.allow_unauthenticated_api` | `false` | With no key configured the REST API answers `503` unless this is `true`. |
+| `security.cors.allow_origins` | `[]` | Origins allowed to call the API from a browser. Empty means no CORS headers. |
+| `security.cors.allow_credentials` | `false` | Ignored (and an error is logged) if `allow_origins` contains `"*"`. |
+| `security.websocket.ping_interval` | `20` | Seconds between server pings to each charger. |
+| `security.websocket.ping_timeout` | `20` | Seconds to wait for the pong before the connection is closed. |
+
+Requests need `X-API-Key: <key>` or `Authorization: Bearer <key>`. `/health`, `/docs`, `/redoc` and `/openapi.json` do not need the key.
+
+## Environment variables
+
+| Variable | Effect |
+|----------|--------|
+| `OCPP_BROKER_API_KEY` | REST API key (overrides `security.api_key`) |
+| `BROKER_HOST`, `BROKER_PORT` | Override `broker.host` / `broker.port` |
+| `MONGODB_ENABLED` | `true`, `1`, `yes` or `on` enables MongoDB |
+| `MONGODB_CONNECTION_STRING` | Overrides `mongodb.connection_string` (default `mongodb://localhost:27017`) |
+| `MONGODB_DATABASE_NAME` | Overrides `mongodb.database_name` (default `ocpp_broker`) |
+| `OCPP_BROKER_CONFIG` | Default path used by `ocpp_broker.config.load_config()` when it is called without a path. **`ocpp-broker-server` does not read it**; use `-c`. |
+
+`env.example` in the repository lists these.
+
+## Accepted but ignored
+
+The loader fills in defaults for the settings below, but nothing in the broker reads them. Changing them has no effect:
+
+- `broker.ocpp_version`, `broker.enable_validation`, `broker.enable_smart_charging`, `broker.enable_firmware_management`, `broker.enable_local_auth`, `broker.enable_reservations`, `broker.enable_tag_management`
+- `api.*` and the `API_HOST` / `API_PORT` variables (the REST API shares the broker port)
+- `ocpp.validation`, `ocpp.commands.smart_charging|firmware|local_auth|reservations`
+- `logging.*` and the `LOG_LEVEL` variable: the log level is fixed at `INFO`
+- `security.ocpp.*`, `security.tags.*`
+- top-level `tag_management.*` and `organizations[].tag_management`
+- `organizations[].chargers`, `organizations[].backends[].chargers`, `organizations[].ocpp_features`
+
+Also not supported: TLS settings, connection limits, metrics, proxy settings and backend credentials. These keys are not rejected, they are simply never read. Three per-organization keys that used to exist (`validate_messages_when_backend_leader`, `validate_messages_when_broker_backend`, `validation`) now log a warning if present.
+
+## Examples
+
+### Broker mode with authentication
 
 ```yaml
 broker:
   host: 0.0.0.0
   port: 8765
-  proxy:
-    enabled: true
-    trusted_proxies: ["127.0.0.1", "10.0.0.0/8"]
+
+organizations:
+  - name: "depot"
+    connect_to_backend: false
+    charger_auth:
+      credentials:
+        CP001: {password_hash: "pbkdf2_sha256$200000$<salt>$<hash>"}
+    tags:
+      - {id_tag: "ADMIN001", status: "Accepted"}
 ```
 
-## 🔄 Environment Variables
+### Relay to a leader with an observer
 
-### **Configuration Override**
+```yaml
+organizations:
+  - name: "fleet"
+    connect_to_backend: true
+    backends:
+      - {id: main, url: "ws://main.example.com/ocpp", leader: true}
+      - {id: audit, url: "ws://audit.example.com/ocpp"}
+    leader_failover_timeout: 15
+```
+
+### Both modes side by side
+
+```yaml
+organizations:
+  - name: "external"
+    connect_to_backend: true
+    backends:
+      - {id: vendor, url: "ws://central.example.com/ocpp", leader: true}
+  - name: "local"
+    connect_to_backend: false
+```
+
+## Checking a configuration
 
 ```bash
-# Override configuration file
-export OCPP_BROKER_CONFIG="/path/to/config.yaml"
-
-# Override specific settings
-export OCPP_BROKER_HOST="0.0.0.0"
-export OCPP_BROKER_PORT="8765"
-export OCPP_BROKER_LOG_LEVEL="DEBUG"
+python -c "from ocpp_broker.config import load_config; load_config('config.yaml')"
 ```
 
-### **Docker Environment**
+This raises on a YAML syntax error, a non-positive port, a duplicate or missing organization name, or `charger_auth` credentials without a password, and logs the warnings described above. It does not contact any backend or MongoDB. There is no `--dry-run` option.
 
-```yaml
-# docker-compose.yml
-version: '3.8'
-services:
-  ocpp-broker:
-    image: your-org/ocpp-broker:latest
-    ports:
-      - "8765:8765"
-    environment:
-      - OCPP_BROKER_CONFIG=/app/config.yaml
-      - OCPP_BROKER_LOG_LEVEL=INFO
-    volumes:
-      - ./config.yaml:/app/config.yaml
-```
+## Common mistakes
 
-## 📝 Configuration Examples
+- **Relay organization without `backends`** (often caused by leaving out `connect_to_backend`, which defaults to `true`).
+- **Backend `url` that already ends in the charger id.** The broker appends `/{charger_id}` itself.
+- **Expecting `OCPP_BROKER_CONFIG` to select the file** for `ocpp-broker-server`. Use `-c`.
+- **Setting `LOG_LEVEL` or `logging.level`** to get debug output. They are not applied.
+- **REST calls returning `503`.** No API key is configured; set `OCPP_BROKER_API_KEY`.
 
-### **Development Configuration**
+## Related documentation
 
-```yaml
-# config-dev.yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-  log_level: "DEBUG"
-
-organizations:
-  - name: "DevCharging"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-    chargers:
-      - "DEV_001"
-      - "DEV_002"
-```
-
-### **Production Configuration**
-
-```yaml
-# config-prod.yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-  log_level: "INFO
-  metrics:
-    enabled: true
-    port: 9090
-
-organizations:
-  - name: "ProductionCharging"
-    connect_to_backend: true
-    backends:
-      - id: "primary_backend"
-        url: "ws://primary-backend.com/ocpp"
-        leader: true
-        chargers:
-          - "PROD_001"
-          - "PROD_002"
-      - id: "secondary_backend"
-        url: "ws://secondary-backend.com/ocpp"
-        leader: false
-        chargers:
-          - "PROD_001"
-          - "PROD_002"
-```
-
-### **Hybrid Configuration**
-
-```yaml
-# config-hybrid.yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-
-organizations:
-  - name: "ExternalBackend"
-    connect_to_backend: true
-    backends:
-      - id: "external_backend"
-        url: "ws://external-backend.com/ocpp"
-        leader: true
-        chargers:
-          - "EXT_001"
-  
-  - name: "LocalBackend"
-    connect_to_backend: false
-    chargers:
-      - "LOCAL_001"
-      - "LOCAL_002"
-```
-
-## 🔍 Configuration Validation
-
-### **Validate Configuration**
-
-```bash
-# Validate configuration file
-python -c "from ocpp_broker.config import load_config; print(load_config())"
-
-# Check configuration syntax
-python -m ocpp_broker.server --dry-run
-```
-
-### **Configuration Testing**
-
-```bash
-# Test configuration with specific file
-python -m ocpp_broker.server -c /path/to/config.yaml --dry-run
-
-# Test with environment variables
-OCPP_BROKER_CONFIG=/path/to/config.yaml python -m ocpp_broker.server --dry-run
-```
-
-## 🚨 Common Configuration Issues
-
-### **Issue 1: Invalid YAML Syntax**
-
-```yaml
-# ❌ Wrong - Missing quotes
-organizations:
-  - name: MyOrg  # Should be "MyOrg"
-
-# ✅ Correct
-organizations:
-  - name: "MyOrg"
-```
-
-### **Issue 2: Missing Required Fields**
-
-```yaml
-# ❌ Wrong - Missing name
-organizations:
-  - connect_to_backend: false
-
-# ✅ Correct
-organizations:
-  - name: "MyOrg"
-    connect_to_backend: false
-```
-
-### **Issue 3: Invalid Backend Configuration**
-
-```yaml
-# ❌ Wrong - Missing URL
-organizations:
-  - name: "MyOrg"
-    connect_to_backend: true
-    backends:
-      - id: "backend1"
-        leader: true
-
-# ✅ Correct
-organizations:
-  - name: "MyOrg"
-    connect_to_backend: true
-    backends:
-      - id: "backend1"
-        url: "ws://backend.com/ocpp"
-        leader: true
-```
-
-## 📚 Next Steps
-
-After configuring your broker:
-
-1. **Test Your Configuration**: [Quick Start Guide](quick-start.md)
-2. **Explore OCPP 1.6 Features**: [OCPP 1.6 Features](ocpp16-features.md)
-3. **Learn About Broker-as-Backend**: [Broker-as-Backend Mode](broker-as-backend.md)
-4. **Set Up Production**: [Production Deployment](deployment.md)
-5. **Monitor Your System**: [Monitoring & Logging](monitoring.md)
-
-## 🔗 Related Documentation
-
-- [Quick Start Guide](quick-start.md)
-- [OCPP 1.6 Features](ocpp16-features.md)
-- [Broker-as-Backend Mode](broker-as-backend.md)
-- [Production Deployment](deployment.md)
+- [Quick Start](quick-start.md)
+- [Broker-as-Backend Mode](broker_as_backend.md)
+- [Leader/Follower](leader-follower.md)
+- [Tag Management](tag-management.md)
+- [MongoDB Integration](mongodb-integration.md)
 - [Troubleshooting](troubleshooting.md)
-
----
-
-*Last updated: October 2024*

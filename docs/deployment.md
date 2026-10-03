@@ -1,703 +1,200 @@
 # Production Deployment
 
-Complete guide for deploying the OCPP broker in production environments.
+How to run the OCPP broker as a long-lived service.
 
-## 🚀 Deployment Overview
+## What the project ships
 
-### **Deployment Options**
+The project is a Python package (`pip install ocpp-broker`, Python 3.10 or newer) with two console commands:
 
-1. **Single Instance** - Simple deployment for small to medium scale
-2. **High Availability** - Multi-instance deployment with load balancing
-3. **Microservices** - Containerized deployment with service separation
-4. **Cloud Deployment** - Cloud-native deployment with auto-scaling
+- `ocpp-broker-server [-c CONFIG]` (same as `python -m ocpp_broker.server`) starts the broker.
+- `ocpp-broker-hash-password [PASSWORD]` prints a `pbkdf2_sha256` hash for `charger_auth` credentials.
 
-## 🏗️ Single Instance Deployment
+It does **not** ship a Dockerfile, Compose file, systemd unit, Kubernetes manifests, or reverse-proxy configuration. The snippets below are examples written for this guide. They use only real commands, flags and settings, but they are not part of the project and are not tested by it.
 
-### **System Requirements**
+How the broker runs:
 
-- **CPU**: 2 cores minimum (4 cores recommended)
-- **Memory**: 2GB RAM minimum (8GB recommended)
-- **Storage**: 10GB free space
-- **Network**: 100Mbps bandwidth
-- **OS**: Linux (Ubuntu 20.04+), Windows Server 2019+, or macOS 10.15+
+- One process, one port (default `0.0.0.0:8765`). The charger WebSocket (`ws://HOST:8765/{org}/{charger_id}`), the REST API, `/health` and the Swagger UI (`/docs`) all share it. There is no separate API port.
+- The broker has no TLS support. Chargers connect with plain `ws://` unless you put a TLS-terminating reverse proxy in front.
+- Charger sessions and the tag cache live in process memory. MongoDB is optional but strongly recommended (see below).
+- Configuration is read once at startup. There is no reload; restart the process to apply changes. A restart disconnects every charger, which then has to reconnect.
 
-### **Installation Steps**
-
-#### **1. System Preparation**
+## Installation
 
 ```bash
-# Update system packages
-sudo apt update && sudo apt upgrade -y
-
-# Install Python 3.8+
-sudo apt install python3.8 python3.8-venv python3-pip -y
-
-# Create application user
-sudo useradd -m -s /bin/bash ocpp-broker
-sudo usermod -aG sudo ocpp-broker
-```
-
-#### **2. Application Installation**
-
-```bash
-# Switch to application user
-sudo su - ocpp-broker
-
-# Create application directory
-mkdir -p /opt/ocpp-broker
-cd /opt/ocpp-broker
-
-# Create virtual environment
-python3.8 -m venv venv
-source venv/bin/activate
-
-# Install OCPP broker
-pip install ocpp-broker
-
-# Create configuration directory
+python3 -m venv /opt/ocpp-broker/venv
+/opt/ocpp-broker/venv/bin/pip install ocpp-broker
 mkdir -p /opt/ocpp-broker/config
-mkdir -p /opt/ocpp-broker/logs
 ```
 
-#### **3. Configuration Setup**
+See the [Installation Guide](installation.md) for other install options.
+
+## Configuration
+
+Example `/opt/ocpp-broker/config/config.yaml` for a relay organization with authenticated chargers and MongoDB:
 
 ```yaml
-# /opt/ocpp-broker/config/config.yaml
 broker:
   host: 0.0.0.0
   port: 8765
-  log_level: "INFO"
-  log_file: "/opt/ocpp-broker/logs/broker.log"
+
+mongodb:
+  enabled: true
+  connection_string: "mongodb://localhost:27017"
+  database_name: "ocpp_broker"
 
 organizations:
   - name: "ProductionCharging"
-    connect_to_backend: true
+    connect_to_backend: true          # relay mode: forward to the backends below
+    ocpp_subprotocol: "ocpp1.6"
+    charger_auth:                      # HTTP Basic on the WebSocket upgrade
+      credentials:
+        PROD_001:
+          password_hash: "pbkdf2_sha256$200000$<salt>$<hash>"   # from ocpp-broker-hash-password
     backends:
       - id: "production_backend"
-        url: "ws://your-backend.com/ocpp"
+        url: "wss://your-backend.example.com/ocpp"   # broker connects to <url>/<charger_id>
         leader: true
-        chargers:
-          - "PROD_001"
-          - "PROD_002"
 ```
 
-#### **4. Systemd Service**
+Notes:
+
+- Always pass the config path explicitly with `-c`. Without `-c` the server looks for `./config.yaml`, then for a `config.yaml` in the repository root (only meaningful for a source checkout); if neither exists it logs `Configuration file not found at ..., using unified defaults.` and starts with **no organizations**, so every charger is rejected. The `OCPP_BROKER_CONFIG` environment variable is not used by `ocpp-broker-server`.
+- Set the REST API key in the environment, not in the file: `OCPP_BROKER_API_KEY` (it overrides `security.api_key`). With no key, every REST request returns 503 unless `security.allow_unauthenticated_api: true` is set, which you should not do in production.
+- Organizations without `charger_auth.credentials` accept any client as any charger (the broker logs a warning at startup).
+- Environment overrides that are read: `BROKER_HOST`, `BROKER_PORT`, `MONGODB_ENABLED`, `MONGODB_CONNECTION_STRING`, `MONGODB_DATABASE_NAME`, `OCPP_BROKER_API_KEY`. A `.env` file in the working directory is also loaded. Environment values win over the YAML.
+- Without MongoDB, transaction ids come from a non-durable in-memory counter (the broker logs `TRANSACTION IDS ... ARE NOT DURABLE`), and tags added through the API are lost on restart. Enable MongoDB before production use.
+
+See the [Configuration Guide](configuration.md) for every option.
+
+## systemd example
 
 ```ini
-# /etc/systemd/system/ocpp-broker.service
+# /etc/systemd/system/ocpp-broker.service  (example, not shipped)
 [Unit]
-Description=OCPP Broker Service
+Description=OCPP Broker
 After=network.target
 
 [Service]
-Type=simple
 User=ocpp-broker
-Group=ocpp-broker
 WorkingDirectory=/opt/ocpp-broker
-Environment=PATH=/opt/ocpp-broker/venv/bin
-ExecStart=/opt/ocpp-broker/venv/bin/python -m ocpp_broker.server
-ExecReload=/bin/kill -HUP $MAINPID
+EnvironmentFile=/etc/ocpp-broker.env
+ExecStart=/opt/ocpp-broker/venv/bin/ocpp-broker-server -c /opt/ocpp-broker/config/config.yaml
 Restart=always
 RestartSec=10
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-#### **5. Service Management**
+`/etc/ocpp-broker.env` holds the secrets, readable only by root:
 
 ```bash
-# Enable and start service
+OCPP_BROKER_API_KEY=a-long-random-string
+# MONGODB_CONNECTION_STRING=mongodb://user:password@localhost:27017
+```
+
+```bash
+sudo useradd --system --home /opt/ocpp-broker ocpp-broker
+sudo chmod 600 /etc/ocpp-broker.env
 sudo systemctl daemon-reload
-sudo systemctl enable ocpp-broker
-sudo systemctl start ocpp-broker
-
-# Check service status
+sudo systemctl enable --now ocpp-broker
 sudo systemctl status ocpp-broker
-
-# View logs
-sudo journalctl -u ocpp-broker -f
+sudo journalctl -u ocpp-broker -f          # logs go to stderr, so journald captures them
+curl http://localhost:8765/health          # {"status":"ok"}
 ```
 
-## 🔄 High Availability Deployment
+There is no `ExecReload`: the broker does not handle SIGHUP. Use `systemctl restart`.
 
-### **Architecture Overview**
+## TLS and reverse proxy
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                High Availability Cluster                    │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
-│  │   Load          │  │   OCPP          │  │   OCPP       │ │
-│  │   Balancer      │  │   Broker 1      │  │   Broker 2   │ │
-│  │   (HAProxy)     │  │   (Primary)     │  │   (Secondary)│ │
-│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
-│  │   Database      │  │   Redis         │  │   Monitoring │ │
-│  │   Cluster       │  │   Cluster      │  │   System     │ │
-│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### **Load Balancer Configuration**
-
-#### **HAProxy Configuration**
-
-```haproxy
-# /etc/haproxy/haproxy.cfg
-global
-    daemon
-    user haproxy
-    group haproxy
-    log 127.0.0.1:514 local0
-
-defaults
-    mode http
-    timeout connect 5000ms
-    timeout client 50000ms
-    timeout server 50000ms
-    option httplog
-
-frontend ocpp_frontend
-    bind *:8765
-    default_backend ocpp_backend
-
-backend ocpp_backend
-    balance roundrobin
-    option httpchk GET /health
-    server ocpp1 192.168.1.10:8765 check
-    server ocpp2 192.168.1.11:8765 check
-```
-
-#### **Nginx Configuration**
+Terminate TLS in a reverse proxy so chargers can use `wss://` and the API key and Basic credentials are not sent in clear text. The proxy must forward WebSocket upgrades and the `Authorization` header (nginx forwards it by default). Example nginx server block (the `map` goes in the `http` context):
 
 ```nginx
-# /etc/nginx/sites-available/ocpp-broker
-upstream ocpp_backend {
-    server 192.168.1.10:8765;
-    server 192.168.1.11:8765;
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
 }
 
 server {
-    listen 80;
-    server_name ocpp-broker.example.com;
+    listen 443 ssl;
+    server_name ocpp.example.com;
+    ssl_certificate     /etc/ssl/ocpp/fullchain.pem;
+    ssl_certificate_key /etc/ssl/ocpp/privkey.pem;
 
+    # REST API, docs and management routes: restrict to your own network
+    location ~ ^/(api|orgs|docs|redoc|openapi\.json)(/|$) {
+        allow 10.0.0.0/8;
+        deny all;
+        proxy_pass http://127.0.0.1:8765;
+    }
+
+    # Charger WebSockets and /health
     location / {
-        proxy_pass http://ocpp_backend;
+        proxy_pass http://127.0.0.1:8765;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection $connection_upgrade;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
     }
 }
 ```
 
-### **Database Setup**
+<!-- docs-test: skip -->
+- The REST API and the charger WebSocket are on the same port, so the proxy is the place to keep the API off the public internet. The regex above would also catch a charger URL such as `/api/CP1`, so do not name an organization `api`, `orgs`, `docs` or `redoc`.
+- The broker pings chargers every 20 s (`security.websocket.ping_interval`), so a proxy `proxy_read_timeout` comfortably above that will not cut idle chargers.
+- When the proxy runs on the same host, set `broker.host: 127.0.0.1` so the plain-text port is not reachable from outside.
+- Point load-balancer or uptime checks at `GET /health`.
 
-#### **PostgreSQL Configuration**
+## Docker example
 
-```sql
--- Create database
-CREATE DATABASE ocpp_broker;
-
--- Create user
-CREATE USER ocpp_broker WITH PASSWORD 'secure_password';
-
--- Grant permissions
-GRANT ALL PRIVILEGES ON DATABASE ocpp_broker TO ocpp_broker;
-```
-
-#### **Redis Configuration**
-
-```redis
-# /etc/redis/redis.conf
-bind 127.0.0.1
-port 6379
-requirepass secure_password
-maxmemory 256mb
-maxmemory-policy allkeys-lru
-```
-
-## 🐳 Docker Deployment
-
-### **Docker Compose Setup**
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  ocpp-broker:
-    image: your-org/ocpp-broker:latest
-    ports:
-      - "8765:8765"
-    environment:
-      - OCPP_BROKER_CONFIG=/app/config.yaml
-      - OCPP_BROKER_LOG_LEVEL=INFO
-    volumes:
-      - ./config.yaml:/app/config.yaml
-      - ./logs:/app/logs
-    restart: unless-stopped
-    depends_on:
-      - redis
-      - postgres
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_DB=ocpp_broker
-      - POSTGRES_USER=ocpp_broker
-      - POSTGRES_PASSWORD=secure_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./ssl:/etc/nginx/ssl
-    depends_on:
-      - ocpp-broker
-    restart: unless-stopped
-
-volumes:
-  redis_data:
-  postgres_data:
-```
-
-### **Dockerfile**
+No Dockerfile exists in the repository. This one is an untested example that installs the published package:
 
 ```dockerfile
-# Dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY src/ ./src/
-COPY config.yaml .
-
-# Create logs directory
-RUN mkdir -p logs
-
-# Create non-root user
-RUN useradd -m -u 1000 ocpp-broker
-USER ocpp-broker
-
-# Expose port
+FROM python:3.12-slim
+RUN pip install --no-cache-dir ocpp-broker
 EXPOSE 8765
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8765/health || exit 1
-
-# Start application
-CMD ["python", "-m", "ocpp_broker.server"]
+HEALTHCHECK --interval=30s --timeout=5s \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')"
+CMD ["ocpp-broker-server", "-c", "/config/config.yaml"]
 ```
 
-### **Docker Commands**
-
 ```bash
-# Build image
-docker build -t ocpp-broker:latest .
-
-# Run container
-docker run -d \
-  --name ocpp-broker \
-  -p 8765:8765 \
-  -v $(pwd)/config.yaml:/app/config.yaml \
-  ocpp-broker:latest
-
-# View logs
+docker build -t ocpp-broker .
+docker run -d --name ocpp-broker -p 8765:8765 \
+  -v "$(pwd)/config.yaml:/config/config.yaml:ro" \
+  -e OCPP_BROKER_API_KEY=a-long-random-string \
+  ocpp-broker
 docker logs -f ocpp-broker
-
-# Stop container
-docker stop ocpp-broker
 ```
 
-## ☁️ Cloud Deployment
+Inside a container keep `broker.host: 0.0.0.0` and the same port as `EXPOSE`. `localhost` in `mongodb.connection_string` refers to the container itself, so point it at a reachable MongoDB host or set `MONGODB_CONNECTION_STRING`.
 
-### **AWS Deployment**
+## Running more than one instance
 
-#### **EC2 Instance Setup**
+The broker is not clustered. If you run several instances behind a load balancer, be aware that:
+
+- A charger's session exists only in the instance it connected to. REST commands (`/api/ocpp/.../commands`) and the charger listing must be sent to that instance; others answer 404 `Charger ... not connected`.
+- The "same charger reconnects, old socket closed with 4003" logic is per instance. If a charger lands on a different instance after a reconnect, the old session is not evicted by it; it ends when its own connection drops.
+- Each instance has its own in-memory tag cache. After changing tags in MongoDB, call `POST /api/tags/sync` on every instance.
+- Transaction ids come from an atomic per-organization counter in MongoDB, so instances sharing one MongoDB do not hand out the same id. Without MongoDB each instance has its own counter.
+
+Unless you need this, a single instance with `Restart=always` is the simpler setup.
+
+## Backup
+
+What to back up is the config file and, if enabled, the MongoDB database:
 
 ```bash
-# Launch EC2 instance
-aws ec2 run-instances \
-  --image-id ami-0c02fb55956c7d316 \
-  --instance-type t3.medium \
-  --key-name your-key-pair \
-  --security-group-ids sg-12345678 \
-  --subnet-id subnet-12345678
-
-# Install Docker
-sudo yum update -y
-sudo yum install -y docker
-sudo systemctl start docker
-sudo systemctl enable docker
+cp /opt/ocpp-broker/config/config.yaml /backups/config-$(date +%Y%m%d).yaml
+mongodump --db ocpp_broker --out /backups/mongo-$(date +%Y%m%d)
 ```
 
-#### **ECS Task Definition**
-
-```json
-{
-  "family": "ocpp-broker",
-  "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
-  "cpu": "512",
-  "memory": "1024",
-  "executionRoleArn": "arn:aws:iam::123456789012:role/ecsTaskExecutionRole",
-  "containerDefinitions": [
-    {
-      "name": "ocpp-broker",
-      "image": "your-org/ocpp-broker:latest",
-      "portMappings": [
-        {
-          "containerPort": 8765,
-          "protocol": "tcp"
-        }
-      ],
-      "environment": [
-        {
-          "name": "OCPP_BROKER_CONFIG",
-          "value": "/app/config.yaml"
-        }
-      ],
-      "logConfiguration": {
-        "logDriver": "awslogs",
-        "options": {
-          "awslogs-group": "/ecs/ocpp-broker",
-          "awslogs-region": "us-east-1",
-          "awslogs-stream-prefix": "ecs"
-        }
-      }
-    }
-  ]
-}
-```
-
-### **Kubernetes Deployment**
-
-#### **Deployment Manifest**
-
-```yaml
-# k8s-deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ocpp-broker
-  labels:
-    app: ocpp-broker
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: ocpp-broker
-  template:
-    metadata:
-      labels:
-        app: ocpp-broker
-    spec:
-      containers:
-      - name: ocpp-broker
-        image: your-org/ocpp-broker:latest
-        ports:
-        - containerPort: 8765
-        env:
-        - name: OCPP_BROKER_CONFIG
-          value: "/app/config.yaml"
-        volumeMounts:
-        - name: config-volume
-          mountPath: /app/config.yaml
-          subPath: config.yaml
-      volumes:
-      - name: config-volume
-        configMap:
-          name: ocpp-broker-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ocpp-broker-service
-spec:
-  selector:
-    app: ocpp-broker
-  ports:
-  - port: 8765
-    targetPort: 8765
-  type: LoadBalancer
-```
-
-#### **ConfigMap**
-
-```yaml
-# k8s-configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ocpp-broker-config
-data:
-  config.yaml: |
-    broker:
-      host: 0.0.0.0
-      port: 8765
-      log_level: "INFO"
-    
-    organizations:
-      - name: "ProductionCharging"
-        connect_to_backend: true
-        backends:
-          - id: "production_backend"
-            url: "ws://your-backend.com/ocpp"
-            leader: true
-            chargers:
-              - "PROD_001"
-              - "PROD_002"
-```
-
-## 📊 Monitoring Setup
-
-### **Prometheus Configuration**
-
-```yaml
-# prometheus.yml
-global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: 'ocpp-broker'
-    static_configs:
-      - targets: ['localhost:9090']
-    metrics_path: '/metrics'
-    scrape_interval: 5s
-```
-
-### **Grafana Dashboard**
-
-```json
-{
-  "dashboard": {
-    "title": "OCPP Broker Dashboard",
-    "panels": [
-      {
-        "title": "Active Connections",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "ocpp_broker_active_connections"
-          }
-        ]
-      },
-      {
-        "title": "Message Rate",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(ocpp_broker_messages_total[5m])"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### **Log Aggregation**
-
-#### **ELK Stack Setup**
-
-```yaml
-# docker-compose.logging.yml
-version: '3.8'
-
-services:
-  elasticsearch:
-    image: elasticsearch:8.8.0
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-    ports:
-      - "9200:9200"
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
-
-  logstash:
-    image: logstash:8.8.0
-    volumes:
-      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
-    ports:
-      - "5044:5044"
-    depends_on:
-      - elasticsearch
-
-  kibana:
-    image: kibana:8.8.0
-    ports:
-      - "5601:5601"
-    depends_on:
-      - elasticsearch
-
-volumes:
-  elasticsearch_data:
-```
-
-## 🔒 Security Configuration
-
-### **SSL/TLS Setup**
-
-```nginx
-# nginx-ssl.conf
-server {
-    listen 443 ssl http2;
-    server_name ocpp-broker.example.com;
-
-    ssl_certificate /etc/nginx/ssl/cert.pem;
-    ssl_certificate_key /etc/nginx/ssl/key.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512;
-    ssl_prefer_server_ciphers off;
-
-    location / {
-        proxy_pass http://ocpp_backend;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### **Firewall Configuration**
-
-```bash
-# UFW configuration
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 8765/tcp
-sudo ufw enable
-```
-
-### **Security Headers**
-
-```nginx
-# security-headers.conf
-add_header X-Frame-Options "SAMEORIGIN" always;
-add_header X-Content-Type-Options "nosniff" always;
-add_header X-XSS-Protection "1; mode=block" always;
-add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-add_header Content-Security-Policy "default-src 'self'" always;
-```
-
-## 🚨 Backup and Recovery
-
-### **Configuration Backup**
-
-```bash
-#!/bin/bash
-# backup-config.sh
-
-BACKUP_DIR="/opt/backups/ocpp-broker"
-DATE=$(date +%Y%m%d_%H%M%S)
-
-mkdir -p $BACKUP_DIR
-
-# Backup configuration
-cp /opt/ocpp-broker/config/config.yaml $BACKUP_DIR/config_$DATE.yaml
-
-# Backup logs
-tar -czf $BACKUP_DIR/logs_$DATE.tar.gz /opt/ocpp-broker/logs/
-
-# Cleanup old backups (keep 30 days)
-find $BACKUP_DIR -name "*.yaml" -mtime +30 -delete
-find $BACKUP_DIR -name "*.tar.gz" -mtime +30 -delete
-```
-
-### **Database Backup**
-
-```bash
-#!/bin/bash
-# backup-database.sh
-
-BACKUP_DIR="/opt/backups/database"
-DATE=$(date +%Y%m%d_%H%M%S)
-
-mkdir -p $BACKUP_DIR
-
-# Backup PostgreSQL
-pg_dump -h localhost -U ocpp_broker ocpp_broker > $BACKUP_DIR/ocpp_broker_$DATE.sql
-
-# Backup Redis
-redis-cli --rdb $BACKUP_DIR/redis_$DATE.rdb
-```
-
-## 🔧 Performance Tuning
-
-### **System Optimization**
-
-```bash
-# Increase file descriptor limits
-echo "* soft nofile 65536" >> /etc/security/limits.conf
-echo "* hard nofile 65536" >> /etc/security/limits.conf
-
-# Optimize network settings
-echo "net.core.somaxconn = 65536" >> /etc/sysctl.conf
-echo "net.ipv4.tcp_max_syn_backlog = 65536" >> /etc/sysctl.conf
-sysctl -p
-```
-
-### **Application Tuning**
-
-```yaml
-# config.yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-  max_connections: 1000
-  timeout: 30
-  worker_processes: 4
-  worker_connections: 1000
-```
-
-## 📚 Related Documentation
+## Related Documentation
 
 - [Installation Guide](installation.md)
 - [Configuration Guide](configuration.md)
 - [Monitoring & Logging](monitoring.md)
 - [Troubleshooting](troubleshooting.md)
 - [API Reference](api-reference.md)
-
----
-
-*Last updated: October 2024*

@@ -1,318 +1,110 @@
 # Installation Guide
 
-This guide will help you install and set up the OCPP Broker on your system.
+## Requirements
 
-## 📋 Prerequisites
+- **Python 3.10 or newer** on Windows, macOS or Linux
+- `pip`
+- **MongoDB** (optional): only if you want data persisted, durable transaction ids and tags that survive a restart. The broker connects to an existing MongoDB; it does not install one. See [MongoDB Integration](mongodb-integration.md).
 
-### **System Requirements**
-- **Python**: 3.8 or higher
-- **Operating System**: Windows, macOS, or Linux
-- **Memory**: 512MB RAM minimum (2GB recommended)
-- **Storage**: 100MB free space
+Runtime dependencies (installed automatically): `ocpp` (>=1.0.0), `fastapi` (>=0.111), `uvicorn`, `websockets`, `pyyaml`, `motor`, `pymongo` and `python-dotenv`. `pyproject.toml` is the source of truth; `requirements.txt` mirrors it.
 
-### **Dependencies**
-- Python 3.8+
-- pip (Python package manager)
-- Git (for development)
+## Install
 
-## 🚀 Installation Methods
-
-### **Method 1: PyPI Installation (Recommended)**
+### From PyPI
 
 ```bash
-# Install from PyPI
 pip install ocpp-broker
-
-# Verify installation
-python -m ocpp_broker.server --help
 ```
 
-### **Method 2: Source Installation**
+### From a checkout
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/ocpp-broker.git
+git clone <your repository URL>
 cd ocpp-broker
-
-# Install in development mode
 pip install -e .
-
-# Or install dependencies manually
-pip install -r requirements.txt
 ```
 
-### **Method 3: Docker Installation**
+`pip install -r requirements.txt` installs the same runtime dependencies without the package itself. It is not enough to run the broker unless the `src` directory is on `PYTHONPATH`; prefer `pip install -e .`.
+
+Use a virtual environment if you do not want the packages installed globally:
 
 ```bash
-# Pull the Docker image
-docker pull your-org/ocpp-broker:latest
-
-# Run the container
-docker run -p 8765:8765 -v $(pwd)/config.yaml:/app/config.yaml your-org/ocpp-broker
-```
-
-## 🔧 Configuration Setup
-
-### **1. Create Configuration File**
-
-Create a `config.yaml` file in your working directory:
-
-```yaml
-# config.yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-
-organizations:
-  - name: "MyOrganization"
-    connect_to_backend: true
-    backends:
-      - id: "backend1"
-        url: "ws://your-backend.com/ocpp"
-        leader: true
-        chargers:
-          - "CHARGER_001"
-          - "CHARGER_002"
-```
-
-### **2. Environment Variables (Optional)**
-
-```bash
-# Set custom configuration path
-export OCPP_BROKER_CONFIG="/path/to/your/config.yaml"
-
-# Set log level
-export OCPP_BROKER_LOG_LEVEL="INFO"
-```
-
-## 🏃‍♂️ Quick Start
-
-### **1. Start the Broker**
-
-```bash
-# Using Python module
-python -m ocpp_broker.server
-
-# Using custom config
-python -m ocpp_broker.server -c /path/to/config.yaml
-
-# Using Docker
-docker run -p 8765:8765 -v $(pwd)/config.yaml:/app/config.yaml your-org/ocpp-broker
-```
-
-### **2. Verify Installation**
-
-```bash
-# Check if broker is running
-curl http://localhost:8765/health
-
-# Expected response
-{"status": "ok"}
-```
-
-### **3. Test Connection**
-
-```bash
-# Test WebSocket connection
-wscat -c ws://localhost:8765/orgA/CHARGER_001
-```
-
-## 🐳 Docker Installation
-
-### **Docker Compose Setup**
-
-Create a `docker-compose.yml` file:
-
-```yaml
-version: '3.8'
-services:
-  ocpp-broker:
-    image: your-org/ocpp-broker:latest
-    ports:
-      - "8765:8765"
-    volumes:
-      - ./config.yaml:/app/config.yaml
-    environment:
-      - OCPP_BROKER_LOG_LEVEL=INFO
-    restart: unless-stopped
-
-  # Optional: Add a backend service
-  backend:
-    image: your-org/ocpp-backend:latest
-    ports:
-      - "9000:9000"
-    environment:
-      - BACKEND_PORT=9000
-```
-
-Run with Docker Compose:
-
-```bash
-docker-compose up -d
-```
-
-### **Docker Build (Development)**
-
-```bash
-# Build from source
-docker build -t ocpp-broker:dev .
-
-# Run development container
-docker run -p 8765:8765 -v $(pwd):/app ocpp-broker:dev
-```
-
-## 🔧 Development Installation
-
-### **1. Clone Repository**
-
-```bash
-git clone https://github.com/your-org/ocpp-broker.git
-cd ocpp-broker
-```
-
-### **2. Create Virtual Environment**
-
-```bash
-# Create virtual environment
 python -m venv venv
-
-# Activate virtual environment
-# Windows
-venv\Scripts\activate
-# macOS/Linux
-source venv/bin/activate
-```
-
-### **3. Install Dependencies**
-
-```bash
-# Install development dependencies
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-
-# Install in development mode
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -e .
 ```
 
-### **4. Run Tests**
+There is no official Docker image, `Dockerfile` or `docker-compose.yml` in this repository. The [Deployment Guide](deployment.md) shows how to run the broker as a service.
+
+## Check the installation
 
 ```bash
-# Run all tests
-python -m pytest
-
-# Run specific test
-python -m pytest tests/test_broker.py
-
-# Run with coverage
-python -m pytest --cov=src/ocpp_broker
+ocpp-broker-server --help
+python -c "import ocpp_broker; print(ocpp_broker.__version__)"
+pip show ocpp-broker
 ```
 
-## 📦 Package Dependencies
+`ocpp-broker-server` is equivalent to `python -m ocpp_broker.server`. Its only option is `-c` / `--config`; there is no `--version`, `--dry-run` or `--verbose` flag.
 
-### **Core Dependencies**
-```
-fastapi>=0.100.0
-uvicorn>=0.20.0
-websockets>=11.0.0
-pydantic>=2.0.0
-pyyaml>=6.0
-```
-
-### **Development Dependencies**
-```
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.0.0
-black>=23.0.0
-flake8>=6.0.0
-mypy>=1.0.0
-```
-
-## 🔍 Verification
-
-### **Check Installation**
+To check a configuration file without starting the server:
 
 ```bash
-# Check Python version
-python --version
-
-# Check installed packages
-pip list | grep ocpp-broker
-
-# Check broker version
-python -m ocpp_broker.server --version
+python -c "from ocpp_broker.config import load_config; load_config('config.yaml')"
 ```
 
-### **Test Configuration**
+## First run
+
+1. Create a `config.yaml` (see the [Quick Start](quick-start.md) or the example in the repository root).
+2. Set the REST API key, otherwise REST calls return `503`:
+
+   ```bash
+   export OCPP_BROKER_API_KEY=change-me
+   ```
+
+3. Start the broker:
+
+   ```bash
+   ocpp-broker-server -c config.yaml
+   ```
+
+4. Check it:
+
+   ```bash
+   curl http://localhost:8765/health
+   ```
+
+   ```json
+   {"status":"ok"}
+   ```
+
+The broker looks for `config.yaml` in the current directory when `-c` is not given. Everything (chargers, REST API, Swagger UI at `/docs`) is served on `broker.port`, default 8765.
+
+## Development installation
 
 ```bash
-# Validate configuration
-python -c "from ocpp_broker.config import load_config; print(load_config())"
+pip install -e ".[tests,lint]"
 
-# Test broker startup
-python -m ocpp_broker.server --dry-run
+pytest                      # the test suite
+ruff check src tests        # lint
+mypy                        # type check
 ```
 
-## 🚨 Troubleshooting
+The `tests` extra adds `pytest`, `pytest-asyncio`, `httpx` and `websockets>=14`; the `lint` extra adds `ruff`, `mypy` and `types-PyYAML`. The same three commands run in CI.
 
-### **Common Issues**
+## Troubleshooting
 
-#### **1. Port Already in Use**
-```bash
-# Error: Address already in use
-# Solution: Change port in config.yaml
-broker:
-  port: 8766  # Use different port
-```
+| Problem | Fix |
+|---------|-----|
+| `Address already in use` | Another process uses the port. Change `broker.port` in `config.yaml` (or set `BROKER_PORT`). |
+| `Permission denied` on startup | Ports below 1024 need elevated privileges. Use a higher port, or put a reverse proxy in front. |
+| `No module named 'ocpp_broker'` | The package is not installed in the interpreter you are using. Run `pip install -e .` with that interpreter. |
+| `ImportError` for `motor` or `pymongo` | You installed from an old `requirements.txt` or by hand. Reinstall with `pip install -e .`. |
+| Every charger is refused with close code `4002` | The configuration file was not found (use `-c`), so the broker started with no organizations. |
 
-#### **2. Permission Denied**
-```bash
-# Error: Permission denied
-# Solution: Use sudo or change port
-sudo python -m ocpp_broker.server
-# Or change to port > 1024
-```
+More in [Troubleshooting](troubleshooting.md).
 
-#### **3. Module Not Found**
-```bash
-# Error: No module named 'ocpp_broker'
-# Solution: Install the package
-pip install -e .
-```
+## Next steps
 
-#### **4. Configuration Not Found**
-```bash
-# Error: Configuration file not found
-# Solution: Create config.yaml or specify path
-python -m ocpp_broker.server -c /path/to/config.yaml
-```
-
-### **Debug Mode**
-
-```bash
-# Run with debug logging
-OCPP_BROKER_LOG_LEVEL=DEBUG python -m ocpp_broker.server
-
-# Run with verbose output
-python -m ocpp_broker.server --verbose
-```
-
-## 📚 Next Steps
-
-After installation, proceed to:
-
-1. [Configuration Guide](configuration.md) - Set up your broker configuration
-2. [Quick Start Guide](quick-start.md) - Get your first charger connected
-3. [OCPP 1.6 Features](ocpp16-features.md) - Learn about OCPP 1.6 support
-4. [API Reference](api-reference.md) - Explore the API endpoints
-
-## 🔗 Related Documentation
-
+- [Quick Start](quick-start.md): connect a charger in five minutes
 - [Configuration Guide](configuration.md)
-- [Quick Start Guide](quick-start.md)
-- [Troubleshooting](troubleshooting.md)
-- [Development Setup](development.md)
-
----
-
-*Last updated: October 2024*
+- [API Reference](api-reference.md)

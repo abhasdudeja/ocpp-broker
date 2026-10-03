@@ -1,19 +1,21 @@
-# OCPP Broker Unified Configuration
-# This configuration combines all broker features: OCPP 1.6, tag management, and multi-organization support
+# OCPP Broker configuration
+# Every setting below is read by the broker; see docs/configuration.md for the full reference.
+# Start with:  ocpp-broker-server -c config.yaml
 
 # =============================================================================
-# BROKER CORE SETTINGS
+# BROKER
 # =============================================================================
+# One port serves the charger WebSocket (ws://HOST:PORT/{org}/{charger id}),
+# the REST API, /health and the Swagger UI (/docs).
 broker:
   host: 0.0.0.0
   port: 8765
-  ocpp_version: "1.6"
 
 # =============================================================================
 # SECURITY
 # =============================================================================
-# The REST API (/api/..., /orgs/...) is served on the broker port above and
-# needs an API key. Set it here or, preferably, in the environment:
+# The REST API (/api/..., /orgs/...) needs an API key. Set it here or,
+# preferably, in the environment:
 #   OCPP_BROKER_API_KEY=<long random string>
 # Clients send it as "X-API-Key: <key>" (or "Authorization: Bearer <key>").
 # With no key configured every REST request returns 503 (fails closed).
@@ -26,18 +28,20 @@ security:
   websocket:
     ping_interval: 20            # seconds between pings to chargers
     ping_timeout: 20             # a charger that does not answer a ping in time is dropped
+
 # =============================================================================
-# ORGANIZATIONS CONFIGURATION
+# ORGANIZATIONS
 # =============================================================================
+# connect_to_backend is true by default, so always set it explicitly:
+#   false = broker mode: the broker is the central system (orgA below)
+#   true  = relay mode: frames are forwarded to your backends (orgB below)
 organizations:
-  # Organization A: External Backend Mode
+  # ---------------------------------------------------------------------------
+  # Broker mode
+  # ---------------------------------------------------------------------------
   - name: "orgA"
-    connect_to_backend: false   # ✅ Will connect to external backends
-    ocpp_subprotocol: "ocpp1.6"  # OCPP WebSocket subprotocol (e.g., "ocpp1.6", "ocpp2.0.1")
-    # Relay resilience (all optional; defaults shown)
-    # backend_buffer_size: 200       # frames held while the backend is unreachable
-    # backend_outage_timeout: 30     # seconds before a held CALL is answered with a CallError
-    # leader_failover_timeout: 15    # seconds the leader may be down before a follower takes over (0 = never)
+    connect_to_backend: false
+    ocpp_subprotocol: "ocpp1.6"    # subprotocol chargers must request (default)
     # Charger authentication: HTTP Basic on the WebSocket upgrade (OCPP security
     # profile 1). The username must be the charger id in the URL. Once an
     # organization lists credentials, only those chargers may connect.
@@ -47,10 +51,8 @@ organizations:
     #     CP001:
     #       password_hash: "pbkdf2_sha256$200000$<salt>$<hash>"
     #     CP002:
-    #       password: "plaintext-works-but-is-discouraged"    # Tag management for external backend mode
-    tag_management:
-      enabled: true
-    # Pre-configured tags
+    #       password: "plaintext-works-but-is-discouraged"
+    # Authorization tags, used for Authorize / StartTransaction
     tags:
       - id_tag: "ADMIN001"
         status: "Accepted"
@@ -59,30 +61,38 @@ organizations:
         metadata:
           role: "admin"
           department: "IT"
+
+  # ---------------------------------------------------------------------------
+  # Relay mode: replace the example URLs with your central system(s)
+  # ---------------------------------------------------------------------------
+  - name: "orgB"
+    connect_to_backend: true
+    ocpp_subprotocol: "ocpp1.6"
     backends:
-      - id: backendA1
-        url: ws://backend.example.com/ocpp  # replace with your central system's WebSocket base URL
-        leader: true
-        ocpp_subprotocol: "ocpp1.6"  # Backend-specific subprotocol (overrides org-level)
-        chargers:
-          - CP001
-          - CP002
+      # The broker connects to {url}/{charger id} for every charger.
+      - id: main
+        url: ws://backend.example.com/ocpp
+        leader: true               # the leader talks to the charger
+      # - id: observer             # followers receive a copy of the charger's requests
+      #   url: ws://observer.example.com/ocpp
+    # Relay resilience (all optional; defaults shown)
+    # backend_buffer_size: 200       # frames held while the leader is unreachable
+    # backend_outage_timeout: 30     # seconds before a held request is answered with a CallError
+    # leader_failover_timeout: 15    # seconds the leader may be down before a follower takes over (0 = never)
 
 # =============================================================================
-# OCPP 1.6 SPECIFIC CONFIGURATION
+# OCPP 1.6
 # =============================================================================
 ocpp:
-  # Command handling settings
   commands:
-    # Core Profile settings
     core:
-      heartbeat_interval: 20  # 20 seconds
+      heartbeat_interval: 20  # seconds; sent as `interval` in the BootNotification reply (broker mode; default 300)
 
 # =============================================================================
-# DATATRANSFER CONFIGURATION (System-wide)
+# DATATRANSFER (system-wide, broker mode)
 # =============================================================================
 data_transfer:
-  # List of known vendor IDs that are allowed to send DataTransfer commands
+  # Vendor ids that may send DataTransfer; others are answered UnknownVendorId
   known_vendors:
     - "ABB"
     - "generalConfiguration"
@@ -91,7 +101,7 @@ data_transfer:
     - "VendorA"
     - "VendorB"
     - "VendorC"
-  # List of known message IDs that are allowed in DataTransfer commands
+  # Message ids that are allowed; others are answered UnknownMessageId
   known_message_ids:
     - "MSG001"
     - "setMeterConfiguration"
@@ -100,53 +110,34 @@ data_transfer:
     - "DiagnosticsRequest"
     - "FirmwareStatus"
     - "CustomData"
-  # Enable/disable validation (default: true)
-  validate_vendors: true
-  validate_message_ids: true
-  # Vendor-specific configurations
+  validate_vendors: true        # default true
+  validate_message_ids: true    # default true
   vendors:
     VendorA:
-      # Optional: specific message IDs allowed for this vendor
-      allowed_message_ids:
+      allowed_message_ids:      # optional: restrict this vendor to these message ids
         - "MSG001"
         - "MSG002"
-      # Auto-accept messages from this vendor (default: true)
-      auto_accept: true
-      # Require message_id for this vendor (default: false)
-      require_message_id: false
+      auto_accept: true         # default true; false answers Rejected
+      require_message_id: false # default false
     VendorB:
       allowed_message_ids:
         - "MSG003"
         - "DiagnosticsRequest"
       auto_accept: true
-      require_message_id: true  # This vendor requires message_id
-  # Vendor+Message ID specific configurations (optional)
+      require_message_id: true  # answers UnknownMessageId when no message id is sent
+  # Per vendor+message overrides
   vendor_messages:
     "VendorA:MSG001":
       auto_accept: true
-      description: "Diagnostics data from VendorA"
     "VendorB:DiagnosticsRequest":
       auto_accept: true
-      description: "Diagnostics request from VendorB"
 
 # =============================================================================
-# TAG MANAGEMENT CONFIGURATION
+# MONGODB (optional)
 # =============================================================================
-tag_management:
-  # Global tag management settings
-  global:
-    enabled: true
-
-# =============================================================================
-# MONGODB CONFIGURATION
-# =============================================================================
+# Without MongoDB nothing is persisted and transaction ids are not durable.
+# Set enabled: false (or remove this section) if you have no MongoDB.
 mongodb:
-  enabled: true  # Set to false to disable MongoDB integration
-  connection_string: "mongodb://localhost:27017"  # MongoDB connection string
-  database_name: "ocpp_broker"  # Database name to use
-
-# =============================================================================
-# LOGGING CONFIGURATION
-# =============================================================================
-logging:
-  level: "INFO"
+  enabled: true
+  connection_string: "mongodb://localhost:27017"
+  database_name: "ocpp_broker"

@@ -1,631 +1,201 @@
-# OCPP Tag Management
+# Tag Management
 
-Complete guide to managing OCPP tags and authorization lists when the broker acts as a backend.
+Tags (RFID cards, app tokens, ...) decide who may charge. When the broker acts as the central system ([broker mode](broker_as_backend.md)) it answers `Authorize`, `StartTransaction` and `StopTransaction` from the organization's tag list. In relay mode the backend authorizes, so the broker's tags are not consulted.
 
-## 🎯 Overview
+Tag management is always available; there is nothing to enable. Tags are managed per organization.
 
-The OCPP broker now includes comprehensive tag management capabilities when acting as a backend. This feature allows you to:
-
-- **Manage OCPP Tags**: Create, read, update, and delete authorization tags
-- **Configure Tags via YAML**: Define tags directly in the configuration file
-- **REST API Management**: Full CRUD operations via REST API
-- **Import/Export**: Bulk operations and data migration
-- **Real-time Authorization**: Automatic tag validation for OCPP Authorize commands
-- **Statistics & Monitoring**: Track tag usage and authorization patterns
-
-## 🔧 Configuration
-
-### **Basic Tag Management Setup**
+## Defining tags in `config.yaml`
 
 ```yaml
-# config.yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-  enable_tag_management: true  # 🎯 Enable tag management
-
-# Global tag management settings
-tag_management:
-  global:
-    enabled: true
-    default_status: "Accepted"
-    default_tag_type: "RFID"
-    max_tags_per_org: 10000
-    auto_cleanup_expired: true
-
 organizations:
   - name: "MyChargingStation"
-    connect_to_backend: false  # Broker acts as backend
-    tag_management:
-      enabled: true
-      auto_authorize: true
-      validation_strict: true
-    # Pre-configured tags
+    connect_to_backend: false
     tags:
-      - id_tag: "ADMIN001"
-        status: "Accepted"
-        tag_type: "RFID"
-        description: "Administrator access"
-        metadata:
+      - id_tag: "ADMIN001"              # required, 1-20 printable ASCII characters
+        status: "Accepted"              # required
+        tag_type: "RFID"                # optional, default RFID
+        expiry_date: "2030-12-31T23:59:59Z"
+        parent_id_tag: null             # optional
+        description: "Administrator card"
+        metadata:                       # optional, free-form
           role: "admin"
-          department: "IT"
       - id_tag: "USER123456"
         status: "Accepted"
-        tag_type: "RFID"
-        expiry_date: "2024-12-31T23:59:59Z"
-        description: "Employee access"
-        metadata:
-          role: "employee"
-          department: "Engineering"
-      - id_tag: "GUEST001"
-        status: "Accepted"
-        tag_type: "QRCode"
-        expiry_date: "2024-01-31T23:59:59Z"
-        description: "Guest access"
-        metadata:
-          role: "guest"
-          access_level: "limited"
-    chargers:
-      - "CHARGER_001"
-      - "CHARGER_002"
-```
-
-### **Advanced Tag Management Configuration**
-
-```yaml
-# Enhanced configuration with full tag management features
-tag_management:
-  global:
-    enabled: true
-    default_status: "Accepted"
-    default_tag_type: "RFID"
-    max_tags_per_org: 10000
-    tag_id_length_min: 1
-    tag_id_length_max: 20
-    auto_cleanup_expired: true
-    cleanup_interval: 86400  # 24 hours
-  
-  validation:
-    strict_mode: true
-    validate_expiry_dates: true
-    validate_parent_tags: true
-    allow_duplicate_ids: false
-    require_description: false
-  
-  import_export:
-    supported_formats: ["json", "csv", "xml"]
-    max_import_size: 10485760  # 10MB
-    export_include_metadata: true
-    export_include_timestamps: true
-  
-  monitoring:
-    enable_statistics: true
-    statistics_interval: 3600  # 1 hour
-    log_tag_operations: true
-    log_authorization_attempts: true
-
-organizations:
-  - name: "ProductionCharging"
-    connect_to_backend: false
-    tag_management:
-      enabled: true
-      auto_authorize: true
-      validation_strict: true
-      cache_timeout: 3600
-    tags:
-      - id_tag: "PROD_ADMIN"
-        status: "Accepted"
-        tag_type: "RFID"
-        description: "Production administrator"
-        metadata:
-          role: "admin"
-          level: "production"
-      - id_tag: "PROD_USER"
-        status: "Accepted"
-        tag_type: "RFID"
-        expiry_date: "2025-12-31T23:59:59Z"
-        description: "Production user"
-        metadata:
-          role: "user"
-          level: "production"
-      - id_tag: "BLOCKED_USER"
+        parent_id_tag: "ADMIN001"
+        description: "Employee"
+      - id_tag: "LOST001"
         status: "Blocked"
-        tag_type: "RFID"
-        description: "Blocked user"
-        metadata:
-          role: "user"
-          reason: "security_violation"
-    chargers:
-      - "PROD_001"
-      - "PROD_002"
 ```
 
-## 🚀 Features
+| Field | Values |
+|-------|--------|
+| `status` | `Accepted`, `Blocked`, `Expired`, `Invalid`, `ConcurrentTx` |
+| `tag_type` | `RFID` (default), `NFC`, `QRCode`, `MobileApp`, `UserId` |
+| `expiry_date` | ISO 8601 text. A date without a time zone is read as UTC. |
+| `parent_id_tag` | Returned to the charger in `idTagInfo`. It has no other effect: a parent's status does not affect its children. |
 
-### **1. Tag Types and Status**
+There are no other tag settings in the configuration file.
 
-#### **Supported Tag Types**
-- `RFID` - Radio Frequency ID cards
-- `NFC` - Near Field Communication
-- `QRCode` - QR Code scanning
-- `MobileApp` - Mobile application
-- `UserId` - User ID authentication
+## How authorization decides
 
-#### **Tag Status Values**
-- `Accepted` - Tag is authorized for charging
-- `Blocked` - Tag is blocked from charging
-- `Expired` - Tag has expired
-- `Invalid` - Tag is invalid or not found
-- `ConcurrentTx` - Tag is already in use
+| Tag | Reply (`idTagInfo.status`) |
+|-----|----------------------------|
+| not in the organization's list | `Invalid` |
+| `expiry_date` in the past, or not a readable date | `Expired` (`expiryDate` is returned) |
+| otherwise | the tag's own `status` |
 
-### **2. Tag Configuration**
+Ids are matched exactly, **including case** (searching through the API is case-insensitive). If tag management is unavailable the answer is `Invalid`; there is no fallback that lets unknown tags charge.
 
-#### **Basic Tag Definition**
-```yaml
-tags:
-  - id_tag: "USER123456"           # Required: Unique tag identifier
-    status: "Accepted"             # Required: Tag status
-    tag_type: "RFID"               # Optional: Tag type (default: RFID)
-    expiry_date: "2024-12-31T23:59:59Z"  # Optional: Expiry date
-    parent_id_tag: "ADMIN001"       # Optional: Parent tag for hierarchy
-    description: "Employee access" # Optional: Human-readable description
-    metadata:                      # Optional: Additional data
-      role: "employee"
-      department: "Engineering"
-      access_level: "standard"
+```
+> [2,"4","Authorize",{"idTag":"ADMIN001"}]
+< [3,"4",{"idTagInfo":{"status":"Accepted","parentIdTag":"ROOT"}}]
 ```
 
-#### **Tag Hierarchy**
-```yaml
-tags:
-  - id_tag: "ADMIN001"
-    status: "Accepted"
-    tag_type: "RFID"
-    description: "Administrator tag"
-    metadata:
-      role: "admin"
-      level: "super"
-  
-  - id_tag: "USER123456"
-    status: "Accepted"
-    tag_type: "RFID"
-    parent_id_tag: "ADMIN001"  # Child of ADMIN001
-    description: "Employee under admin"
-    metadata:
-      role: "employee"
-      parent: "ADMIN001"
-```
+`StartTransaction` also returns a `transactionId` when the tag is not accepted; the charger is expected to stop the transaction (see [Broker-as-Backend](broker_as_backend.md#transactions)).
 
-### **3. REST API Management**
+## Managing tags with the REST API
 
-#### **Tag CRUD Operations**
+All calls need the API key (`X-API-Key`). Full reference: [API Reference](api-reference.md#tags-apitags).
 
-**Add a new tag:**
 ```bash
-curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id_tag": "NEW_USER",
-    "status": "Accepted",
-    "tag_type": "RFID",
-    "description": "New user access",
-    "metadata": {
-      "role": "user",
-      "department": "Sales"
-    }
-  }'
+export BROKER=http://localhost:8765
+H='-H "X-API-Key: '$OCPP_BROKER_API_KEY'" -H "Content-Type: application/json"'
+
+# add
+curl -X POST "$BROKER/api/tags/organizations/MyChargingStation/tags" $H \
+  -d '{"id_tag": "NEW_USER", "status": "Accepted", "tag_type": "RFID", "metadata": {"dept": "Sales"}}'
+
+# read, replace, delete
+curl "$BROKER/api/tags/organizations/MyChargingStation/tags/NEW_USER" $H
+curl -X PUT "$BROKER/api/tags/organizations/MyChargingStation/tags/NEW_USER" $H \
+  -d '{"id_tag": "NEW_USER", "status": "Blocked"}'
+curl -X DELETE "$BROKER/api/tags/organizations/MyChargingStation/tags/NEW_USER" $H
+
+# search
+curl "$BROKER/api/tags/organizations/MyChargingStation/tags?status=Accepted&tag_type=RFID&limit=50" $H
 ```
 
-**Get a specific tag:**
+(On Windows PowerShell, pass the headers explicitly with `-H` instead of the `$H` shorthand.)
+
+Notes:
+
+- `PUT` replaces the whole tag; the body's `id_tag` must be the one in the URL.
+- Adding an id that exists returns `400 {"detail": "Failed to add tag"}`.
+- Changes take effect for the next `Authorize` immediately.
+
+### Statistics
+
 ```bash
-curl "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/USER123456"
+curl "$BROKER/api/tags/organizations/MyChargingStation/statistics" $H
 ```
 
-**Update a tag:**
-```bash
-curl -X PUT "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/USER123456" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id_tag": "USER123456",
-    "status": "Blocked",
-    "tag_type": "RFID",
-    "description": "Blocked user access"
-  }'
-```
-
-**Delete a tag:**
-```bash
-curl -X DELETE "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/USER123456"
-```
-
-#### **Tag Search and Filtering**
-
-**Search tags with filters:**
-```bash
-curl "http://localhost:8765/api/tags/organizations/MyChargingStation/tags?status=Accepted&tag_type=RFID&limit=50"
-```
-
-**Get tag statistics:**
-```bash
-curl "http://localhost:8765/api/tags/organizations/MyChargingStation/statistics"
-```
-
-#### **Bulk Operations**
-
-**Bulk add tags:**
-```bash
-curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/bulk" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "operation": "add",
-    "tags": [
-      {
-        "id_tag": "BULK001",
-        "status": "Accepted",
-        "tag_type": "RFID",
-        "description": "Bulk user 1"
-      },
-      {
-        "id_tag": "BULK002",
-        "status": "Accepted",
-        "tag_type": "RFID",
-        "description": "Bulk user 2"
-      }
-    ]
-  }'
-```
-
-#### **Import/Export Operations**
-
-**Import tags from JSON:**
-```bash
-curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/import" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source": "json",
-    "data": "{\"tags\": [{\"id_tag\": \"IMPORT001\", \"status\": \"Accepted\", \"tag_type\": \"RFID\"}]}",
-    "overwrite_existing": false
-  }'
-```
-
-**Export tags to CSV:**
-```bash
-curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/export" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "format": "csv",
-    "include_metadata": true
-  }' --output tags.csv
-```
-
-### **4. OCPP Integration**
-
-#### **Automatic Authorization**
-
-When a charger sends an `Authorize` command, the broker automatically:
-
-1. **Looks up the tag** in the organization's tag list
-2. **Validates the tag** (status, expiry, etc.)
-3. **Returns authorization result** with proper OCPP response
-
-**Important:** Tags must exist in the system. There is **no fallback mechanism** - if a tag is not found in the organization's tag list, or if tag management is unavailable, the authorization will be rejected with `"status": "Invalid"`. This ensures strict access control and prevents unauthorized charging.
-
-**Example OCPP Authorize Flow:**
 ```json
-// Charger sends Authorize request
-[2, "12345", "Authorize", {
-  "idTag": "USER123456"
-}]
-
-// Broker responds with tag information
-[3, "12345", {
-  "idTagInfo": {
-    "status": "Accepted",
-    "expiryDate": "2024-12-31T23:59:59Z",
-    "parentIdTag": "ADMIN001"
-  }
-}]
+{"total_tags": 3, "active_tags": 2, "expired_tags": 0, "blocked_tags": 1,
+ "tags_by_type": {"RFID": 3}, "tags_by_status": {"Accepted": 2, "Blocked": 1}}
 ```
 
-#### **Tag Validation**
+`active_tags` counts `Accepted` tags that have not expired; `expired_tags` counts tags with status `Expired` or a past `expiry_date`.
 
-The broker performs comprehensive tag validation:
+### Validating a tag
 
-- **Format validation**: ID tag format and length
-- **Status validation**: Check if tag is active
-- **Expiry validation**: Check if tag has expired
-- **Hierarchy validation**: Validate parent-child relationships
-- **Duplicate validation**: Ensure unique tag IDs
-
-### **5. Monitoring and Statistics**
-
-#### **Tag Statistics API**
+`POST .../tags/validate` checks a tag without storing it:
 
 ```bash
-curl "http://localhost:8765/api/tags/organizations/MyChargingStation/statistics"
+curl -X POST "$BROKER/api/tags/organizations/MyChargingStation/tags/validate" $H \
+  -d '{"id_tag": "USER123456", "status": "Accepted", "parent_id_tag": "GHOST"}'
 ```
 
-**Response:**
 ```json
-{
-  "total_tags": 150,
-  "active_tags": 120,
-  "expired_tags": 20,
-  "blocked_tags": 10,
-  "tags_by_type": {
-    "RFID": 100,
-    "QRCode": 30,
-    "MobileApp": 20
-  },
-  "tags_by_status": {
-    "Accepted": 120,
-    "Blocked": 10,
-    "Expired": 20
-  }
-}
+{"is_valid": false,
+ "errors": ["Tag USER123456 already exists in organization MyChargingStation",
+            "parent_id_tag 'GHOST' does not exist in organization MyChargingStation"],
+ "warnings": []}
 ```
 
-#### **Tag Management Status**
+Errors: an id that is not printable ASCII, an id that already exists (add `?for_update=true` to skip this check), an unreadable `expiry_date`, a `parent_id_tag` that does not exist or is the tag itself. A past `expiry_date` is only a warning.
+
+### Bulk changes
 
 ```bash
-curl "http://localhost:8765/api/tags/status"
+curl -X POST "$BROKER/api/tags/organizations/MyChargingStation/tags/bulk" $H -d '{
+  "operation": "add",
+  "tags": [{"id_tag": "BULK001", "status": "Accepted"}, {"id_tag": "BULK002", "status": "Accepted"}]
+}'
 ```
 
-**Response:**
-```json
-{
-  "enabled": true,
-  "message": "Tag management is active",
-  "organizations": ["MyChargingStation", "ProductionCharging"]
-}
-```
+`operation` is `add`, `update` or `delete`. Each tag succeeds or fails on its own; the response lists every tag with `success` and an `error` such as `already exists` or `not found`.
 
-## 🔄 Use Cases
+### Import and export
 
-### **1. Employee Access Management**
-
-```yaml
-organizations:
-  - name: "CompanyCharging"
-    connect_to_backend: false
-    tag_management:
-      enabled: true
-      auto_authorize: true
-    tags:
-      - id_tag: "EMP001"
-        status: "Accepted"
-        tag_type: "RFID"
-        description: "Employee John Doe"
-        metadata:
-          employee_id: "EMP001"
-          department: "Engineering"
-          access_level: "standard"
-      - id_tag: "EMP002"
-        status: "Accepted"
-        tag_type: "RFID"
-        description: "Employee Jane Smith"
-        metadata:
-          employee_id: "EMP002"
-          department: "Sales"
-          access_level: "premium"
-```
-
-### **2. Guest Access Management**
-
-```yaml
-organizations:
-  - name: "PublicCharging"
-    connect_to_backend: false
-    tag_management:
-      enabled: true
-      auto_authorize: true
-    tags:
-      - id_tag: "GUEST001"
-        status: "Accepted"
-        tag_type: "QRCode"
-        expiry_date: "2024-01-31T23:59:59Z"
-        description: "Guest access - 30 days"
-        metadata:
-          access_type: "guest"
-          duration: "30_days"
-          location: "main_entrance"
-```
-
-### **3. Fleet Management**
-
-```yaml
-organizations:
-  - name: "FleetCharging"
-    connect_to_backend: false
-    tag_management:
-      enabled: true
-      auto_authorize: true
-    tags:
-      - id_tag: "FLEET001"
-        status: "Accepted"
-        tag_type: "RFID"
-        description: "Fleet vehicle 001"
-        metadata:
-          vehicle_id: "FLEET001"
-          vehicle_type: "delivery_van"
-          driver: "John Doe"
-          route: "downtown"
-      - id_tag: "FLEET002"
-        status: "Accepted"
-        tag_type: "RFID"
-        description: "Fleet vehicle 002"
-        metadata:
-          vehicle_id: "FLEET002"
-          vehicle_type: "truck"
-          driver: "Jane Smith"
-          route: "suburbs"
-```
-
-## 🛠️ Advanced Features
-
-### **1. Tag Expiry Management**
-
-```yaml
-tags:
-  - id_tag: "TEMP_USER"
-    status: "Accepted"
-    tag_type: "RFID"
-    expiry_date: "2024-01-31T23:59:59Z"  # Auto-expires
-    description: "Temporary access"
-    metadata:
-      access_type: "temporary"
-      duration: "30_days"
-```
-
-### **2. Tag Hierarchy**
-
-```yaml
-tags:
-  - id_tag: "ADMIN_ROOT"
-    status: "Accepted"
-    tag_type: "RFID"
-    description: "Root administrator"
-    metadata:
-      role: "super_admin"
-      level: "root"
-  
-  - id_tag: "ADMIN_DEPT"
-    status: "Accepted"
-    tag_type: "RFID"
-    parent_id_tag: "ADMIN_ROOT"
-    description: "Department administrator"
-    metadata:
-      role: "dept_admin"
-      level: "department"
-      parent: "ADMIN_ROOT"
-  
-  - id_tag: "USER_STANDARD"
-    status: "Accepted"
-    tag_type: "RFID"
-    parent_id_tag: "ADMIN_DEPT"
-    description: "Standard user"
-    metadata:
-      role: "user"
-      level: "standard"
-      parent: "ADMIN_DEPT"
-```
-
-### **3. Bulk Tag Operations**
-
-**Import from CSV:**
-```csv
-id_tag,status,tag_type,description,metadata
-USER001,Accepted,RFID,User 1,"{""role"":""user"",""dept"":""eng""}"
-USER002,Accepted,RFID,User 2,"{""role"":""user"",""dept"":""sales""}"
-USER003,Blocked,RFID,Blocked User,"{""role"":""user"",""reason"":""violation""}"
-```
-
-**Export to JSON:**
-```json
-{
-  "organization": "MyChargingStation",
-  "exported_at": "2024-01-15T10:30:00Z",
-  "tag_count": 3,
-  "tags": [
-    {
-      "id_tag": "USER001",
-      "status": "Accepted",
-      "tag_type": "RFID",
-      "description": "User 1",
-      "metadata": {
-        "role": "user",
-        "dept": "eng"
-      }
-    }
-  ]
-}
-```
-
-## 🔍 Troubleshooting
-
-### **Common Issues**
-
-#### **1. Tag Not Found**
-```json
-{
-  "idTagInfo": {
-    "status": "Invalid",
-    "expiryDate": null,
-    "parentIdTag": null
-  }
-}
-```
-
-**Solutions:**
-- Check if tag exists in organization
-- Verify tag ID spelling
-- Ensure organization has tag management enabled
-
-#### **2. Tag Expired**
-```json
-{
-  "idTagInfo": {
-    "status": "Expired",
-    "expiryDate": "2023-12-31T23:59:59Z",
-    "parentIdTag": null
-  }
-}
-```
-
-**Solutions:**
-- Update tag expiry date
-- Create new tag with valid expiry
-- Check system time synchronization
-
-#### **3. Tag Blocked**
-```json
-{
-  "idTagInfo": {
-    "status": "Blocked",
-    "expiryDate": null,
-    "parentIdTag": null
-  }
-}
-```
-
-**Solutions:**
-- Check tag status in configuration
-- Update tag status to "Accepted"
-- Review tag metadata for blocking reason
-
-### **Debugging Commands**
-
-**Check tag management status:**
 ```bash
-curl "http://localhost:8765/api/tags/status"
+curl -X POST "$BROKER/api/tags/organizations/MyChargingStation/tags/import" $H -d '{
+  "source": "json",
+  "data": "{\"tags\": [{\"id_tag\": \"IMPORT001\", \"status\": \"Accepted\"}]}",
+  "overwrite_existing": false,
+  "validate_only": false
+}'
+
+curl -X POST "$BROKER/api/tags/organizations/MyChargingStation/tags/export" $H \
+  -d '{"format": "csv", "include_metadata": false}' --output tags.csv
 ```
 
-**Validate a specific tag:**
+- **Sources and formats:** `json` (either `{"tags": [...]}` or a bare list) and `csv`.
+- **CSV columns:** `id_tag,status,tag_type,expiry_date,parent_id_tag,description`, plus `created_at,updated_at,metadata` (JSON text) when metadata is included. Empty cells are treated as absent.
+- **Bad records** are reported in `errors` (`record` number, `id_tag`, reason) and the rest are imported. Duplicate ids inside one import are rejected after the first.
+- **Existing tags** are skipped (`skipped`) unless `overwrite_existing` is true, in which case they are replaced (`updated`).
+- **Parents** may be defined in the same import, in any order.
+- **`validate_only: true`** reports what would happen and changes nothing.
+- **Unparseable text** is `400`.
+- **Exports** re-import without loss. CSV comes back as a file download, JSON as `{"organization", "exported_at", "count", "tags": [...]}`.
+
+## Persistence and MongoDB
+
+Without MongoDB the tag list lives in memory: tags in `config.yaml` come back on restart, tags added through the API do not.
+
+With MongoDB enabled every API change is also written to the `tags` collection, and a tag that is not in memory is looked up there when needed. See [MongoDB Integration](mongodb-integration.md#tags).
+
+### Syncing with MongoDB
+
+If tags are changed in MongoDB directly (or by another broker instance), tell the broker to reload:
+
 ```bash
-curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/validate" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id_tag": "USER123456",
-    "status": "Accepted",
-    "tag_type": "RFID"
-  }'
+curl -X POST "$BROKER/api/tags/sync" $H                       # every organization
+curl -X POST "$BROKER/api/tags/sync?org_name=MyChargingStation" $H
 ```
 
-**Test tag authorization:**
+```json
+{"success": true, "message": "Synced tags from MongoDB (all organizations)",
+ "organizations": {"MyChargingStation": {"loaded": 3, "seeded": 0, "dropped": 0}}}
+```
+
+- For an organization that has stored tags, MongoDB wins: the broker's list is replaced by what is stored, so a tag removed or revoked in MongoDB stops working after a sync. `dropped` counts in-memory tags MongoDB did not have.
+- An organization that has tags in memory (typically from `config.yaml`) but none stored is pushed into MongoDB instead (`seeded`), so config tags are never wiped.
+- Without MongoDB the call returns `503`.
+
+Until a sync, tags the broker already holds in memory keep their old status; each broker instance has its own copy.
+
+## Common situations
+
+| Charger gets | Cause |
+|--------------|-------|
+| `Invalid` | The id is not in the organization's list (check spelling and case, and that the charger's organization is the one you added the tag to), or the broker could not reach tag management |
+| `Expired` | `expiry_date` is in the past, or it is not a valid ISO 8601 date |
+| `Blocked` | The tag's `status` is `Blocked` |
+
+To test what a charger would get without a charger:
+
 ```bash
-curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/authorize" \
-  -H "Content-Type: application/json" \
-  -d '"USER123456"'
+curl -X POST "$BROKER/api/tags/organizations/MyChargingStation/tags/authorize" $H -d '"USER123456"'
 ```
 
-## 📚 Related Documentation
+```json
+{"idTag": "USER123456", "idTagInfo": {"status": "Accepted", "expiryDate": null, "parentIdTag": "ADMIN001"}}
+```
 
-- [Broker-as-Backend Mode](broker-as-backend.md)
-- [OCPP 1.6 Features](ocpp16-features.md)
+## Related documentation
+
+- [Broker-as-Backend Mode](broker_as_backend.md)
 - [API Reference](api-reference.md)
 - [Configuration Guide](configuration.md)
+- [MongoDB Integration](mongodb-integration.md)
 - [Troubleshooting](troubleshooting.md)
-
----
-
-*Last updated: October 2024*

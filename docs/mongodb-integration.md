@@ -1,422 +1,139 @@
-# MongoDB Integration for OCPP Broker
+# MongoDB Integration
 
-This document describes the MongoDB integration for saving OCPP messages, statuses, metervalues, configurations, and other data when the broker is acting as the leader (backend).
-
-## Overview
-
-When the broker is configured to act as the backend (i.e., `connect_to_backend: false` in organization config), all OCPP messages from chargers are automatically saved to MongoDB. The data is organized by organization and charger in separate collections.
+MongoDB is optional. When enabled the broker stores charger data and uses MongoDB for durable transaction ids and tags. Without it the broker still works, but nothing is persisted: tags added at runtime are lost on restart and transaction ids come from a non-durable counter.
 
 ## Configuration
 
-You can configure MongoDB either via `config.yaml` or using a `.env` file. Environment variables take precedence over YAML configuration.
-
-### Option 1: Using config.yaml
-
-Add the following to your `config.yaml`:
+In `config.yaml`:
 
 ```yaml
 mongodb:
-  enabled: true  # Set to false to disable MongoDB integration
-  connection_string: "mongodb://localhost:27017"  # MongoDB connection string
-  database_name: "ocpp_broker"  # Database name to use
+  enabled: true
+  connection_string: "mongodb://localhost:27017"
+  database_name: "ocpp_broker"
 ```
 
-### Option 2: Using .env file
+or with environment variables (a `.env` file in the working directory is loaded automatically). **Environment variables win over the file.**
 
-Create a `.env` file in your project root:
+| Variable | Meaning |
+|----------|---------|
+| `MONGODB_ENABLED` | `true`, `1`, `yes` or `on` enables MongoDB (also enables it when the file says `enabled: false`) |
+| `MONGODB_CONNECTION_STRING` | Default `mongodb://localhost:27017` |
+| `MONGODB_DATABASE_NAME` | Default `ocpp_broker` |
 
-```env
-# Enable MongoDB integration
-MONGODB_ENABLED=true
+Connection strings are standard MongoDB URIs: `mongodb://user:password@host:27017`, a replica set (`mongodb://h1,h2,h3/?replicaSet=rs0`) or Atlas (`mongodb+srv://...`).
 
-# MongoDB connection string
-MONGODB_CONNECTION_STRING=mongodb://localhost:27017
+### Startup behaviour
 
-# MongoDB database name
-MONGODB_DATABASE_NAME=ocpp_broker
-```
+The broker connects once at startup and pings the server (5 second timeout). If that fails, an error `Failed to initialize MongoDB service` is logged and the broker **continues without MongoDB until it is restarted**; it does not retry. Start MongoDB first. If the connection is lost later, writes are skipped or logged as errors and OCPP processing continues; a failed write never fails a charger request.
 
-### Environment Variables
+If MongoDB is disabled, the broker logs `MongoDB not configured or disabled: transaction ids will come from a non-durable in-memory counter and nothing will be persisted.`
 
-The following environment variables are supported:
+The broker creates no indexes and no TTL settings. Add indexes for the queries you run (for example on `org_name` and `charger_id`) and your own retention policy for the high-volume collections.
 
-- `MONGODB_ENABLED` - Enable/disable MongoDB (true/false/1/0/yes/no/on/off)
-- `MONGODB_CONNECTION_STRING` - MongoDB connection string
-- `MONGODB_DATABASE_NAME` - Database name (default: "ocpp_broker")
+## What is stored, and when
 
-### Connection String Examples
+Data is written for chargers served in **broker mode**, for commands sent through the REST API, and for commands a backend sends in **relay mode**. Frames a charger sends in relay mode are forwarded to the backend and are not stored.
 
-```env
-# Local MongoDB
-MONGODB_CONNECTION_STRING=mongodb://localhost:27017
+| Collection | Written when | Contents |
+|------------|--------------|----------|
+| `charger_configurations` | `BootNotification` (broker mode) | One document per charger, updated on each boot: model, vendor, firmware, ICCID, IMSI, meter details, `last_boot_time`, `updated_at` |
+| `charger_heartbeats_latest` | `Heartbeat` | One document per charger: `last_heartbeat`, `updated_at`. Individual heartbeats are not stored. |
+| `charger_statuses` | `StatusNotification` | Every notification: connector, status, error code, info, vendor fields, `timestamp` |
+| `charger_statuses_latest` | `StatusNotification` | One document per connector with its latest status |
+| `meter_values` | `MeterValues` | Connector, `transaction_id`, the readings (`meter_value`), `timestamp` |
+| `transactions` | `StartTransaction`, `StopTransaction` | One document per transaction (see below) |
+| `authorizations` | `Authorize` | Each authorization: `id_tag`, `status`, `expiry_date`, `parent_id_tag`, `timestamp` |
+| `data_transfers` | `DataTransfer` | Vendor, message id, data, the status the broker answered |
+| `diagnostics_status_notifications`, `firmware_status_notifications` | those two messages | The raw message in `payload` |
+| `call_results`, `call_errors` | every CALLRESULT / CALLERROR the broker sends to a charger in broker mode | `message_id`, `payload`, `direction: broker_to_charger`; the action is the generic `CallResult` / `CallError` |
+| one per command action (`resets`, `change_availabilities`, `remote_start_transactions`, `get_configurations`, ...) | a command sent from the broker to a charger | the command (`message_type: call`, `direction: broker_to_charger`); for REST commands the charger's reply is stored in the same collection (`call_result` or `call_error`, `direction: charger_to_broker`) |
+| `tags`, `tag_list_versions` | tag changes | the tags of every organization and a list version per organization |
+| `counters` | `StartTransaction` | transaction id counters |
 
-# With authentication
-MONGODB_CONNECTION_STRING=mongodb://username:password@localhost:27017
+The `call_results` / `call_errors` log grows by one document for every reply the broker sends, including every heartbeat answer. It carries no action name, so it is of limited use; expect it to be the largest collection and set a retention policy on it.
 
-# Replica set
-MONGODB_CONNECTION_STRING=mongodb://host1:27017,host2:27017,host3:27017/?replicaSet=rs0
+Raw per-message collections for incoming requests (for example `start_transactions`, `status_notifications`, `boot_notifications`) are **not** written: the structured collections above replace them.
 
-# MongoDB Atlas
-MONGODB_CONNECTION_STRING=mongodb+srv://username:password@cluster.mongodb.net/
+### Document shapes
 
-# With database name in connection string
-MONGODB_CONNECTION_STRING=mongodb://localhost:27017/ocpp_broker
-```
+Every document has `org_name`, `charger_id` and a `timestamp` (UTC) unless noted.
 
-## Collections
-
-Each OCPP 1.6 message type is stored in its own collection. The following MongoDB collections are created:
-
-### From Charge Point to Central System (Requests)
-
-1. **authorize_messages** - Authorize messages
-2. **boot_notifications** - BootNotification messages
-3. **data_transfers** - DataTransfer messages
-4. **diagnostics_status_notifications** - DiagnosticsStatusNotification messages
-5. **firmware_status_notifications** - FirmwareStatusNotification messages
-6. **charger_heartbeats_latest** - Latest heartbeat timestamp for each charger (updated on each heartbeat, no individual messages stored)
-7. **meter_values** - MeterValues messages
-8. **start_transactions** - StartTransaction messages
-9. **status_notifications** - StatusNotification messages
-10. **stop_transactions** - StopTransaction messages
-
-### From Central System to Charge Point (Commands)
-
-11. **cancel_reservations** - CancelReservation commands
-12. **change_availabilities** - ChangeAvailability commands
-13. **change_configurations** - ChangeConfiguration commands
-14. **clear_caches** - ClearCache commands
-15. **clear_charging_profiles** - ClearChargingProfile commands
-16. **get_composite_schedules** - GetCompositeSchedule commands
-17. **get_configurations** - GetConfiguration commands
-18. **get_diagnostics** - GetDiagnostics commands
-19. **get_local_list_versions** - GetLocalListVersion commands
-20. **remote_start_transactions** - RemoteStartTransaction commands
-21. **remote_stop_transactions** - RemoteStopTransaction commands
-22. **reserve_nows** - ReserveNow commands
-23. **resets** - Reset commands
-24. **send_local_lists** - SendLocalList commands
-25. **set_charging_profiles** - SetChargingProfile commands
-26. **trigger_messages** - TriggerMessage commands
-27. **unlock_connectors** - UnlockConnector commands
-28. **update_firmwares** - UpdateFirmware commands
-
-### Additional Collections (Detailed Records)
-
-29. **charger_statuses** - StatusNotification messages (detailed records)
-30. **charger_statuses_latest** - Latest status for each connector (updated on each status change)
-31. **charger_heartbeats_latest** - Latest heartbeat timestamp for each charger (indicates last availability)
-32. **transactions** - Transaction records (for compatibility)
-33. **authorizations** - Authorize command data (detailed records)
-34. **charger_configurations** - BootNotification data (charger configuration)
-
-### Heartbeat Collection Structure
-
-The `charger_heartbeats_latest` collection stores only the latest timestamp for each charger:
+**`transactions`**: a start inserts the document; a stop updates only the stop fields on the same document (`org_name` + `charger_id` + `transaction_id`), and creates a partial document if no start was stored:
 
 ```json
 {
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "last_heartbeat": "2024-01-01T12:00:00Z",
-  "updated_at": "2024-01-01T12:00:00Z"
+  "org_name": "orgA", "charger_id": "CP001", "transaction_id": 1,
+  "connector_id": 1, "id_tag": "USER123", "meter_start": 1000, "reservation_id": null,
+  "transaction_type": "stop", "timestamp": "2026-01-01T10:00:00Z",
+  "meter_stop": 1250, "stop_timestamp": "2026-01-01T11:00:00Z",
+  "stop_reason": "EVDisconnected", "stop_id_tag": "USER123"
 }
 ```
 
-This allows you to quickly check when each charger was last available without storing individual heartbeat messages.
+`transaction_type` is `start` until the stop arrives. `connector_id`, `id_tag` and `meter_start` of a stop-only document are absent.
 
-**Note:** All OCPP 1.6 messages (calls, call_results, and call_errors) are saved to their respective collections based on the action name.
+**`charger_statuses`**
 
-## Automatic Saving
-
-When the broker is the leader (acting as backend), **ALL OCPP 1.6 messages** are automatically saved:
-
-### From Charge Point to Central System (Requests)
-- **Authorize** - Saved to `authorize_messages` and `authorizations`
-- **BootNotification** - Saved to `boot_notifications` and `charger_configurations`
-- **DataTransfer** - Saved to `data_transfers`
-- **DiagnosticsStatusNotification** - Saved to `diagnostics_status_notifications`
-- **FirmwareStatusNotification** - Saved to `firmware_status_notifications`
-- **Heartbeat** - Updates `charger_heartbeats_latest` with latest timestamp (individual messages not stored)
-- **MeterValues** - Saved to `meter_values`
-- **StartTransaction** - Saved to `start_transactions` and `transactions`
-- **StatusNotification** - Saved to `status_notifications`, `charger_statuses`, and `charger_statuses_latest`
-- **StopTransaction** - Saved to `stop_transactions` and `transactions`
-
-### From Central System to Charge Point (Commands)
-All commands sent from the broker to chargers are saved:
-- **CancelReservation** - Saved to `cancel_reservations`
-- **ChangeAvailability** - Saved to `change_availabilities`
-- **ChangeConfiguration** - Saved to `change_configurations`
-- **ClearCache** - Saved to `clear_caches`
-- **ClearChargingProfile** - Saved to `clear_charging_profiles`
-- **GetCompositeSchedule** - Saved to `get_composite_schedules`
-- **GetConfiguration** - Saved to `get_configurations`
-- **GetDiagnostics** - Saved to `get_diagnostics`
-- **GetLocalListVersion** - Saved to `get_local_list_versions`
-- **RemoteStartTransaction** - Saved to `remote_start_transactions`
-- **RemoteStopTransaction** - Saved to `remote_stop_transactions`
-- **ReserveNow** - Saved to `reserve_nows`
-- **Reset** - Saved to `resets`
-- **SendLocalList** - Saved to `send_local_lists`
-- **SetChargingProfile** - Saved to `set_charging_profiles`
-- **TriggerMessage** - Saved to `trigger_messages`
-- **UnlockConnector** - Saved to `unlock_connectors`
-- **UpdateFirmware** - Saved to `update_firmwares`
-
-### Call Results and Errors
-- **CallResult** (Type 3) - Saved to action-specific collections with message_type="call_result"
-- **CallError** (Type 4) - Saved to action-specific collections with message_type="call_error"
-
-Each message type has its own dedicated collection for better organization and querying. This covers the complete OCPP 1.6 specification.
-
-## REST APIs
-
-The following REST APIs are available for manually saving OCPP data to MongoDB:
-
-### Base URL
-All APIs are available at `/api/mongodb/`
-
-### Endpoints
-
-#### 1. Save StatusNotification
-```http
-POST /api/mongodb/status-notification
-Content-Type: application/json
-
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "connector_id": 1,
-  "status": "Available",
-  "error_code": null,
-  "info": null,
-  "vendor_id": null,
-  "vendor_error_code": null
-}
-```
-
-#### 2. Save MeterValues
-```http
-POST /api/mongodb/meter-values
-Content-Type: application/json
-
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "connector_id": 1,
-  "transaction_id": 12345,
-  "meter_value": [
-    {
-      "timestamp": "2024-01-01T12:00:00Z",
-      "sampledValue": [
-        {
-          "value": "1000",
-          "context": "Sample.Periodic",
-          "format": "Raw",
-          "measurand": "Energy.Active.Import.Register",
-          "location": "Outlet",
-          "unit": "Wh"
-        }
-      ]
-    }
-  ]
-}
-```
-
-#### 3. Save BootNotification
-```http
-POST /api/mongodb/boot-notification
-Content-Type: application/json
-
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "charge_point_model": "Model X",
-  "charge_point_vendor": "Vendor Y",
-  "firmware_version": "1.0.0",
-  "iccid": "123456789",
-  "imsi": "987654321",
-  "meter_type": "Type A",
-  "meter_serial_number": "SN123456"
-}
-```
-
-#### 4. Save Transaction
-```http
-POST /api/mongodb/transaction
-Content-Type: application/json
-
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "transaction_id": 12345,
-  "connector_id": 1,
-  "id_tag": "USER123",
-  "meter_start": 1000,
-  "reservation_id": null,
-  "transaction_type": "start"
-}
-```
-
-#### 5. Save Authorization
-```http
-POST /api/mongodb/authorization
-Content-Type: application/json
-
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "id_tag": "USER123",
-  "status": "Accepted",
-  "expiry_date": "2024-12-31T23:59:59Z",
-  "parent_id_tag": null
-}
-```
-
-#### 6. Save DataTransfer
-```http
-POST /api/mongodb/data-transfer
-Content-Type: application/json
-
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "vendor_id": "VendorA",
-  "message_id": "MSG001",
-  "data": "{\"key\": \"value\"}",
-  "status": "Accepted"
-}
-```
-
-#### 7. Save Generic OCPP Message
-```http
-POST /api/mongodb/ocpp-message
-Content-Type: application/json
-
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "message_type": "call",
-  "action": "Heartbeat",
-  "payload": {},
-  "direction": "charger_to_broker",
-  "message_id": "msg123"
-}
-```
-
-#### 8. Check MongoDB Health
-```http
-GET /api/mongodb/health
-```
-
-Returns:
 ```json
-{
-  "status": "connected",
-  "connected": true,
-  "database": "ocpp_broker"
-}
+{"org_name": "orgA", "charger_id": "CP001", "connector_id": 1, "status": "Available",
+ "error_code": "NoError", "info": null, "vendor_id": null, "vendor_error_code": null,
+ "timestamp": "2026-01-01T12:00:00Z"}
 ```
 
-## Data Structure
+**`charger_heartbeats_latest`**
 
-All documents include:
-- `org_name` - Organization name
-- `charger_id` - Charger ID
-- `timestamp` - Timestamp (UTC)
-
-### StatusNotification Document
 ```json
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "connector_id": 1,
-  "status": "Available",
-  "error_code": null,
-  "info": null,
-  "timestamp": "2024-01-01T12:00:00Z",
-  "vendor_id": null,
-  "vendor_error_code": null
-}
+{"org_name": "orgA", "charger_id": "CP001", "last_heartbeat": "2026-01-01T12:00:00Z", "updated_at": "2026-01-01T12:00:00Z"}
 ```
 
-### MeterValues Document
+**Command documents** (one collection per action, for example `resets`)
+
 ```json
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "connector_id": 1,
-  "transaction_id": 12345,
-  "meter_value": [...],
-  "timestamp": "2024-01-01T12:00:00Z"
-}
+{"org_name": "orgA", "charger_id": "CP001", "message_type": "call", "action": "Reset",
+ "payload": {"type": "Soft"}, "direction": "broker_to_charger", "message_id": "fbaecb17-...", "timestamp": "..."}
 ```
 
-### Transaction Document
+## Transaction ids
+
+`StartTransaction` replies carry an id from a **per-organization counter** stored in `counters` (`_id: "transaction_id:<org>"`, field `seq`). It is incremented atomically, so ids are unique and increasing across restarts and across several broker instances sharing the database; the first id is 1.
+
+If MongoDB is unavailable (disabled, or a call fails) the broker uses an in-memory counter seeded from the clock and logs `!!! TRANSACTION IDS FOR ORG '<org>' ARE NOT DURABLE !!!` once per organization per outage. Those ids are only unique within the process.
+
+## Tags
+
+Tags (see [Tag Management](tag-management.md)) are kept in memory and mirrored to the `tags` collection:
+
+- Adding, updating or deleting a tag through the API writes it to MongoDB as well as the in-memory list.
+- When the broker has no tags in memory for an organization it loads them from MongoDB on first use.
+- Tags from `config.yaml` are only in memory until pushed to MongoDB by a sync.
+- `POST /api/tags/sync` makes MongoDB authoritative: for each organization that has stored tags the in-memory list is replaced with what is stored (a tag removed in MongoDB disappears). An organization that has tags in memory but none stored is pushed to MongoDB instead. Without MongoDB the call returns `503`.
+
+## REST data API
+
+External systems can write OCPP records straight into the same collections:
+
+```bash
+curl -X POST http://localhost:8765/api/mongodb/status-notification \
+  -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"org_name": "orgA", "charger_id": "CP001", "connector_id": 1, "status": "Charging"}'
+```
+
 ```json
-{
-  "org_name": "orgA",
-  "charger_id": "CHARGER_001",
-  "transaction_id": 12345,
-  "connector_id": 1,
-  "id_tag": "USER123",
-  "meter_start": 1000,
-  "reservation_id": null,
-  "transaction_type": "start",
-  "timestamp": "2024-01-01T12:00:00Z"
-}
+{"status": "success", "message": "StatusNotification saved"}
 ```
 
-## Usage Examples
+Routes: `status-notification`, `meter-values`, `boot-notification`, `transaction`, `authorization`, `data-transfer`, `ocpp-message` (all `POST`) and `GET /health`. The fields are listed in the [API Reference](api-reference.md#mongodb-data-api-apimongodb). Every route needs the API key and returns `503` when MongoDB is not connected. `POST /transaction` follows the same start/stop rules as above (`transaction_type`, `meter_stop`, `stop_reason`).
 
-### Example: Organization with Broker as Backend
+## Failure handling
 
-```yaml
-organizations:
-  - name: "orgB"
-    connect_to_backend: false  # Broker acts as backend
-    ocpp_subprotocol: "ocpp1.6"
-```
+- A failing write is logged (`Error saving ...`) and skipped; it never delays or fails the charger's request.
+- A broker started without a reachable MongoDB runs without persistence until restarted.
+- `GET /api/mongodb/health` reports `not_configured`, `connected` or `disconnected`.
 
-When a charger connects to this organization, all OCPP messages will be automatically saved to MongoDB.
+## Related documentation
 
-### Example: Using REST APIs
-
-```python
-import requests
-
-# Save a status notification
-response = requests.post(
-    "http://localhost:8765/api/mongodb/status-notification",
-    json={
-        "org_name": "orgA",
-        "charger_id": "CHARGER_001",
-        "connector_id": 1,
-        "status": "Charging"
-    }
-)
-print(response.json())
-```
-
-## Error Handling
-
-- If MongoDB is not connected, the APIs will return a 503 status code
-- If MongoDB connection fails during initialization, the broker will continue to operate but MongoDB saving will be disabled
-- All MongoDB operations are non-blocking - if saving fails, it's logged but doesn't affect OCPP message processing
-
-## Dependencies
-
-The following Python packages are required:
-- `motor>=3.3.0` - Async MongoDB driver
-- `pymongo>=4.6.0` - MongoDB driver
-
-These are automatically included when installing the broker.
-
-## Notes
-
-- MongoDB saving only occurs when the broker is acting as the leader (backend)
-- When `connect_to_backend: true`, messages are relayed to external backends and not saved to MongoDB
-- The `charger_statuses_latest` collection is automatically updated with the latest status for each connector
-- All timestamps are stored in UTC
-
+- [Configuration Guide](configuration.md)
+- [Broker-as-Backend Mode](broker_as_backend.md)
+- [Tag Management](tag-management.md)
+- [API Reference](api-reference.md)

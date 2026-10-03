@@ -40,9 +40,7 @@ broker:
 
 organizations:
   - name: "MyOrg"
-    connect_to_backend: false  # Broker acts as backend
-    tag_management:
-      enabled: true
+    connect_to_backend: false  # Broker acts as backend (the default is true: relay mode)
     tags:
       - id_tag: "USER001"
         status: "Accepted"
@@ -94,16 +92,22 @@ When an organization sets `connect_to_backend: true` the broker relays frames to
 - In relay mode the backend assigns transaction ids. In broker mode they come from a
   per-organization MongoDB counter; without MongoDB the broker falls back to an in-memory
   counter and logs a loud warning, because those ids are not durable.
+
 ## Documentation
 
-For complete documentation, see the [docs/](docs/) directory:
+For complete documentation, see the [docs/](docs/README.md) directory:
 
 - [Installation Guide](docs/installation.md)
 - [Quick Start](docs/quick-start.md)
 - [Configuration Guide](docs/configuration.md)
-- [Architecture Overview](docs/architecture.md)
+- [Broker-as-Backend Mode](docs/broker_as_backend.md)
+- [Leader/Follower](docs/leader-follower.md)
+- [OCPP 1.6 Support](docs/ocpp16_features.md)
 - [Tag Management](docs/tag-management.md)
+- [MongoDB Integration](docs/mongodb-integration.md)
 - [API Reference](docs/api-reference.md)
+- [Architecture Overview](docs/architecture.md)
+- [Deployment](docs/deployment.md), [Monitoring](docs/monitoring.md), [Troubleshooting](docs/troubleshooting.md)
 
 ## Development
 

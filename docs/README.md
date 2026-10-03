@@ -1,103 +1,65 @@
 # OCPP Broker Documentation
 
-Welcome to the OCPP Broker documentation! This wiki provides comprehensive information about the OCPP 1.6 broker implementation.
+An OCPP 1.6 broker built on the upstream [`ocpp`](https://github.com/mobilityhouse/ocpp) library. Chargers connect to the broker over WebSocket; per organization the broker either **answers them itself** (broker mode) or **relays them to your own backends** (relay mode, with store-and-forward, observer backends and leader failover). A REST API on the same port manages tags and sends commands to chargers.
 
-## 📚 Documentation Structure
+## Start here
 
-### **Getting Started**
-- [Installation Guide](installation.md) - How to install and set up the OCPP broker
-- [Quick Start Guide](quick-start.md) - Get up and running in minutes
-- [Configuration Guide](configuration.md) - Complete configuration reference
+| I want to... | Read |
+|--------------|------|
+| Install it | [Installation Guide](installation.md) |
+| See it work in five minutes | [Quick Start](quick-start.md) |
+| Know every setting | [Configuration Guide](configuration.md) |
+| Run it in production | [Deployment](deployment.md) |
 
-### **Core Features**
-- [OCPP 1.6 Support](ocpp16-features.md) - Complete OCPP 1.6 implementation
-- [Tag Management](tag-management.md) - Comprehensive tag management for authorization
-- [Broker-as-Backend Mode](broker-as-backend.md) - Direct OCPP command processing
-- [Leader-Follower Logic](leader-follower.md) - Multi-backend management
-- [Message Routing](message-routing.md) - How messages are processed
+## Guides
 
-### **Architecture**
-- [Architecture Overview](architecture.md) - Broker, session, and service layout
-- [Command Handlers](command-handlers.md) - OCPP command processing
-- [Message Validation](message-validation.md) - OCPP message validation
-- [WebSocket Management](websocket-management.md) - Connection handling
+**Concepts**
+- [Broker-as-Backend Mode](broker_as_backend.md): the broker is the central system
+- [Leader/Follower](leader-follower.md): relaying to backends, buffering, observers, failover
+- [OCPP 1.6 Support](ocpp16_features.md): which messages are handled, which commands can be sent
+- [Architecture](architecture.md): components and message flow
 
-### **API Reference**
-- [REST API](api-reference.md) - REST API endpoints
-- [WebSocket API](websocket-api.md) - WebSocket protocol
-- [Configuration API](config-api.md) - Configuration management
+**Features**
+- [Tag Management](tag-management.md): authorization tags
+- [MongoDB Integration](mongodb-integration.md): persistence, transaction ids
 
-### **Deployment**
-- [Production Deployment](deployment.md) - Production setup guide
-- [Docker Deployment](docker.md) - Container deployment
-- [Monitoring & Logging](monitoring.md) - System monitoring
-- [Troubleshooting](troubleshooting.md) - Common issues and solutions
+**Reference**
+- [API Reference](api-reference.md): REST routes and the charger WebSocket
+- [Configuration Guide](configuration.md)
 
-### **Development**
-- [Development Setup](development.md) - Development environment
-- [Contributing](contributing.md) - How to contribute
-- [Testing](testing.md) - Testing guidelines
-- [Code Style](code-style.md) - Coding standards
+**Operations**
+- [Deployment](deployment.md)
+- [Monitoring & Logging](monitoring.md)
+- [Troubleshooting](troubleshooting.md)
 
-### **Testing**
-- Install dev deps with `pip install .[tests]`
-- Run `pytest` to execute async unit tests (e.g., `tests/test_charge_point.py`)
+**Examples**
+- [Basic Examples](examples/basic.md)
+- [Advanced Examples](examples/advanced.md)
 
-### **Examples**
-- [Basic Examples](examples/basic.md) - Simple usage examples
-- [Advanced Examples](examples/advanced.md) - Complex scenarios
-- [Integration Examples](examples/integration.md) - Third-party integrations
+The REST API also documents itself: with the broker running, open `http://localhost:8765/docs` (Swagger UI).
 
-## 🚀 Quick Navigation
+## At a glance
 
-| Topic | Description | Link |
-|-------|-------------|------|
-| **Installation** | Set up the OCPP broker | [Installation Guide](installation.md) |
-| **Configuration** | Configure organizations and backends | [Configuration Guide](configuration.md) |
-| **OCPP 1.6** | Complete OCPP 1.6 command support | [OCPP 1.6 Features](ocpp16-features.md) |
-| **Broker-as-Backend** | Direct OCPP command processing | [Broker-as-Backend Mode](broker-as-backend.md) |
-| **API Reference** | REST and WebSocket APIs | [API Reference](api-reference.md) |
-| **Deployment** | Production deployment guide | [Production Deployment](deployment.md) |
+- One port (`broker.port`, default 8765) serves the charger WebSocket (`ws://HOST:8765/{org}/{charger id}`), the REST API, `/health` and the Swagger UI.
+- The REST API needs an API key (`OCPP_BROKER_API_KEY`); without one it answers `503`.
+- Chargers can be required to authenticate with HTTP Basic (OCPP security profile 1) per organization. There is no TLS in the broker itself; terminate TLS in a reverse proxy.
+- MongoDB is optional. Without it nothing is persisted and transaction ids are not durable.
+- Single process, sessions in memory.
 
-## 📖 Key Features
+## Development
 
-### **OCPP 1.6 Support**
-- ✅ Powered by the upstream [`ocpp`](https://pypi.org/project/ocpp/) Python library
-- ✅ Spec-compliant parsing, validation, and response generation
-- ✅ Pass-through (broker-as-proxy) and broker-as-backend modes
-- ✅ Config-driven leader/follower backend links
-- ✅ Tag management and authorization workflows
+```bash
+pip install -e ".[tests,lint]"
+pytest
+ruff check src tests
+mypy
+```
 
-### **Architecture**
-- ✅ `BrokerChargePoint` subclass for all locally handled chargers
-- ✅ Lightweight Starlette → `ocpp` WebSocket adapter
-- ✅ Clean separation between pass-through relay and local command handling
-- ✅ Backwards-compatible REST/tag management APIs
+## External links
 
-### **Production Ready**
-- ✅ **Error handling**
-- ✅ **Logging and monitoring**
-- ✅ **Configuration management**
-- ✅ **Docker support**
+- [OCPP 1.6 specification](https://www.openchargealliance.org/protocols/ocpp-16/)
+- [Upstream `ocpp` library](https://github.com/mobilityhouse/ocpp)
 
-## 🔗 External Links
+## License
 
-- [OCPP 1.6 Specification](https://www.openchargealliance.org/protocols/ocpp-16/)
-- [Open Charge Alliance](https://www.openchargealliance.org/)
-- [GitHub Repository](https://github.com/your-org/ocpp-broker)
-- [Issue Tracker](https://github.com/your-org/ocpp-broker/issues)
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🤝 Support
-
-- **Documentation**: [GitHub Wiki](https://github.com/your-org/ocpp-broker/wiki)
-- **Issues**: [GitHub Issues](https://github.com/your-org/ocpp-broker/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/ocpp-broker/discussions)
-- **Email**: support@your-org.com
-
----
-
-*Last updated: October 2024*
+MIT, as stated in the repository README. (The repository does not currently contain a `LICENSE` file.)

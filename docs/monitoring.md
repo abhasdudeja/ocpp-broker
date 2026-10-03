@@ -1,935 +1,171 @@
 # Monitoring & Logging
 
-Comprehensive guide to monitoring and logging the OCPP broker system.
+What the broker gives you for observing a running instance: a health endpoint, a few read-only REST routes, plain log output, and (optionally) data written to MongoDB.
 
-## 📊 Monitoring Overview
+**There is no metrics system.** The broker has no `/metrics` endpoint, no Prometheus or StatsD export, no message counters, and no built-in alerting. If you need numbers or alerts, build them from the pieces below (health checks, REST polling, log matching, MongoDB queries).
 
-### **Monitoring Components**
-
-1. **System Metrics** - CPU, memory, disk usage
-2. **Application Metrics** - Connections, messages, errors
-3. **OCPP Metrics** - Charger status, backend health
-4. **Business Metrics** - Transactions, energy consumption
-
-### **Monitoring Stack**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Monitoring Stack                        │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
-│  │   Prometheus    │  │   Grafana       │  │   Alerting  │ │
-│  │   (Metrics)     │  │   (Dashboard)   │  │   (Alerts)  │ │
-│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
-│  │   ELK Stack     │  │   Logstash      │  │   Kibana     │ │
-│  │   (Logs)        │  │   (Processing)  │  │   (Analysis) │ │
-│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## 🔧 System Metrics
-
-### **Basic System Monitoring**
+All examples use the default port 8765. REST routes need the API key (`X-API-Key` header, or `Authorization: Bearer`); set it in the shell first:
 
 ```bash
-# Check system resources
-htop
-free -h
-df -h
-
-# Check network connections
-netstat -tlnp | grep 8765
-ss -tulpn | grep 8765
-
-# Check process status
-ps aux | grep ocpp-broker
+export OCPP_BROKER_API_KEY="your-key"   # the same value the broker runs with
 ```
 
-### **System Metrics Collection**
+## Health and status endpoints
 
-```python
-# system_metrics.py
-import psutil
-import time
-import json
+| Endpoint | Auth | Tells you |
+|---|---|---|
+| `GET /health` (also `HEAD`) | none | The process is up and serving HTTP. Always `{"status":"ok"}`. |
+| `GET /api/mongodb/health` | API key | Whether MongoDB was configured and connected. |
+| `GET /api/tags/status` | API key | Whether MongoDB persistence is active for tags, and which orgs have tag lists. |
+| `GET /api/ocpp/organizations/{org}/chargers` | API key | Chargers currently connected for an org. |
+| `GET /api/ocpp/organizations/{org}/chargers/{id}/status` | API key | One charger: mode and whether it has a backend link. |
+| `GET /orgs/{org}/backends` | API key | Relay mode: each backend link, which is leader, which are connected. |
 
-class SystemMetrics:
-    def __init__(self):
-        self.metrics = {}
-    
-    def collect_metrics(self):
-        """Collect system metrics"""
-        self.metrics = {
-            "timestamp": time.time(),
-            "cpu": {
-                "percent": psutil.cpu_percent(interval=1),
-                "count": psutil.cpu_count(),
-                "load_avg": psutil.getloadavg()
-            },
-            "memory": {
-                "total": psutil.virtual_memory().total,
-                "available": psutil.virtual_memory().available,
-                "percent": psutil.virtual_memory().percent,
-                "used": psutil.virtual_memory().used
-            },
-            "disk": {
-                "total": psutil.disk_usage('/').total,
-                "used": psutil.disk_usage('/').used,
-                "free": psutil.disk_usage('/').free,
-                "percent": psutil.disk_usage('/').percent
-            },
-            "network": {
-                "connections": len(psutil.net_connections()),
-                "io_counters": psutil.net_io_counters()._asdict()
-            }
-        }
-        return self.metrics
-    
-    def print_metrics(self):
-        """Print metrics in human-readable format"""
-        metrics = self.collect_metrics()
-        
-        print("System Metrics:")
-        print(f"  CPU Usage: {metrics['cpu']['percent']}%")
-        print(f"  Memory Usage: {metrics['memory']['percent']}%")
-        print(f"  Disk Usage: {metrics['disk']['percent']}%")
-        print(f"  Network Connections: {metrics['network']['connections']}")
+`/health` is a liveness check only. It does not look at MongoDB, backends, or chargers.
 
-# Run system metrics
-metrics = SystemMetrics()
-metrics.print_metrics()
+### Liveness
+
+```bash
+curl -fsS http://localhost:8765/health
 ```
 
-## 📈 Application Metrics
+### MongoDB
 
-### **OCPP Broker Metrics**
-
-```python
-# ocpp_metrics.py
-import time
-import json
-from collections import defaultdict
-
-class OCPPMetrics:
-    def __init__(self):
-        self.metrics = {
-            "connections": {
-                "total_chargers": 0,
-                "connected_chargers": 0,
-                "total_backends": 0,
-                "connected_backends": 0
-            },
-            "messages": {
-                "total_processed": 0,
-                "successful": 0,
-                "failed": 0,
-                "rate_per_minute": 0
-            },
-            "organizations": {},
-            "chargers": {},
-            "backends": {}
-        }
-        self.start_time = time.time()
-        self.message_times = []
-    
-    def record_message(self, success=True):
-        """Record a processed message"""
-        self.metrics["messages"]["total_processed"] += 1
-        if success:
-            self.metrics["messages"]["successful"] += 1
-        else:
-            self.metrics["messages"]["failed"] += 1
-        
-        # Calculate rate
-        current_time = time.time()
-        self.message_times.append(current_time)
-        
-        # Keep only last minute
-        minute_ago = current_time - 60
-        self.message_times = [t for t in self.message_times if t > minute_ago]
-        self.metrics["messages"]["rate_per_minute"] = len(self.message_times)
-    
-    def update_charger_status(self, charger_id, status):
-        """Update charger status"""
-        self.metrics["chargers"][charger_id] = {
-            "status": status,
-            "last_seen": time.time()
-        }
-    
-    def update_backend_status(self, backend_id, status):
-        """Update backend status"""
-        self.metrics["backends"][backend_id] = {
-            "status": status,
-            "last_seen": time.time()
-        }
-    
-    def get_uptime(self):
-        """Get application uptime"""
-        return time.time() - self.start_time
-    
-    def get_metrics(self):
-        """Get all metrics"""
-        self.metrics["system"] = {
-            "uptime": self.get_uptime(),
-            "timestamp": time.time()
-        }
-        return self.metrics
-
-# Usage example
-metrics = OCPPMetrics()
-metrics.record_message(success=True)
-metrics.update_charger_status("CHARGER_001", "connected")
-print(json.dumps(metrics.get_metrics(), indent=2))
+```bash
+curl -fsS -H "X-API-Key: $OCPP_BROKER_API_KEY" http://localhost:8765/api/mongodb/health
 ```
 
-### **Prometheus Metrics**
+Responses:
 
-```python
-# prometheus_metrics.py
-from prometheus_client import Counter, Histogram, Gauge, start_http_server
-import time
+- `{"status":"not_configured","connected":false}`: MongoDB is disabled, or it was enabled but the initial connection failed (the broker then continues without it).
+- `{"status":"connected","connected":true,"database":"ocpp_broker"}`: connected at startup.
 
-# Define metrics
-ocpp_messages_total = Counter('ocpp_messages_total', 'Total OCPP messages processed', ['action', 'status'])
-ocpp_message_duration = Histogram('ocpp_message_duration_seconds', 'OCPP message processing duration')
-ocpp_connections = Gauge('ocpp_connections', 'Current OCPP connections', ['type'])
-ocpp_organizations = Gauge('ocpp_organizations', 'Number of organizations')
-ocpp_chargers = Gauge('ocpp_chargers', 'Number of chargers', ['status'])
-ocpp_backends = Gauge('ocpp_backends', 'Number of backends', ['status'])
+The flag is set once at startup. The route does not ping MongoDB, so it will not notice a database that goes away later. Watch the log for `Error saving ...` lines instead.
 
-class PrometheusMetrics:
-    def __init__(self, port=9090):
-        self.port = port
-        start_http_server(port)
-        print(f"Prometheus metrics server started on port {port}")
-    
-    def record_message(self, action, success=True):
-        """Record a processed message"""
-        status = "success" if success else "error"
-        ocpp_messages_total.labels(action=action, status=status).inc()
-    
-    def record_message_duration(self, duration):
-        """Record message processing duration"""
-        ocpp_message_duration.observe(duration)
-    
-    def update_connections(self, chargers, backends):
-        """Update connection metrics"""
-        ocpp_connections.labels(type='chargers').set(chargers)
-        ocpp_connections.labels(type='backends').set(backends)
-    
-    def update_organizations(self, count):
-        """Update organization count"""
-        ocpp_organizations.set(count)
-    
-    def update_chargers(self, connected, disconnected):
-        """Update charger metrics"""
-        ocpp_chargers.labels(status='connected').set(connected)
-        ocpp_chargers.labels(status='disconnected').set(disconnected)
-    
-    def update_backends(self, connected, disconnected):
-        """Update backend metrics"""
-        ocpp_backends.labels(status='connected').set(connected)
-        ocpp_backends.labels(status='disconnected').set(disconnected)
+### Connected chargers
 
-# Usage example
-metrics = PrometheusMetrics()
-metrics.record_message("BootNotification", success=True)
-metrics.update_connections(5, 2)
+```bash
+curl -fsS -H "X-API-Key: $OCPP_BROKER_API_KEY" \
+  http://localhost:8765/api/ocpp/organizations/orgA/chargers
 ```
-
-## 📝 Logging Configuration
-
-### **Basic Logging Setup**
-
-```python
-# logging_config.py
-import logging
-import logging.handlers
-import os
-from datetime import datetime
-
-def setup_logging(log_level="INFO", log_file="/opt/ocpp-broker/logs/broker.log"):
-    """Setup comprehensive logging"""
-    
-    # Create logs directory
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    
-    # Configure root logger
-    logging.basicConfig(
-        level=getattr(logging, log_level.upper()),
-        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    # Create file handler with rotation
-    file_handler = logging.handlers.RotatingFileHandler(
-        log_file,
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
-    )
-    file_handler.setLevel(logging.INFO)
-    
-    # Create console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.WARNING)
-    
-    # Create formatter
-    formatter = logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-    
-    # Add handlers to root logger
-    root_logger = logging.getLogger()
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
-    
-    return root_logger
-
-# Setup logging
-logger = setup_logging("INFO", "/opt/ocpp-broker/logs/broker.log")
-```
-
-### **Structured Logging**
-
-```python
-# structured_logging.py
-import json
-import logging
-from datetime import datetime
-
-class StructuredLogger:
-    def __init__(self, name):
-        self.logger = logging.getLogger(name)
-    
-    def log_message(self, level, message, **kwargs):
-        """Log structured message"""
-        log_data = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "level": level.upper(),
-            "message": message,
-            **kwargs
-        }
-        
-        getattr(self.logger, level.lower())(json.dumps(log_data))
-    
-    def log_charger_event(self, charger_id, event, **kwargs):
-        """Log charger event"""
-        self.log_message("info", f"Charger {charger_id} {event}", 
-                        charger_id=charger_id, event=event, **kwargs)
-    
-    def log_backend_event(self, backend_id, event, **kwargs):
-        """Log backend event"""
-        self.log_message("info", f"Backend {backend_id} {event}",
-                        backend_id=backend_id, event=event, **kwargs)
-    
-    def log_ocpp_message(self, charger_id, action, message_type, **kwargs):
-        """Log OCPP message"""
-        self.log_message("debug", f"OCPP {message_type} {action}",
-                        charger_id=charger_id, action=action, 
-                        message_type=message_type, **kwargs)
-
-# Usage example
-logger = StructuredLogger("ocpp_broker")
-logger.log_charger_event("CHARGER_001", "connected")
-logger.log_ocpp_message("CHARGER_001", "BootNotification", "Call")
-```
-
-## 📊 Dashboard Setup
-
-### **Grafana Dashboard**
 
 ```json
-{
-  "dashboard": {
-    "title": "OCPP Broker Dashboard",
-    "panels": [
-      {
-        "title": "System Overview",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "ocpp_connections{type=\"chargers\"}"
-          }
-        ]
-      },
-      {
-        "title": "Message Rate",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(ocpp_messages_total[5m])"
-          }
-        ]
-      },
-      {
-        "title": "Connection Status",
-        "type": "table",
-        "targets": [
-          {
-            "expr": "ocpp_chargers"
-          }
-        ]
-      }
-    ]
-  }
-}
+{"organization": "orgA",
+ "chargers": [{"charger_id": "CP001", "organization": "orgA", "mode": "broker", "connected": true}]}
 ```
 
-### **Custom Dashboard**
-
-```python
-# custom_dashboard.py
-import requests
-import json
-from datetime import datetime
-
-class OCPPDashboard:
-    def __init__(self, base_url="http://localhost:8765"):
-        self.base_url = base_url
-    
-    def get_system_status(self):
-        """Get system status"""
-        try:
-            response = requests.get(f"{self.base_url}/health")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_metrics(self):
-        """Get application metrics"""
-        try:
-            response = requests.get(f"{self.base_url}/api/metrics")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_chargers(self):
-        """Get charger status"""
-        try:
-            response = requests.get(f"{self.base_url}/api/chargers")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_backends(self):
-        """Get backend status"""
-        try:
-            response = requests.get(f"{self.base_url}/api/backends")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def print_dashboard(self):
-        """Print dashboard"""
-        print("=" * 80)
-        print("OCPP BROKER DASHBOARD")
-        print("=" * 80)
-        print(f"Timestamp: {datetime.now().isoformat()}")
-        print()
-        
-        # System status
-        status = self.get_system_status()
-        print(f"System Status: {status.get('status', 'Unknown')}")
-        print()
-        
-        # Metrics
-        metrics = self.get_metrics()
-        if 'system' in metrics:
-            print(f"Uptime: {metrics['system'].get('uptime', 'Unknown')}")
-            print(f"Memory: {metrics['system'].get('memory_usage', 'Unknown')}")
-            print(f"CPU: {metrics['system'].get('cpu_usage', 'Unknown')}")
-        print()
-        
-        # Chargers
-        chargers = self.get_chargers()
-        print(f"Chargers: {len(chargers)}")
-        for charger in chargers:
-            print(f"  {charger['id']}: {charger['status']}")
-        print()
-        
-        # Backends
-        backends = self.get_backends()
-        print(f"Backends: {len(backends)}")
-        for backend in backends:
-            print(f"  {backend['id']}: {backend['status']}")
-        print()
-
-# Run dashboard
-dashboard = OCPPDashboard()
-dashboard.print_dashboard()
-```
-
-## 🚨 Alerting Setup
-
-### **Basic Alerting**
-
-```python
-# alerting.py
-import smtplib
-import requests
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-class OCPPAlerting:
-    def __init__(self, smtp_server, smtp_port, username, password):
-        self.smtp_server = smtp_server
-        self.smtp_port = smtp_port
-        self.username = username
-        self.password = password
-    
-    def send_alert(self, subject, message, recipients):
-        """Send alert email"""
-        msg = MIMEMultipart()
-        msg['From'] = self.username
-        msg['To'] = ", ".join(recipients)
-        msg['Subject'] = subject
-        
-        msg.attach(MIMEText(message, 'plain'))
-        
-        try:
-            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
-            server.starttls()
-            server.login(self.username, self.password)
-            server.send_message(msg)
-            server.quit()
-            print(f"Alert sent: {subject}")
-        except Exception as e:
-            print(f"Failed to send alert: {e}")
-    
-    def check_health(self, base_url="http://localhost:8765"):
-        """Check system health and send alerts"""
-        try:
-            response = requests.get(f"{base_url}/health", timeout=5)
-            if response.status_code != 200:
-                self.send_alert(
-                    "OCPP Broker Health Check Failed",
-                    f"Health check returned status {response.status_code}",
-                    ["admin@example.com"]
-                )
-        except Exception as e:
-            self.send_alert(
-                "OCPP Broker Unreachable",
-                f"Broker is not responding: {e}",
-                ["admin@example.com"]
-            )
-    
-    def check_connections(self, base_url="http://localhost:8765"):
-        """Check connection health"""
-        try:
-            response = requests.get(f"{base_url}/api/metrics")
-            metrics = response.json()
-            
-            if 'connections' in metrics:
-                total_chargers = metrics['connections'].get('total_chargers', 0)
-                connected_chargers = metrics['connections'].get('connected_chargers', 0)
-                
-                if connected_chargers == 0 and total_chargers > 0:
-                    self.send_alert(
-                        "No Chargers Connected",
-                        f"Expected {total_chargers} chargers, but 0 are connected",
-                        ["admin@example.com"]
-                    )
-        except Exception as e:
-            print(f"Failed to check connections: {e}")
-
-# Usage example
-alerting = OCPPAlerting("smtp.gmail.com", 587, "user@gmail.com", "password")
-alerting.check_health()
-alerting.check_connections()
-```
-
-### **Advanced Alerting with Rules**
-
-```python
-# advanced_alerting.py
-import time
-import requests
-from datetime import datetime, timedelta
-
-class AdvancedAlerting:
-    def __init__(self, base_url="http://localhost:8765"):
-        self.base_url = base_url
-        self.alert_rules = {
-            "high_cpu": {"threshold": 80, "duration": 300},  # 5 minutes
-            "high_memory": {"threshold": 90, "duration": 300},
-            "no_chargers": {"threshold": 0, "duration": 60},  # 1 minute
-            "backend_down": {"threshold": 0, "duration": 120}  # 2 minutes
-        }
-        self.alert_history = {}
-    
-    def check_alert_rule(self, rule_name, current_value):
-        """Check if alert rule is triggered"""
-        rule = self.alert_rules[rule_name]
-        threshold = rule["threshold"]
-        duration = rule["duration"]
-        
-        # Check if threshold is exceeded
-        if current_value > threshold:
-            # Record alert start time
-            if rule_name not in self.alert_history:
-                self.alert_history[rule_name] = datetime.now()
-            
-            # Check if duration threshold is met
-            alert_start = self.alert_history[rule_name]
-            if datetime.now() - alert_start >= timedelta(seconds=duration):
-                return True
-        else:
-            # Reset alert history if threshold is not exceeded
-            if rule_name in self.alert_history:
-                del self.alert_history[rule_name]
-        
-        return False
-    
-    def check_system_alerts(self):
-        """Check system-level alerts"""
-        try:
-            response = requests.get(f"{self.base_url}/api/metrics")
-            metrics = response.json()
-            
-            if 'system' in metrics:
-                cpu_usage = float(metrics['system'].get('cpu_usage', '0').replace('%', ''))
-                memory_usage = float(metrics['system'].get('memory_usage', '0').replace('%', ''))
-                
-                if self.check_alert_rule("high_cpu", cpu_usage):
-                    self.send_alert("High CPU Usage", f"CPU usage is {cpu_usage}%")
-                
-                if self.check_alert_rule("high_memory", memory_usage):
-                    self.send_alert("High Memory Usage", f"Memory usage is {memory_usage}%")
-        except Exception as e:
-            print(f"Failed to check system alerts: {e}")
-    
-    def check_connection_alerts(self):
-        """Check connection alerts"""
-        try:
-            response = requests.get(f"{self.base_url}/api/metrics")
-            metrics = response.json()
-            
-            if 'connections' in metrics:
-                connected_chargers = metrics['connections'].get('connected_chargers', 0)
-                
-                if self.check_alert_rule("no_chargers", connected_chargers):
-                    self.send_alert("No Chargers Connected", 
-                                  f"Expected chargers but 0 are connected")
-        except Exception as e:
-            print(f"Failed to check connection alerts: {e}")
-    
-    def send_alert(self, subject, message):
-        """Send alert (implement your preferred method)"""
-        print(f"ALERT: {subject} - {message}")
-        # Implement your alerting method here
-
-# Usage example
-alerting = AdvancedAlerting()
-alerting.check_system_alerts()
-alerting.check_connection_alerts()
-```
-
-## 📊 Log Analysis
-
-### **Log Analysis Script**
-
-```python
-# log_analysis.py
-import re
-import json
-from collections import defaultdict, Counter
-from datetime import datetime, timedelta
-
-class LogAnalyzer:
-    def __init__(self, log_file="/opt/ocpp-broker/logs/broker.log"):
-        self.log_file = log_file
-        self.log_patterns = {
-            "charger_connected": r"Charger (\w+) connected",
-            "charger_disconnected": r"Charger (\w+) disconnected",
-            "backend_connected": r"Backend (\w+) connected",
-            "backend_disconnected": r"Backend (\w+) disconnected",
-            "ocpp_message": r"OCPP (\w+) (\w+)",
-            "error": r"ERROR.*?(\w+)"
-        }
-    
-    def analyze_logs(self, hours=24):
-        """Analyze logs for the last N hours"""
-        cutoff_time = datetime.now() - timedelta(hours=hours)
-        
-        stats = {
-            "charger_connections": defaultdict(int),
-            "backend_connections": defaultdict(int),
-            "ocpp_messages": Counter(),
-            "errors": Counter(),
-            "total_lines": 0
-        }
-        
-        try:
-            with open(self.log_file, 'r') as f:
-                for line in f:
-                    stats["total_lines"] += 1
-                    
-                    # Parse timestamp
-                    timestamp_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', line)
-                    if timestamp_match:
-                        log_time = datetime.strptime(timestamp_match.group(1), '%Y-%m-%d %H:%M:%S')
-                        if log_time < cutoff_time:
-                            continue
-                    
-                    # Analyze patterns
-                    for pattern_name, pattern in self.log_patterns.items():
-                        matches = re.findall(pattern, line)
-                        for match in matches:
-                            if pattern_name == "charger_connected":
-                                stats["charger_connections"][match] += 1
-                            elif pattern_name == "backend_connected":
-                                stats["backend_connections"][match] += 1
-                            elif pattern_name == "ocpp_message":
-                                stats["ocpp_messages"][f"{match[0]} {match[1]}"] += 1
-                            elif pattern_name == "error":
-                                stats["errors"][match] += 1
-        
-        except FileNotFoundError:
-            print(f"Log file not found: {self.log_file}")
-            return None
-        
-        return stats
-    
-    def print_analysis(self, hours=24):
-        """Print log analysis"""
-        stats = self.analyze_logs(hours)
-        if not stats:
-            return
-        
-        print(f"Log Analysis for last {hours} hours")
-        print("=" * 50)
-        print(f"Total log lines: {stats['total_lines']}")
-        print()
-        
-        print("Charger Connections:")
-        for charger, count in stats["charger_connections"].items():
-            print(f"  {charger}: {count}")
-        print()
-        
-        print("Backend Connections:")
-        for backend, count in stats["backend_connections"].items():
-            print(f"  {backend}: {count}")
-        print()
-        
-        print("OCPP Messages (Top 10):")
-        for message, count in stats["ocpp_messages"].most_common(10):
-            print(f"  {message}: {count}")
-        print()
-        
-        print("Errors (Top 10):")
-        for error, count in stats["errors"].most_common(10):
-            print(f"  {error}: {count}")
-
-# Run analysis
-analyzer = LogAnalyzer()
-analyzer.print_analysis(24)
-```
-
-## 🔧 Monitoring Tools
-
-### **System Monitoring Script**
+`mode` is `broker` (the broker is the central system) or `relay` (frames are forwarded to backends). This is a live view of this process only: a charger that is not connected is simply absent, and there is no last-seen time here. Single charger:
 
 ```bash
-#!/bin/bash
-# monitor_system.sh
-
-# Check if broker is running
-if ! pgrep -f "ocpp_broker" > /dev/null; then
-    echo "ALERT: OCPP Broker is not running"
-    exit 1
-fi
-
-# Check port binding
-if ! netstat -tlnp | grep 8765 > /dev/null; then
-    echo "ALERT: Port 8765 is not bound"
-    exit 1
-fi
-
-# Check health endpoint
-if ! curl -s http://localhost:8765/health | grep -q "ok"; then
-    echo "ALERT: Health check failed"
-    exit 1
-fi
-
-echo "System is healthy"
+curl -fsS -H "X-API-Key: $OCPP_BROKER_API_KEY" \
+  http://localhost:8765/api/ocpp/organizations/orgA/chargers/CP001/status
 ```
 
-### **Performance Monitoring**
+This returns `{"charger_id", "organization", "mode", "connected", "has_backend"}`, or HTTP 404 `{"detail":"Charger orgA/CP001 not connected"}`.
 
-```python
-# performance_monitor.py
-import time
-import psutil
-import requests
-from datetime import datetime
-
-class PerformanceMonitor:
-    def __init__(self, base_url="http://localhost:8765"):
-        self.base_url = base_url
-        self.start_time = time.time()
-    
-    def get_performance_metrics(self):
-        """Get performance metrics"""
-        metrics = {
-            "timestamp": datetime.now().isoformat(),
-            "system": {
-                "cpu_percent": psutil.cpu_percent(),
-                "memory_percent": psutil.virtual_memory().percent,
-                "disk_percent": psutil.disk_usage('/').percent,
-                "load_avg": psutil.getloadavg()
-            },
-            "application": {
-                "uptime": time.time() - self.start_time,
-                "connections": self.get_connection_count(),
-                "message_rate": self.get_message_rate()
-            }
-        }
-        return metrics
-    
-    def get_connection_count(self):
-        """Get connection count"""
-        try:
-            response = requests.get(f"{self.base_url}/api/metrics")
-            metrics = response.json()
-            return metrics.get('connections', {})
-        except:
-            return {}
-    
-    def get_message_rate(self):
-        """Get message rate"""
-        try:
-            response = requests.get(f"{self.base_url}/api/metrics")
-            metrics = response.json()
-            return metrics.get('messages', {}).get('rate_per_minute', 0)
-        except:
-            return 0
-    
-    def monitor_performance(self, interval=60):
-        """Monitor performance continuously"""
-        print("Starting performance monitoring...")
-        print(f"Refresh interval: {interval} seconds")
-        print("Press Ctrl+C to stop")
-        print()
-        
-        try:
-            while True:
-                metrics = self.get_performance_metrics()
-                
-                print(f"Performance Metrics - {metrics['timestamp']}")
-                print(f"  CPU: {metrics['system']['cpu_percent']}%")
-                print(f"  Memory: {metrics['system']['memory_percent']}%")
-                print(f"  Disk: {metrics['system']['disk_percent']}%")
-                print(f"  Load: {metrics['system']['load_avg']}")
-                print(f"  Uptime: {metrics['application']['uptime']:.0f}s")
-                print(f"  Message Rate: {metrics['application']['message_rate']}/min")
-                print()
-                
-                time.sleep(interval)
-        except KeyboardInterrupt:
-            print("\nMonitoring stopped.")
-
-# Run performance monitor
-monitor = PerformanceMonitor()
-monitor.monitor_performance(30)
-```
-
-## 📚 Best Practices
-
-### **1. Log Rotation**
+### Backend links (relay mode)
 
 ```bash
-# Configure logrotate
-sudo nano /etc/logrotate.d/ocpp-broker
-
-# Content:
-/opt/ocpp-broker/logs/*.log {
-    daily
-    rotate 30
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 644 ocpp-broker ocpp-broker
-    postrotate
-        systemctl reload ocpp-broker
-    endscript
-}
+curl -fsS -H "X-API-Key: $OCPP_BROKER_API_KEY" http://localhost:8765/orgs/orgA/backends
 ```
-
-### **2. Monitoring Alerts**
-
-```yaml
-# alerting_rules.yaml
-alerts:
-  - name: "High CPU Usage"
-    condition: "cpu_percent > 80"
-    duration: "5m"
-    severity: "warning"
-  
-  - name: "High Memory Usage"
-    condition: "memory_percent > 90"
-    duration: "5m"
-    severity: "critical"
-  
-  - name: "No Chargers Connected"
-    condition: "connected_chargers == 0"
-    duration: "1m"
-    severity: "critical"
-  
-  - name: "Backend Down"
-    condition: "connected_backends == 0"
-    duration: "2m"
-    severity: "critical"
-```
-
-### **3. Dashboard Configuration**
 
 ```json
-{
-  "dashboard": {
-    "title": "OCPP Broker Monitoring",
-    "refresh": "30s",
-    "panels": [
-      {
-        "title": "System Overview",
-        "type": "stat",
-        "targets": [
-          {"expr": "cpu_percent"},
-          {"expr": "memory_percent"},
-          {"expr": "disk_percent"}
-        ]
-      },
-      {
-        "title": "Connections",
-        "type": "graph",
-        "targets": [
-          {"expr": "ocpp_connections{type=\"chargers\"}"},
-          {"expr": "ocpp_connections{type=\"backends\"}"}
-        ]
-      },
-      {
-        "title": "Message Rate",
-        "type": "graph",
-        "targets": [
-          {"expr": "rate(ocpp_messages_total[5m])"}
-        ]
-      }
-    ]
-  }
-}
+[{"charger_id": "CP001", "url": "ws://backend1.example.com/ocpp", "leader": true,  "connected": true},
+ {"charger_id": "CP001", "url": "ws://backend2.example.com/ocpp", "leader": false, "connected": false}]
 ```
 
-## 🔗 Related Documentation
+One entry per charger per backend. `connected: false` means that link is currently down and the broker is retrying. After a failover the `leader` flags move. HTTP 404 `{"detail":"Organization not found"}` is returned for an org that has had no relay-mode charger connect since startup (this includes broker-mode orgs). Entries disappear when the charger disconnects.
+
+## Logging
+
+- Logging is standard-library `logging` to stderr at level **INFO**. The level is hard-coded in `server.py`: the `logging.level` config key, the `LOG_LEVEL` environment variable and any `--debug` flag have no effect, and DEBUG messages cannot be enabled without editing the code.
+- Format: `2026-10-03 11:54:35 [WARNING] ocpp_broker.broker: message`. Logger names all start with `ocpp_broker.`.
+- uvicorn writes its own lines (HTTP requests, WebSocket accept/reject, `connection open`) in its own format alongside the broker's.
+- There is no log file option, rotation, or JSON output. Send stderr wherever you want it: journald under systemd (see [deployment](deployment.md)), or a redirect.
+- Many broker log lines start with an emoji marker; match on the text, not the marker.
+- Config warnings are printed twice at startup, because the configuration is loaded twice. This is harmless.
+
+### Messages worth watching
+
+Texts are quoted from the source; `X` is a charger id and `Y` an organization.
+
+| Level | Message (excerpt) | Meaning |
+|---|---|---|
+| WARNING | `REST API is DISABLED: every /api request returns 503 until security.api_key (or OCPP_BROKER_API_KEY) is set` | No API key configured; all REST calls fail with 503. |
+| WARNING | `REST API is UNAUTHENTICATED (security.allow_unauthenticated_api is true)` | REST API is open to anyone who can reach the port. |
+| WARNING | `Organization Y accepts UNAUTHENTICATED chargers` | No `charger_auth` for that org; any client can connect as any charger. |
+| WARNING | `Organization Y requires charger authentication but lists no credentials: every charger will be rejected.` | `charger_auth.required: true` with no credentials. |
+| WARNING | `... charger credential(s) are stored as plaintext 'password'` | Use `password_hash` (`ocpp-broker-hash-password`). |
+| WARNING | `MongoDB not configured or disabled: transaction ids will come from a non-durable in-memory counter and nothing will be persisted.` | No MongoDB. |
+| ERROR | `Failed to initialize MongoDB service: ...` (usually preceded by `Failed to connect to MongoDB: ...`) | MongoDB was enabled but unreachable at startup (5 s timeout). The broker keeps running without it. |
+| WARNING | `!!! TRANSACTION IDS FOR ORG 'Y' ARE NOT DURABLE !!!` | Logged once per org when the first transaction id is allocated without MongoDB. Ids restart with the broker. |
+| ERROR | `Could not allocate transaction id from MongoDB for org 'Y': ...` | MongoDB was connected but the counter failed; the fallback counter is used. |
+| WARNING | `Configuration file not found at ..., using unified defaults.` | Wrong `-c` path or no `config.yaml`. The default config has no organizations, so every charger is rejected. |
+| WARNING | `Rejected charger X from org 'Y': authentication failed` | Bad or missing Basic credentials; the charger got HTTP 401. |
+| ERROR | `Rejected charger X from org 'Y': subprotocol mismatch - expected ..., got ...` | Charger did not offer the org's `ocpp_subprotocol`. |
+| ERROR | `Rejected charger X from org 'Y': missing required sec-websocket-protocol header` | Charger sent no subprotocol. |
+| WARNING | `Rejected charger X: unknown organization 'Y'.` | URL org name is not in the config (close code 4002). |
+| WARNING | `Charger Y/X reconnected while a session was still open; replacing it` | A second connection for the same org and charger id evicted the first (close code 4003). Frequent occurrences mean a flapping charger or a duplicated charger id. |
+| INFO | `Accepted charger X for org 'Y' (backend connection: enabled\|disabled)` | Connection accepted. `enabled` = relay mode. |
+| INFO | `Cleaned up charger X session.` | The charger is gone (clean close, network drop, or ping timeout). |
+| ERROR | `Charger X did not accept a frame in time; dropping the connection` | A write to the charger blocked for over 10 s. |
+| ERROR | `Error in message handling for X: Organization Y has no backend definition.` | Relay-mode org with an empty `backends` list. |
+| WARNING | `Backend connection error for X (Y): ...` | The backend connection failed; the broker retries (1 s backoff, doubling up to 30 s). |
+| INFO | `Backend unavailable for X; buffered frame (N waiting)` | Charger frames are queued for the leader. |
+| WARNING | `Backend unavailable for X and outbox full (n/m); refusing frame` | `backend_buffer_size` reached. |
+| WARNING | `Backend still unavailable for X after Ns; giving up on frame` | `backend_outage_timeout` expired for a queued frame. |
+| WARNING | `[X] answering <Action> with CallError: backend unavailable` | The charger was sent `InternalError` / `Backend unavailable, please retry`. |
+| INFO | `Delivered N buffered frame(s) to backend for X` | Backend came back; queue flushed in order. |
+| WARNING | `FAILOVER: leader <url> unreachable, promoting follower <url>` | A follower became leader. |
+| WARNING | `[X] leader backend <url> is down and no follower is healthy; still waiting` | Leader down with no follower to promote. |
+| ERROR | `OCPP subprotocol not negotiated for X! Expected ...` | The backend did not agree on the subprotocol. The connection continues. |
+| INFO | `OCPP command <Action> to Y/X finished: <status> (message_id: ...)` | Result of a REST-issued command. |
+
+A simple filter for the important ones:
+
+```bash
+journalctl -u ocpp-broker | grep -E "FAILOVER|NOT DURABLE|Backend unavailable|Rejected charger|Failed to (connect|initialize) .*MongoDB|reconnected while"
+```
+
+(`ocpp-broker` is the unit name from the example in [deployment](deployment.md).)
+
+## MongoDB data
+
+If MongoDB is enabled (`mongodb.enabled: true` or `MONGODB_ENABLED=true`) the broker writes OCPP data to these collections of the configured database. Which collections fill depends on the mode:
+
+- **Broker mode** (`connect_to_backend: false`): the broker handles the charger's messages and stores them. `charger_statuses` (every StatusNotification), `charger_statuses_latest` (one document per org/charger/connector), `meter_values`, `charger_configurations` (per charger, updated on BootNotification, with `last_boot_time`), `transactions` (start inserts; stop updates the same document), `authorizations`, `data_transfers`, and `charger_heartbeats_latest` (one document per charger with `last_heartbeat`; heartbeats are not stored individually).
+- **Relay mode**: frames are forwarded untouched and not stored. Only commands are recorded: calls from the leader backend to the charger, and commands/results issued through the REST API, in per-action collections.
+- Both modes: `tags`, `tag_list_versions`, and `counters` (transaction id sequences, `_id` = `transaction_id:<org>`).
+
+Useful for monitoring, for example when was a charger last heard from:
+
+```bash
+mongosh ocpp_broker --eval 'db.charger_heartbeats_latest.find({org_name: "orgA"}, {_id: 0, charger_id: 1, last_heartbeat: 1})'
+```
+
+The broker creates no indexes and no retention policy; collections grow until you prune them.
+
+`GET /api/tags/organizations/{org}/statistics` returns counts of an organization's tags by status and type. It is tag inventory, not traffic statistics.
+
+## A minimal external check
+
+Nothing is shipped for this; the script below is only an example of combining the real endpoints. It exits non-zero if the broker is down or no chargers are connected for an org.
+
+```bash
+#!/bin/sh
+# check-ocpp-broker.sh ORG   (needs curl and python3; OCPP_BROKER_API_KEY in the environment)
+ORG="$1"
+curl -fsS http://localhost:8765/health >/dev/null || { echo "broker not healthy"; exit 1; }
+curl -fsS -H "X-API-Key: $OCPP_BROKER_API_KEY" \
+  "http://localhost:8765/api/ocpp/organizations/$ORG/chargers" |
+python3 -c 'import json,sys; n=len(json.load(sys.stdin)["chargers"]); print(n, "charger(s) connected"); sys.exit(0 if n else 1)'
+```
+
+Run it from cron or your existing monitoring agent.
+
+## Related Documentation
 
 - [Production Deployment](deployment.md)
 - [Troubleshooting](troubleshooting.md)
 - [API Reference](api-reference.md)
 - [Configuration Guide](configuration.md)
-
----
-
-*Last updated: October 2024*

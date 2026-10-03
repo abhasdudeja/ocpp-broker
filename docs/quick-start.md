@@ -1,431 +1,180 @@
 # Quick Start Guide
 
-Get your OCPP broker up and running in minutes!
+Get a broker running, connect a simulated charger, and send it a command. About five minutes.
 
-## 🚀 5-Minute Setup
-
-### **Step 1: Install the Broker**
+## 1. Install
 
 ```bash
-# Install from PyPI
 pip install ocpp-broker
+```
 
-# Or install from source
-git clone https://github.com/your-org/ocpp-broker.git
-cd ocpp-broker
+or, from a checkout of the repository:
+
+```bash
 pip install -e .
 ```
 
-### **Step 2: Create Configuration**
+This provides the `ocpp-broker-server` command. Python 3.10 or newer is required.
 
-The broker now uses a unified `config.yaml` file that includes all features:
+## 2. Create a configuration
+
+Save as `config.yaml` in the directory you will start the broker from:
 
 ```yaml
-# config.yaml - Unified Configuration
 broker:
   host: 0.0.0.0
   port: 8765
-  ocpp_version: "1.6"
-  enable_validation: true
-  enable_smart_charging: true
-  enable_firmware_management: true
-  enable_local_auth: true
-  enable_reservations: true
-  enable_tag_management: true
-
-# API server configuration
-api:
-  host: 0.0.0.0
-  port: 8080
-  enable_swagger: true
-
-# Tag management configuration
-tag_management:
-  global:
-    enabled: true
 
 organizations:
-  - name: "MyChargingStation"
-    connect_to_backend: false  # Broker acts as backend
-    ocpp_features:
-      - core_profile
-      - smart_charging
-      - firmware_management
-      - local_auth
-      - reservations
-    tag_management:
-      enabled: true
+  - name: "MyOrg"
+    connect_to_backend: false      # the broker itself acts as the central system
     tags:
       - id_tag: "ADMIN001"
         status: "Accepted"
-        tag_type: "RFID"
-        description: "Administrator access"
-      - id_tag: "USER123"
-        status: "Accepted"
-        tag_type: "RFID"
-        description: "Regular user access"
-    chargers:
-      - "CHARGER_001"
+        description: "Administrator card"
 ```
 
-### **Step 3: Start the Broker**
+`connect_to_backend: false` is what makes the broker answer chargers itself. Leave it out and the organization becomes a relay organization (the default is `true`) that needs `backends`.
+
+## 3. Start the broker
+
+The REST API needs an API key. Set one before starting, otherwise every `/api` request returns `503`:
 
 ```bash
-python -m ocpp_broker.server
+export OCPP_BROKER_API_KEY=change-me
+ocpp-broker-server -c config.yaml
 ```
 
-### **Step 4: Test Connection**
+On Windows PowerShell use `$env:OCPP_BROKER_API_KEY = "change-me"`.
+
+The broker prints a few startup warnings. For this config you will see that `MyOrg` accepts unauthenticated chargers and that MongoDB is not configured (nothing is persisted, transaction ids are not durable). Both are fine for a first try; see [Configuration](configuration.md) to change them.
+
+Everything is served on port 8765: the charger WebSocket, the REST API, `/health` and the Swagger UI at <http://localhost:8765/docs>.
 
 ```bash
-# Test health endpoint
 curl http://localhost:8765/health
-
-# Test WebSocket connection
-wscat -c ws://localhost:8765/MyChargingStation/CHARGER_001
 ```
 
-## 🎯 Basic Usage Examples
+```json
+{"status":"ok"}
+```
 
-### **Example 1: Simple Charger Connection**
+## 4. Connect a simulated charger
+
+A charger connects to `ws://HOST:8765/{organization}/{charger id}` and must request the `ocpp1.6` subprotocol. Install the client library and save this as `charger.py`:
+
+```bash
+pip install websockets
+```
 
 ```python
-# charger_simulator.py
 import asyncio
-import websockets
 import json
 import uuid
 
-async def connect_charger():
-    uri = "ws://localhost:8765/MyChargingStation/CHARGER_001"
-    
-    async with websockets.connect(uri, subprotocols=["ocpp1.6"]) as ws:
-        print("✅ Connected to OCPP broker")
-        
-        # Send BootNotification
-        boot_msg = json.dumps([
-            2, str(uuid.uuid4()), "BootNotification",
-            {"chargePointVendor": "TestVendor", "chargePointModel": "TestModel"}
-        ])
-        await ws.send(boot_msg)
-        print("📤 BootNotification sent")
-        
-        # Wait for response
-        response = await ws.recv()
-        print(f"📥 Response: {response}")
-
-# Run the simulator
-asyncio.run(connect_charger())
-```
-
-### **Example 2: Broker with External Backend**
-
-```yaml
-# config.yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-
-organizations:
-  - name: "ProductionCharging"
-    connect_to_backend: true
-    backends:
-      - id: "production_backend"
-        url: "ws://your-backend.com/ocpp"
-        leader: true
-        chargers:
-          - "PROD_001"
-          - "PROD_002"
-```
-
-### **Example 3: Multiple Organizations**
-
-```yaml
-# config.yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-
-organizations:
-  - name: "CompanyA"
-    connect_to_backend: true
-    backends:
-      - id: "backend_a"
-        url: "ws://company-a-backend.com/ocpp"
-        leader: true
-        chargers:
-          - "COMPANY_A_001"
-  
-  - name: "CompanyB"
-    connect_to_backend: false  # Broker acts as backend
-    chargers:
-      - "COMPANY_B_001"
-      - "COMPANY_B_002"
-```
-
-## 🔧 Configuration Examples
-
-### **Basic Configuration**
-
-```yaml
-# Minimal configuration
-broker:
-  host: 0.0.0.0
-  port: 8765
-
-organizations:
-  - name: "DefaultOrg"
-    connect_to_backend: false
-    chargers:
-      - "CHARGER_001"
-```
-
-### **Production Configuration**
-
-```yaml
-# Production-ready configuration
-broker:
-  host: 0.0.0.0
-  port: 8765
-  log_level: "INFO"
-
-organizations:
-  - name: "ProductionCharging"
-    connect_to_backend: true
-    backends:
-      - id: "primary_backend"
-        url: "ws://primary-backend.com/ocpp"
-        leader: true
-        chargers:
-          - "PROD_001"
-          - "PROD_002"
-      - id: "secondary_backend"
-        url: "ws://secondary-backend.com/ocpp"
-        leader: false
-        chargers:
-          - "PROD_001"
-          - "PROD_002"
-```
-
-### **Development Configuration**
-
-```yaml
-# Development configuration with OCPP 1.6 features
-broker:
-  host: 0.0.0.0
-  port: 8765
-  log_level: "DEBUG"
-
-organizations:
-  - name: "DevCharging"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-      - firmware_management
-    chargers:
-      - "DEV_001"
-      - "DEV_002"
-```
-
-## 🧪 Testing Your Setup
-
-### **1. Health Check**
-
-```bash
-# Check if broker is running
-curl http://localhost:8765/health
-
-# Expected response
-{"status": "ok"}
-```
-
-### **2. WebSocket Test**
-
-```bash
-# Install wscat for WebSocket testing
-npm install -g wscat
-
-# Test WebSocket connection
-wscat -c ws://localhost:8765/MyChargingStation/CHARGER_001
-```
-
-### **3. OCPP Message Test**
-
-```python
-# test_ocpp_connection.py
-import asyncio
 import websockets
-import json
-import uuid
 
-async def test_ocpp_connection():
-    uri = "ws://localhost:8765/MyChargingStation/CHARGER_001"
-    
+
+async def main():
+    uri = "ws://localhost:8765/MyOrg/CP001"
     async with websockets.connect(uri, subprotocols=["ocpp1.6"]) as ws:
-        print("✅ Connected to OCPP broker")
-        
-        # Test BootNotification
-        boot_msg = json.dumps([
-            2, str(uuid.uuid4()), "BootNotification",
-            {"chargePointVendor": "TestVendor", "chargePointModel": "TestModel"}
-        ])
-        await ws.send(boot_msg)
-        print("📤 BootNotification sent")
-        
-        # Wait for response
-        response = await ws.recv()
-        print(f"📥 BootNotification response: {response}")
-        
-        # Test Heartbeat
-        heartbeat_msg = json.dumps([
-            2, str(uuid.uuid4()), "Heartbeat", {}
-        ])
-        await ws.send(heartbeat_msg)
-        print("📤 Heartbeat sent")
-        
-        # Wait for response
-        response = await ws.recv()
-        print(f"📥 Heartbeat response: {response}")
 
-# Run the test
-asyncio.run(test_ocpp_connection())
+        async def call(action, payload):
+            await ws.send(json.dumps([2, str(uuid.uuid4()), action, payload]))
+            return json.loads(await ws.recv())
+
+        print(await call("BootNotification",
+                         {"chargePointVendor": "TestVendor", "chargePointModel": "TestModel"}))
+        print(await call("Authorize", {"idTag": "ADMIN001"}))
+        print(await call("Authorize", {"idTag": "UNKNOWN"}))
+
+        # Stay connected and answer commands sent through the REST API.
+        async for raw in ws:
+            frame = json.loads(raw)
+            if frame[0] == 2:
+                print("received command:", frame[2], frame[3])
+                await ws.send(json.dumps([3, frame[1], {"status": "Accepted"}]))
+
+
+asyncio.run(main())
 ```
 
-## 🚀 Advanced Features
-
-### **Broker-as-Backend Mode**
-
-```yaml
-# config.yaml
-organizations:
-  - name: "LocalCharging"
-    connect_to_backend: false  # Broker acts as backend
-    chargers:
-      - "LOCAL_001"
+```bash
+python charger.py
 ```
 
-**Benefits:**
-- No external backend needed
-- Local OCPP command processing
-- Reduced latency
-- Simplified deployment
+Expected output (timestamps and ids will differ):
 
-### **Leader-Follower Logic**
+```
+[3, '…', {'currentTime': '2026-10-03T06:22:22.088867+00:00', 'interval': 300, 'status': 'Accepted'}]
+[3, '…', {'idTagInfo': {'status': 'Accepted'}}]
+[3, '…', {'idTagInfo': {'status': 'Invalid'}}]
+```
+
+The broker accepted the boot, authorized `ADMIN001` from the configured tag list and rejected the tag it does not know.
+
+## 5. Send the charger a command
+
+With `charger.py` still running, in another terminal:
+
+```bash
+curl -X POST http://localhost:8765/api/ocpp/organizations/MyOrg/chargers/CP001/commands/Reset \
+  -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"type": "Soft"}'
+```
+
+```json
+{
+  "message_id": "fbaecb17-5a3e-440e-b218-e824793edf0f",
+  "organization": "MyOrg",
+  "charger_id": "CP001",
+  "action": "Reset",
+  "status": "success",
+  "response": {"status": "Accepted"},
+  "error": null,
+  "timestamp": "2026-10-03T06:22:22.142596+00:00"
+}
+```
+
+The call waits for the charger and returns its real answer in `response`. `charger.py` prints `received command: Reset {'type': 'Soft'}`. To list connected chargers:
+
+```bash
+curl http://localhost:8765/api/ocpp/organizations/MyOrg/chargers -H "X-API-Key: $OCPP_BROKER_API_KEY"
+```
+
+## 6. Next: relay to your own backend
+
+To forward a charger's traffic to an existing central system instead, add a relay organization:
 
 ```yaml
-# config.yaml
 organizations:
-  - name: "MultiBackendOrg"
+  - name: "Fleet"
     connect_to_backend: true
     backends:
-      - id: "leader_backend"
-        url: "ws://leader-backend.com/ocpp"
+      - id: main
+        url: ws://central.example.com/ocpp   # the broker connects to {url}/{charger id}
         leader: true
-        chargers:
-          - "CHARGER_001"
-      - id: "follower_backend"
-        url: "ws://follower-backend.com/ocpp"
-        leader: false
-        chargers:
-          - "CHARGER_001"
 ```
 
-**Benefits:**
-- Only leader can send commands
-- Followers receive status updates
-- Prevents command conflicts
-- Enhanced security
+Chargers then connect to `ws://HOST:8765/Fleet/{charger id}`. If the backend is unreachable the broker buffers the charger's messages and delivers them when it returns. Add more backends to get observers and automatic failover: see [Leader/Follower](leader-follower.md).
 
-### **OCPP 1.6 Features**
+## Common problems
 
-```yaml
-# config.yaml
-organizations:
-  - name: "AdvancedCharging"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-      - firmware_management
-      - local_auth_list
-      - reservation
-    chargers:
-      - "ADVANCED_001"
-```
+| Symptom | Cause and fix |
+|---------|---------------|
+| WebSocket handshake fails with HTTP `403` | The client did not request `ocpp1.6`. Pass the subprotocol (`wscat -c URL -s ocpp1.6`). |
+| Closed with code `4002` | The first URL segment is not an organization name in the config. |
+| REST calls return `401` | Wrong or missing `X-API-Key`. |
+| REST calls return `503` | The broker was started without `OCPP_BROKER_API_KEY`. |
+| `404 Charger ... not connected` | The charger id or organization in the URL does not match a live connection. |
+| Config is ignored, every charger gets `4002` | The file was not found (use `-c`); the broker started with no organizations. |
 
-**Supported Commands:**
-- **Core Profile**: 19 commands
-- **Smart Charging**: 4 commands
-- **Firmware Management**: 2 commands
-- **Local Auth List**: 2 commands
-- **Reservation**: 2 commands
+More in [Troubleshooting](troubleshooting.md).
 
-## 🔍 Monitoring and Logs
+## Where to go next
 
-### **View Logs**
-
-```bash
-# Run with debug logging
-OCPP_BROKER_LOG_LEVEL=DEBUG python -m ocpp_broker.server
-
-# View logs in real-time
-tail -f broker.log
-```
-
-### **Monitor Connections**
-
-```bash
-# Check active connections
-curl http://localhost:8765/api/connections
-
-# Check organization status
-curl http://localhost:8765/api/organizations
-```
-
-## 🚨 Common Issues
-
-### **Issue 1: Connection Refused**
-
-```bash
-# Error: Connection refused
-# Solution: Check if broker is running
-curl http://localhost:8765/health
-```
-
-### **Issue 2: WebSocket Handshake Failed**
-
-```bash
-# Error: WebSocket handshake failed
-# Solution: Use correct subprotocol
-wscat -c ws://localhost:8765/MyChargingStation/CHARGER_001 --subprotocol ocpp1.6
-```
-
-### **Issue 3: Configuration Not Found**
-
-```bash
-# Error: Configuration file not found
-# Solution: Create config.yaml or specify path
-python -m ocpp_broker.server -c /path/to/config.yaml
-```
-
-## 📚 Next Steps
-
-Now that you have the basics working:
-
-1. **Explore OCPP 1.6 Features**: [OCPP 1.6 Features](ocpp16-features.md)
-2. **Configure Advanced Settings**: [Configuration Guide](configuration.md)
-3. **Learn About Broker-as-Backend**: [Broker-as-Backend Mode](broker-as-backend.md)
-4. **Set Up Production**: [Production Deployment](deployment.md)
-5. **Explore API**: [API Reference](api-reference.md)
-
-## 🔗 Related Documentation
-
+- [Configuration Guide](configuration.md): every setting
+- [Broker-as-Backend Mode](broker_as_backend.md): what the broker handles itself
+- [API Reference](api-reference.md): REST and WebSocket details
+- [Tag Management](tag-management.md): authorization tags
 - [Installation Guide](installation.md)
-- [Configuration Guide](configuration.md)
-- [OCPP 1.6 Features](ocpp16-features.md)
-- [Broker-as-Backend Mode](broker-as-backend.md)
-- [Troubleshooting](troubleshooting.md)
-
----
-
-*Last updated: October 2024*

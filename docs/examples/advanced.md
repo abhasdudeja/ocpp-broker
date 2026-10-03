@@ -1,974 +1,454 @@
 # Advanced Examples
 
-Advanced examples demonstrating complex OCPP broker scenarios and integrations.
+Relay with followers and failover, charger authentication, tag import/export, DataTransfer policy, remote commands and MongoDB. These build on [basic.md](basic.md): the scripts `simple_charger.py` and `charger_responder.py` come from there, and all REST calls need the API key:
 
-## 🚀 Advanced Configuration Examples
+```bash
+export OCPP_BROKER_API_KEY=change-me
+BASE=http://localhost:8765
+```
 
-### **Example 1: Multi-Organization Setup**
+## 1. Relay to a backend with a follower
+
+In relay mode (`connect_to_backend: true`, the default) the broker opens one WebSocket per charger to each configured backend at `{url}/{charger_id}` and forwards frames untouched, with no validation.
+
+- The **leader** (`leader: true`) gets every frame from the charger, and only its frames reach the charger.
+- **Followers** get a copy of every CALL the charger sends. Their replies are discarded and nothing is buffered for them.
 
 ```yaml
-# config-advanced.yaml
+# relay.yaml
 broker:
-  host: 0.0.0.0
   port: 8765
-  log_level: "INFO"
-  max_connections: 1000
-  timeout: 30
 
 organizations:
-  # Organization 1: External Backend
-  - name: "ProductionCharging"
-    connect_to_backend: true
+  - name: acme
+    connect_to_backend: true          # relay mode (this is also the default)
+    ocpp_subprotocol: ocpp1.6
+    backend_buffer_size: 200          # frames held while the leader is unreachable
+    backend_outage_timeout: 30        # seconds before a held CALL is answered with a CallError
+    leader_failover_timeout: 15       # seconds the leader may be down before a follower takes over (0 = never)
     backends:
-      - id: "primary_backend"
-        url: "ws://primary-backend.com/ocpp"
+      - id: primary
+        url: ws://localhost:9001/ocpp   # the charger connects to ws://localhost:9001/ocpp/<charger_id>
         leader: true
-        chargers:
-          - "PROD_001"
-          - "PROD_002"
-      - id: "secondary_backend"
-        url: "ws://secondary-backend.com/ocpp"
-        leader: false
-        chargers:
-          - "PROD_001"
-          - "PROD_002"
-  
-  # Organization 2: Broker-as-Backend
-  - name: "LocalCharging"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-      - firmware_management
-    chargers:
-      - "LOCAL_001"
-      - "LOCAL_002"
-  
-  # Organization 3: Test Environment
-  - name: "TestCharging"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-      - local_auth_list
-      - reservation
-    chargers:
-      - "TEST_001"
-      - "TEST_002"
+      - id: shadow
+        url: ws://localhost:9002/ocpp
 ```
 
-### **Example 2: High Availability Configuration**
+To try it locally, run two stand-in backends. This one prints every frame and answers CALLs with minimal valid results:
+
+```python
+# mock_backend.py
+import asyncio
+import json
+import sys
+from datetime import datetime, timezone
+
+import websockets
+
+# usage: python mock_backend.py PORT [NAME]
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9001
+NAME = sys.argv[2] if len(sys.argv) > 2 else f"backend:{PORT}"
+
+RESULTS = {
+    "BootNotification": lambda: {"status": "Accepted", "interval": 60,
+                                 "currentTime": datetime.now(timezone.utc).isoformat()},
+    "Heartbeat": lambda: {"currentTime": datetime.now(timezone.utc).isoformat()},
+    "Authorize": lambda: {"idTagInfo": {"status": "Accepted"}},
+    "StartTransaction": lambda: {"transactionId": 1, "idTagInfo": {"status": "Accepted"}},
+}
+
+
+async def handler(ws):
+    print(f"[{NAME}] charger connected on {ws.request.path}", flush=True)
+    try:
+        async for raw in ws:
+            frame = json.loads(raw)
+            print(f"[{NAME}] received {frame}", flush=True)
+            if frame[0] == 2:  # CALL: answer it
+                _, msg_id, action, _payload = frame
+                result = RESULTS.get(action, lambda: {})()
+                await ws.send(json.dumps([3, msg_id, result]))
+    except websockets.ConnectionClosed:
+        pass
+    print(f"[{NAME}] charger disconnected", flush=True)
+
+
+async def main():
+    async with websockets.serve(handler, "localhost", PORT, subprotocols=["ocpp1.6"]):
+        print(f"[{NAME}] listening on ws://localhost:{PORT}", flush=True)
+        await asyncio.Future()
+
+
+asyncio.run(main())
+```
+
+```bash
+python mock_backend.py 9001 primary &
+python mock_backend.py 9002 shadow &
+python -m ocpp_broker.server -c relay.yaml &
+python simple_charger.py ws://localhost:8765/acme/CP100
+```
+
+The charger gets its replies from `primary`. In the output `primary` sees every frame (`charger connected on /ocpp/CP100`, then BootNotification, Heartbeat, ...), while `shadow` sees the same CALLs but never gets a reply back to the charger. Frames sent before a follower's link is up are not replayed to it.
+
+With the responder from basic.md connected (`python charger_responder.py ws://localhost:8765/acme/CP100`), inspect the links:
+
+```bash
+curl -H "X-API-Key: $OCPP_BROKER_API_KEY" $BASE/orgs/acme/backends
+```
+
+```json
+[{"charger_id":"CP100","url":"ws://localhost:9001/ocpp","leader":true,"connected":true},
+ {"charger_id":"CP100","url":"ws://localhost:9002/ocpp","leader":false,"connected":true}]
+```
+
+The list only covers chargers currently connected (404 for an unknown org). REST commands work in relay mode too. The broker sends the CALL exactly as given and intercepts the charger's reply, so the backend never sees it. There is no payload validation in relay mode, so any action name is passed on:
+
+```bash
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"requested_message":"Heartbeat"}' \
+  $BASE/api/ocpp/organizations/acme/chargers/CP100/commands/TriggerMessage
+# {"message_id":"...","organization":"acme","charger_id":"CP100","action":"TriggerMessage","status":"success","response":{"status":"Accepted"},"error":null,"timestamp":"..."}
+```
+
+The Heartbeat the charger then sends goes to `primary` (and a copy to `shadow`) like any other CALL.
+
+## 2. Failover and store-and-forward
+
+While the leader is unreachable the broker keeps the charger connected:
+
+- Frames from the charger wait in an outbox of up to `backend_buffer_size` (default 200) and are flushed in order when the leader reconnects. The broker retries with a delay that starts at 1 s and doubles up to 30 s.
+- A CALL that waits longer than `backend_outage_timeout` (default 30 s), or does not fit in a full outbox, is answered to the charger with `[4, "<id>", "InternalError", "Backend unavailable, please retry", {}]`. An undeliverable CALLRESULT is dropped with a warning.
+- If the leader stays down for `leader_failover_timeout` (default 15 s, `0` disables) and a follower is connected, the first healthy follower in config order becomes the leader. The old leader becomes a follower when it returns; there is no automatic fail-back. Frames held for the old leader are answered with a CALLERROR, not replayed.
+
+With the setup from section 1, stop the `primary` mock and watch the links:
+
+```bash
+curl -H "X-API-Key: $OCPP_BROKER_API_KEY" $BASE/orgs/acme/backends
+# right after the outage: primary is still leader, "connected": false
+# [{"charger_id":"CP100","url":"ws://localhost:9001/ocpp","leader":true,"connected":false},
+#  {"charger_id":"CP100","url":"ws://localhost:9002/ocpp","leader":false,"connected":true}]
+
+# after leader_failover_timeout (15 s): shadow is the leader
+# [{"charger_id":"CP100","url":"ws://localhost:9002/ocpp","leader":true,"connected":true},
+#  {"charger_id":"CP100","url":"ws://localhost:9001/ocpp","leader":false,"connected":false}]
+```
+
+The broker logs `FAILOVER: leader ws://localhost:9001/ocpp unreachable, promoting follower ws://localhost:9002/ocpp`. CALLs that were waiting for the old leader are answered with a CALLERROR at that moment (`Backend unavailable, please retry`); the charger's retries, and everything it sends afterwards, go to the new leader.
+
+## 3. Charger authentication
+
+Chargers can authenticate with HTTP Basic on the WebSocket upgrade (OCPP security profile 1). The username must equal the charger id. Authentication is enforced for an org as soon as `charger_auth.credentials` is non-empty (or `charger_auth.required: true`); then only the listed chargers can connect. The broker has no TLS of its own, so terminate TLS in a reverse proxy.
+
+Generate a hash (omit the argument to be prompted instead of leaving the password in your shell history):
+
+```bash
+python -m ocpp_broker.auth s3cret      # also installed as: ocpp-broker-hash-password s3cret
+# pbkdf2_sha256$200000$<salt>$<hash>
+```
 
 ```yaml
-# config-ha.yaml
+# secure.yaml
 broker:
-  host: 0.0.0.0
   port: 8765
-  log_level: "INFO"
-  metrics:
-    enabled: true
-    port: 9090
-    path: "/metrics"
 
 organizations:
-  - name: "HACharging"
-    connect_to_backend: true
+  - name: secure
+    connect_to_backend: false
+    charger_auth:
+      credentials:
+        CP001:
+          # hash of "s3cret", generated with: python -m ocpp_broker.auth s3cret
+          password_hash: "pbkdf2_sha256$200000$M8NACXBqeBOvT0sKN/pjVQ==$5pZVMVcafrMH6cW8BF10UjTm6Om3mv9IkwpIJV4dwhU="
+        CP002: "dev-only-plaintext"      # a bare string is a plaintext password (logs a warning)
+    tags:
+      - id_tag: TAG001
+        status: Accepted
+
+ocpp:
+  commands:
+    core:
+      heartbeat_interval: 60             # interval returned in BootNotification replies
+
+data_transfer:
+  known_vendors: [VendorA, VendorB]
+  known_message_ids: [GetPrice, Ping, Report]
+  vendors:
+    VendorA:
+      allowed_message_ids: [GetPrice, Ping]
+    VendorB:
+      require_message_id: true
+      allowed_message_ids: [Report]
+      auto_accept: false                 # recognised, but answered with Rejected
+```
+
+(The `data_transfer` block is used in section 5.) Connect with the responder from basic.md, which takes the password as its second argument:
+
+```bash
+python charger_responder.py ws://localhost:8765/secure/CP001 s3cret
+```
+
+A client that fails authentication is refused before the WebSocket opens:
+
+```python
+# auth_check.py
+import asyncio
+import base64
+
+import websockets
+
+
+def basic(user_and_password: str) -> dict:
+    return {"Authorization": "Basic " + base64.b64encode(user_and_password.encode()).decode()}
+
+
+async def try_connect(label, url, headers):
+    try:
+        async with websockets.connect(url, subprotocols=["ocpp1.6"], additional_headers=headers):
+            print(label, "-> connected")
+    except websockets.InvalidStatus as exc:
+        print(label, "-> HTTP", exc.response.status_code)
+
+
+async def main():
+    url = "ws://localhost:8765/secure/CP001"
+    await try_connect("no credentials", url, {})
+    await try_connect("wrong password", url, basic("CP001:nope"))
+    await try_connect("wrong username", url, basic("CP999:s3cret"))
+    await try_connect("correct", url, basic("CP001:s3cret"))
+    await try_connect("charger not listed", "ws://localhost:8765/secure/CP003", basic("CP003:x"))
+
+
+asyncio.run(main())
+```
+
+Expected: `HTTP 401` for the first, second, third and last attempts (with a `WWW-Authenticate: Basic` header), `connected` for the correct one.
+
+## 4. Tags: import, export, bulk and MongoDB sync
+
+These calls use the `demo` org from basic.md. Every operation reports per-record results, so one bad record never aborts the rest.
+
+Import CSV (columns `id_tag,status,tag_type,expiry_date,parent_id_tag,description`, plus `created_at,updated_at,metadata` where `metadata` is a JSON string). The third record is too long, so it is reported and skipped:
+
+```bash
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"source":"csv","data":"id_tag,status,tag_type,description\nFLEET001,Accepted,RFID,Van 1\nFLEET002,Accepted,RFID,Van 2\nTOOLONG_TAG_ID_OVER_20_CHARS,Accepted,RFID,bad\n"}' \
+  $BASE/api/tags/organizations/demo/tags/import
+```
+
+```json
+{"source":"csv","validate_only":false,"total":3,"imported":2,"updated":0,"skipped":0,
+ "errors":[{"record":3,"id_tag":"TOOLONG_TAG_ID_OVER_20_CHARS","error":"id_tag: String should have at most 20 characters"}]}
+```
+
+Existing tags are skipped unless `overwrite_existing` is true; `validate_only` reports what would happen without changing anything (JSON source shown here, `data` is a string containing JSON):
+
+```bash
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"source":"json","data":"[{\"id_tag\":\"FLEET001\",\"status\":\"Blocked\"}]","overwrite_existing":true,"validate_only":true}' \
+  $BASE/api/tags/organizations/demo/tags/import
+# {"source":"json","validate_only":true,"total":1,"imported":0,"updated":1,"skipped":0,"errors":[]}
+```
+
+Bulk add, update or delete (`operation` is `add`, `update` or `delete`):
+
+```bash
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"operation":"delete","tags":[{"id_tag":"FLEET002","status":"Accepted"},{"id_tag":"GHOST","status":"Accepted"}]}' \
+  $BASE/api/tags/organizations/demo/tags/bulk
+```
+
+```json
+{"operation":"delete","total":2,"succeeded":1,"failed":1,
+ "results":[{"id_tag":"FLEET002","success":true,"error":null},{"id_tag":"GHOST","success":false,"error":"not found"}]}
+```
+
+Check a tag against the org's rules without storing it:
+
+```bash
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"id_tag":"X1","status":"Accepted","parent_id_tag":"MISSING"}' \
+  $BASE/api/tags/organizations/demo/tags/validate
+# {"is_valid":false,"errors":["parent_id_tag 'MISSING' does not exist in organization demo"],"warnings":[]}
+```
+
+Export as JSON (`{"organization", "exported_at", "count", "tags": [...]}`) or as a CSV download that can be imported again:
+
+```bash
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"format":"csv","include_metadata":false}' \
+  -OJ $BASE/api/tags/organizations/demo/tags/export     # saves demo-tags.csv
+```
+
+```text
+id_tag,status,tag_type,expiry_date,parent_id_tag,description
+TAG001,Accepted,RFID,,,Test RFID card
+STOLEN01,Blocked,RFID,,,
+FLEET001,Accepted,RFID,,,Van 1
+```
+
+With MongoDB enabled (section 7) tags are persisted. After editing tags directly in the database, make the broker reload them:
+
+```bash
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" "$BASE/api/tags/sync?org_name=demo"
+```
+
+MongoDB is authoritative for an org that has stored tags (the in-memory set is replaced); an org with none stored has its in-memory tags (for example from `config.yaml`) pushed to MongoDB. The reply has the form `{"success": true, "message": "...", "organizations": {"demo": {"loaded": 0, "seeded": 3, "dropped": 0}}}`. Without MongoDB the endpoint returns 503 `{"detail":"MongoDB is not connected"}`.
+
+## 5. DataTransfer policy
+
+Incoming `DataTransfer` CALLs from chargers are checked against the `data_transfer` block of `secure.yaml` above (it is system-wide, not per organization):
+
+- `known_vendors` / `known_message_ids` with `validate_vendors` / `validate_message_ids` (both default true) answer `UnknownVendorId` / `UnknownMessageId`.
+- `vendors.<id>.allowed_message_ids`, `require_message_id` and `auto_accept` refine a vendor. `auto_accept: false` answers `Rejected`.
+- `vendor_messages."<vendor>:<message>".auto_accept` does the same per vendor and message.
+- `data_transfer.enabled: false` answers `NotImplemented` to everything.
+
+```python
+# data_transfer_demo.py
+import asyncio
+import base64
+import json
+import uuid
+
+import websockets
+
+URL = "ws://localhost:8765/secure/CP001"
+AUTH = "Basic " + base64.b64encode(b"CP001:s3cret").decode()  # username = charger id
+
+
+async def main():
+    async with websockets.connect(
+        URL, subprotocols=["ocpp1.6"], additional_headers={"Authorization": AUTH}
+    ) as ws:
+        for payload in [
+            {"vendorId": "VendorA", "messageId": "GetPrice", "data": '{"connector": 1}'},
+            {"vendorId": "VendorA", "messageId": "Reboot"},    # not in known_message_ids
+            {"vendorId": "VendorB", "messageId": "Report"},    # vendor has auto_accept: false
+            {"vendorId": "VendorB"},                           # require_message_id: true
+            {"vendorId": "Mystery", "messageId": "Ping"},      # not in known_vendors
+        ]:
+            await ws.send(json.dumps([2, str(uuid.uuid4()), "DataTransfer", payload]))
+            _, _, result = json.loads(await ws.recv())
+            print(f"{payload['vendorId']}/{payload.get('messageId')}: {result}")
+
+
+asyncio.run(main())
+```
+
+```text
+VendorA/GetPrice: {'status': 'Accepted', 'data': '{"connector": 1}'}
+VendorA/Reboot: {'status': 'UnknownMessageId'}
+VendorB/Report: {'status': 'Rejected'}
+VendorB/None: {'status': 'UnknownMessageId'}
+Mystery/Ping: {'status': 'UnknownVendorId'}
+```
+
+An accepted message echoes `data` back (JSON is re-serialised). The other direction, a DataTransfer from the broker to a charger, is a REST command:
+
+```bash
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"vendor_id":"VendorX","message_id":"Ping","data":"ping"}' \
+  $BASE/api/ocpp/organizations/secure/chargers/CP001/commands/DataTransfer
+# ... "status":"success","response":{"status":"Accepted","data":"pong"} ...
+```
+
+## 6. Remote commands with nested payloads
+
+Typed routes take snake_case bodies; nested objects are passed to the charger as given, so write those in OCPP's camelCase. In broker mode the CALL is validated against the OCPP 1.6 schema before it is sent (422 if invalid, nothing is sent); in relay mode it is forwarded as is. With `charger_responder.py` connected to `demo/CP001`:
+
+```bash
+# SetChargingProfile: limit connector 1 to 16 A by default
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"connector_id":1,"cs_charging_profiles":{"chargingProfileId":1,"stackLevel":0,"chargingProfilePurpose":"TxDefaultProfile","chargingProfileKind":"Absolute","chargingSchedule":{"chargingRateUnit":"A","chargingSchedulePeriod":[{"startPeriod":0,"limit":16}]}}}' \
+  $BASE/api/ocpp/organizations/demo/chargers/CP001/commands/SetChargingProfile
+
+# ReserveNow
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"connector_id":1,"expiry_date":"2030-01-01T12:00:00Z","id_tag":"TAG001","reservation_id":7}' \
+  $BASE/api/ocpp/organizations/demo/chargers/CP001/commands/ReserveNow
+
+# RemoteStopTransaction
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"transaction_id":42}' \
+  $BASE/api/ocpp/organizations/demo/chargers/CP001/commands/RemoteStopTransaction
+# each: {"message_id":"...","status":"success","response":{"status":"Accepted"},"error":null, ...}
+
+# Invalid payload: rejected without contacting the charger
+curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"type":"Bogus"}' -w "\n%{http_code}\n" \
+  $BASE/api/ocpp/organizations/demo/chargers/CP001/commands/Reset
+# {"detail":"Invalid payload for Reset: FormatViolationError: ... 'Bogus' is not one of ['Hard', 'Soft'] ..."}
+# 422
+```
+
+Charger replies are not interpreted: a charger that answers `{"status":"Rejected"}` still gives `"status":"success"` at the REST level, because the command was delivered and answered. Check `response` for the OCPP-level result.
+
+## 7. MongoDB
+
+MongoDB is optional. When connected, the broker persists the traffic it handles as the central system, makes transaction ids durable and stores tags. Settings can also come from the environment, which wins over the file: `MONGODB_ENABLED`, `MONGODB_CONNECTION_STRING`, `MONGODB_DATABASE_NAME` (a `.env` file is loaded too).
+
+```yaml
+mongodb:
+  enabled: true
+  connection_string: "mongodb://localhost:27017"
+  database_name: ocpp_broker
+
+organizations:
+  - name: demo
+    connect_to_backend: false
+```
+
+```bash
+curl -H "X-API-Key: $OCPP_BROKER_API_KEY" $BASE/api/mongodb/health
+# {"status":"connected","connected":true,"database":"ocpp_broker"}
+# without MongoDB: {"status":"not_configured","connected":false}
+```
+
+Collections written: `charger_statuses` and `charger_statuses_latest` (StatusNotification), `meter_values`, `charger_configurations` (BootNotification), `charger_heartbeats_latest` (latest heartbeat only), `transactions` (start inserts, stop updates the same document), `authorizations`, `data_transfers`, `tags`, `tag_list_versions`, `counters` (one transaction id counter per org) and a raw-message collection per action for REST commands and some charger messages. Transaction ids start at 1 per organization.
+
+The `/api/mongodb/*` routes (`status-notification`, `meter-values`, `boot-notification`, `transaction`, `authorization`, `data-transfer`, `ocpp-message`) let an external system write the same records. They return 503 when MongoDB is not connected.
+
+## 8. REST API settings and several organizations
+
+The API key comes from `OCPP_BROKER_API_KEY` or `security.api_key` (the environment wins). `security.allow_unauthenticated_api: true` opens the API for development. Browser dashboards need their origin listed for CORS (`"*"` works only without credentials). The charger socket keepalive is also configured here.
+
+```yaml
+security:
+  # api_key: "..."                    # or set OCPP_BROKER_API_KEY (the environment wins)
+  cors:
+    allow_origins: ["https://dashboard.example.com"]
+    allow_credentials: false
+  websocket:
+    ping_interval: 20                 # server pings every charger this often (seconds)
+    ping_timeout: 20                  # ...and drops one that does not answer within this
+organizations:
+  - name: demo
+    connect_to_backend: false
+```
+
+A relay org can have per-backend subprotocols, and relay and broker orgs live side by side. The same charger id may connect to two orgs; the sessions are independent. A charger that reconnects while its old session is still open replaces it (the old socket is closed with code 4003).
+
+```yaml
+organizations:
+  - name: acme
+    ocpp_subprotocol: ocpp1.6
     backends:
-      - id: "ha_backend_1"
-        url: "ws://backend-1.example.com/ocpp"
+      - id: primary
+        url: ws://central-a.example.com/ocpp
         leader: true
-        chargers:
-          - "HA_001"
-          - "HA_002"
-      - id: "ha_backend_2"
-        url: "ws://backend-2.example.com/ocpp"
-        leader: false
-        chargers:
-          - "HA_001"
-          - "HA_002"
+        ocpp_subprotocol: ocpp1.6       # per-backend override of the org setting
+      - id: audit
+        url: ws://central-b.example.com/ocpp
+  - name: demo
+    connect_to_backend: false
 ```
 
-## 🔌 Advanced WebSocket Examples
+## Related documentation
 
-### **Example 1: Multi-Charger Simulator**
-
-```python
-# multi_charger_simulator.py
-import asyncio
-import websockets
-import json
-import uuid
-import datetime
-import random
-
-class ChargerSimulator:
-    def __init__(self, charger_id, organization):
-        self.charger_id = charger_id
-        self.organization = organization
-        self.uri = f"ws://localhost:8765/{organization}/{charger_id}"
-        self.connected = False
-        
-    async def connect(self):
-        """Connect to OCPP broker"""
-        try:
-            self.websocket = await websockets.connect(
-                self.uri, 
-                subprotocols=["ocpp1.6"]
-            )
-            self.connected = True
-            print(f"✅ {self.charger_id} connected")
-            return True
-        except Exception as e:
-            print(f"❌ {self.charger_id} connection failed: {e}")
-            return False
-    
-    async def send_boot_notification(self):
-        """Send BootNotification"""
-        boot_msg = [2, str(uuid.uuid4()), "BootNotification", {
-            "chargePointVendor": "Siemens",
-            "chargePointModel": "SL/01",
-            "chargePointSerialNumber": f"SN{self.charger_id}",
-            "firmwareVersion": "1.0.0"
-        }]
-        
-        await self.websocket.send(json.dumps(boot_msg))
-        print(f"📤 {self.charger_id} BootNotification sent")
-        
-        response = await self.websocket.recv()
-        print(f"📥 {self.charger_id} BootNotification response: {response}")
-    
-    async def send_heartbeat(self):
-        """Send Heartbeat"""
-        heartbeat_msg = [2, str(uuid.uuid4()), "Heartbeat", {}]
-        await self.websocket.send(json.dumps(heartbeat_msg))
-        print(f"💓 {self.charger_id} Heartbeat sent")
-        
-        response = await self.websocket.recv()
-        print(f"📥 {self.charger_id} Heartbeat response: {response}")
-    
-    async def send_status_notification(self, status="Available"):
-        """Send StatusNotification"""
-        status_msg = [2, str(uuid.uuid4()), "StatusNotification", {
-            "connectorId": 1,
-            "errorCode": "NoError",
-            "status": status,
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z"
-        }]
-        
-        await self.websocket.send(json.dumps(status_msg))
-        print(f"⚡ {self.charger_id} StatusNotification sent: {status}")
-        
-        response = await self.websocket.recv()
-        print(f"📥 {self.charger_id} StatusNotification response: {response}")
-    
-    async def simulate_charging_session(self):
-        """Simulate a charging session"""
-        print(f"🔋 {self.charger_id} Starting charging session")
-        
-        # Start transaction
-        start_transaction_msg = [2, str(uuid.uuid4()), "StartTransaction", {
-            "connectorId": 1,
-            "idTag": "TEST1234",
-            "meterStart": 0,
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z"
-        }]
-        
-        await self.websocket.send(json.dumps(start_transaction_msg))
-        print(f"📤 {self.charger_id} StartTransaction sent")
-        
-        response = await self.websocket.recv()
-        print(f"📥 {self.charger_id} StartTransaction response: {response}")
-        
-        # Simulate charging for 30 seconds
-        await asyncio.sleep(30)
-        
-        # Stop transaction
-        stop_transaction_msg = [2, str(uuid.uuid4()), "StopTransaction", {
-            "transactionId": 12345,
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-            "meterStop": 1000,
-            "reason": "Local"
-        }]
-        
-        await self.websocket.send(json.dumps(stop_transaction_msg))
-        print(f"📤 {self.charger_id} StopTransaction sent")
-        
-        response = await self.websocket.recv()
-        print(f"📥 {self.charger_id} StopTransaction response: {response}")
-    
-    async def run(self):
-        """Run the charger simulator"""
-        if not await self.connect():
-            return
-        
-        try:
-            # Send BootNotification
-            await self.send_boot_notification()
-            
-            # Send StatusNotification
-            await self.send_status_notification("Available")
-            
-            # Simulate charging session
-            await self.simulate_charging_session()
-            
-            # Send periodic heartbeats
-            for i in range(10):
-                await self.send_heartbeat()
-                await asyncio.sleep(5)
-                
-        except Exception as e:
-            print(f"❌ {self.charger_id} error: {e}")
-        finally:
-            if self.connected:
-                await self.websocket.close()
-                print(f"🔌 {self.charger_id} disconnected")
-
-async def run_multiple_chargers():
-    """Run multiple charger simulators"""
-    chargers = [
-        ChargerSimulator("CHARGER_001", "MyChargingStation"),
-        ChargerSimulator("CHARGER_002", "MyChargingStation"),
-        ChargerSimulator("CHARGER_003", "MyChargingStation"),
-    ]
-    
-    tasks = []
-    for charger in chargers:
-        task = asyncio.create_task(charger.run())
-        tasks.append(task)
-    
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-# Run the simulator
-asyncio.run(run_multiple_chargers())
-```
-
-### **Example 2: Advanced Message Handling**
-
-```python
-# advanced_message_handler.py
-import asyncio
-import websockets
-import json
-import uuid
-import datetime
-from typing import Dict, Any
-
-class AdvancedChargerSimulator:
-    def __init__(self, charger_id, organization):
-        self.charger_id = charger_id
-        self.organization = organization
-        self.uri = f"ws://localhost:8765/{organization}/{charger_id}"
-        self.connected = False
-        self.message_handlers = {
-            "BootNotification": self.handle_boot_notification,
-            "Heartbeat": self.handle_heartbeat,
-            "StatusNotification": self.handle_status_notification,
-            "StartTransaction": self.handle_start_transaction,
-            "StopTransaction": self.handle_stop_transaction,
-            "MeterValues": self.handle_meter_values,
-        }
-    
-    async def connect(self):
-        """Connect to OCPP broker"""
-        try:
-            self.websocket = await websockets.connect(
-                self.uri, 
-                subprotocols=["ocpp1.6"]
-            )
-            self.connected = True
-            print(f"✅ {self.charger_id} connected")
-            return True
-        except Exception as e:
-            print(f"❌ {self.charger_id} connection failed: {e}")
-            return False
-    
-    async def send_message(self, action: str, payload: Dict[str, Any]):
-        """Send OCPP message"""
-        message = [2, str(uuid.uuid4()), action, payload]
-        await self.websocket.send(json.dumps(message))
-        print(f"📤 {self.charger_id} {action} sent")
-        
-        # Wait for response
-        response = await self.websocket.recv()
-        print(f"📥 {self.charger_id} {action} response: {response}")
-        
-        return json.loads(response)
-    
-    async def handle_boot_notification(self):
-        """Handle BootNotification"""
-        payload = {
-            "chargePointVendor": "Siemens",
-            "chargePointModel": "SL/01",
-            "chargePointSerialNumber": f"SN{self.charger_id}",
-            "chargeBoxSerialNumber": f"BOX{self.charger_id}",
-            "firmwareVersion": "1.0.0",
-            "iccid": "1234567890123456789",
-            "imsi": "123456789012345",
-            "meterType": "Single Phase",
-            "meterSerialNumber": f"METER{self.charger_id}"
-        }
-        
-        response = await self.send_message("BootNotification", payload)
-        return response
-    
-    async def handle_heartbeat(self):
-        """Handle Heartbeat"""
-        response = await self.send_message("Heartbeat", {})
-        return response
-    
-    async def handle_status_notification(self, status="Available"):
-        """Handle StatusNotification"""
-        payload = {
-            "connectorId": 1,
-            "errorCode": "NoError",
-            "status": status,
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-            "vendorId": "Siemens",
-            "vendorErrorCode": "0"
-        }
-        
-        response = await self.send_message("StatusNotification", payload)
-        return response
-    
-    async def handle_start_transaction(self, id_tag="TEST1234"):
-        """Handle StartTransaction"""
-        payload = {
-            "connectorId": 1,
-            "idTag": id_tag,
-            "meterStart": 0,
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z"
-        }
-        
-        response = await self.send_message("StartTransaction", payload)
-        return response
-    
-    async def handle_stop_transaction(self, transaction_id=12345):
-        """Handle StopTransaction"""
-        payload = {
-            "transactionId": transaction_id,
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-            "meterStop": 1000,
-            "reason": "Local"
-        }
-        
-        response = await self.send_message("StopTransaction", payload)
-        return response
-    
-    async def handle_meter_values(self, connector_id=1, meter_value=100):
-        """Handle MeterValues"""
-        payload = {
-            "connectorId": connector_id,
-            "transactionId": 12345,
-            "meterValue": [
-                {
-                    "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-                    "sampledValue": [
-                        {
-                            "value": str(meter_value),
-                            "context": "Sample.Periodic",
-                            "format": "Raw",
-                            "measurand": "Energy.Active.Import.Register",
-                            "phase": "L1",
-                            "location": "Outlet",
-                            "unit": "Wh"
-                        }
-                    ]
-                }
-            ]
-        }
-        
-        response = await self.send_message("MeterValues", payload)
-        return response
-    
-    async def run(self):
-        """Run the advanced charger simulator"""
-        if not await self.connect():
-            return
-        
-        try:
-            # Boot sequence
-            await self.handle_boot_notification()
-            await self.handle_status_notification("Available")
-            
-            # Simulate charging session
-            print(f"🔋 {self.charger_id} Starting charging session")
-            
-            # Start transaction
-            start_response = await self.handle_start_transaction()
-            transaction_id = start_response[2].get("transactionId", 12345)
-            
-            # Send meter values
-            for i in range(5):
-                await self.handle_meter_values(meter_value=100 + i * 10)
-                await asyncio.sleep(2)
-            
-            # Stop transaction
-            await self.handle_stop_transaction(transaction_id)
-            
-            # Send periodic heartbeats
-            for i in range(5):
-                await self.handle_heartbeat()
-                await asyncio.sleep(5)
-                
-        except Exception as e:
-            print(f"❌ {self.charger_id} error: {e}")
-        finally:
-            if self.connected:
-                await self.websocket.close()
-                print(f"🔌 {self.charger_id} disconnected")
-
-# Run the advanced simulator
-asyncio.run(AdvancedChargerSimulator("ADVANCED_001", "MyChargingStation").run())
-```
-
-## 📊 Advanced REST API Examples
-
-### **Example 1: Monitoring Dashboard**
-
-```python
-# monitoring_dashboard.py
-import requests
-import json
-import time
-from datetime import datetime
-
-class OCPPBrokerMonitor:
-    def __init__(self, base_url="http://localhost:8765"):
-        self.base_url = base_url
-    
-    def get_health(self):
-        """Get broker health status"""
-        try:
-            response = requests.get(f"{self.base_url}/health")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_organizations(self):
-        """Get all organizations"""
-        try:
-            response = requests.get(f"{self.base_url}/api/organizations")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_chargers(self):
-        """Get all chargers"""
-        try:
-            response = requests.get(f"{self.base_url}/api/chargers")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_backends(self):
-        """Get all backends"""
-        try:
-            response = requests.get(f"{self.base_url}/api/backends")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_metrics(self):
-        """Get system metrics"""
-        try:
-            response = requests.get(f"{self.base_url}/api/metrics")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_logs(self, level=None, limit=100):
-        """Get system logs"""
-        try:
-            params = {"limit": limit}
-            if level:
-                params["level"] = level
-            
-            response = requests.get(f"{self.base_url}/api/logs", params=params)
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def print_dashboard(self):
-        """Print monitoring dashboard"""
-        print("=" * 80)
-        print("OCPP BROKER MONITORING DASHBOARD")
-        print("=" * 80)
-        print(f"Timestamp: {datetime.now().isoformat()}")
-        print()
-        
-        # Health status
-        health = self.get_health()
-        print(f"Health Status: {health.get('status', 'Unknown')}")
-        print()
-        
-        # Organizations
-        organizations = self.get_organizations()
-        print(f"Organizations: {len(organizations)}")
-        for org in organizations:
-            print(f"  - {org['name']}: {org['connect_to_backend']}")
-        print()
-        
-        # Chargers
-        chargers = self.get_chargers()
-        print(f"Chargers: {len(chargers)}")
-        connected = sum(1 for c in chargers if c.get('status') == 'connected')
-        print(f"  - Connected: {connected}")
-        print(f"  - Disconnected: {len(chargers) - connected}")
-        print()
-        
-        # Backends
-        backends = self.get_backends()
-        print(f"Backends: {len(backends)}")
-        for backend in backends:
-            print(f"  - {backend['id']}: {backend['status']}")
-        print()
-        
-        # Metrics
-        metrics = self.get_metrics()
-        if 'system' in metrics:
-            print(f"System Uptime: {metrics['system'].get('uptime', 'Unknown')}")
-            print(f"Memory Usage: {metrics['system'].get('memory_usage', 'Unknown')}")
-            print(f"CPU Usage: {metrics['system'].get('cpu_usage', 'Unknown')}")
-        print()
-        
-        # Recent logs
-        logs = self.get_logs(limit=5)
-        if 'logs' in logs:
-            print("Recent Logs:")
-            for log in logs['logs']:
-                print(f"  [{log['level']}] {log['message']}")
-        print()
-    
-    def monitor_continuous(self, interval=30):
-        """Monitor continuously"""
-        print("Starting continuous monitoring...")
-        print(f"Refresh interval: {interval} seconds")
-        print("Press Ctrl+C to stop")
-        print()
-        
-        try:
-            while True:
-                self.print_dashboard()
-                time.sleep(interval)
-        except KeyboardInterrupt:
-            print("\nMonitoring stopped.")
-
-# Run the monitor
-monitor = OCPPBrokerMonitor()
-monitor.print_dashboard()
-
-# Uncomment to run continuous monitoring
-# monitor.monitor_continuous(30)
-```
-
-### **Example 2: Automated Testing**
-
-```python
-# automated_testing.py
-import requests
-import json
-import time
-import asyncio
-import websockets
-import uuid
-from datetime import datetime
-
-class OCPPBrokerTester:
-    def __init__(self, base_url="http://localhost:8765"):
-        self.base_url = base_url
-        self.test_results = []
-    
-    def test_health_endpoint(self):
-        """Test health endpoint"""
-        try:
-            response = requests.get(f"{self.base_url}/health")
-            assert response.status_code == 200
-            assert response.json()["status"] == "ok"
-            self.test_results.append(("Health Endpoint", "PASS"))
-            return True
-        except Exception as e:
-            self.test_results.append(("Health Endpoint", f"FAIL: {e}"))
-            return False
-    
-    def test_organizations_endpoint(self):
-        """Test organizations endpoint"""
-        try:
-            response = requests.get(f"{self.base_url}/api/organizations")
-            assert response.status_code == 200
-            organizations = response.json()
-            assert isinstance(organizations, list)
-            self.test_results.append(("Organizations Endpoint", "PASS"))
-            return True
-        except Exception as e:
-            self.test_results.append(("Organizations Endpoint", f"FAIL: {e}"))
-            return False
-    
-    def test_chargers_endpoint(self):
-        """Test chargers endpoint"""
-        try:
-            response = requests.get(f"{self.base_url}/api/chargers")
-            assert response.status_code == 200
-            chargers = response.json()
-            assert isinstance(chargers, list)
-            self.test_results.append(("Chargers Endpoint", "PASS"))
-            return True
-        except Exception as e:
-            self.test_results.append(("Chargers Endpoint", f"FAIL: {e}"))
-            return False
-    
-    def test_metrics_endpoint(self):
-        """Test metrics endpoint"""
-        try:
-            response = requests.get(f"{self.base_url}/api/metrics")
-            assert response.status_code == 200
-            metrics = response.json()
-            assert "system" in metrics
-            self.test_results.append(("Metrics Endpoint", "PASS"))
-            return True
-        except Exception as e:
-            self.test_results.append(("Metrics Endpoint", f"FAIL: {e}"))
-            return False
-    
-    async def test_websocket_connection(self):
-        """Test WebSocket connection"""
-        try:
-            uri = "ws://localhost:8765/MyChargingStation/TEST_001"
-            async with websockets.connect(uri, subprotocols=["ocpp1.6"]) as ws:
-                # Send BootNotification
-                boot_msg = [2, str(uuid.uuid4()), "BootNotification", {
-                    "chargePointVendor": "TestVendor",
-                    "chargePointModel": "TestModel"
-                }]
-                
-                await ws.send(json.dumps(boot_msg))
-                response = await ws.recv()
-                
-                data = json.loads(response)
-                assert data[0] == 3  # CallResult
-                self.test_results.append(("WebSocket Connection", "PASS"))
-                return True
-        except Exception as e:
-            self.test_results.append(("WebSocket Connection", f"FAIL: {e}"))
-            return False
-    
-    def test_configuration_reload(self):
-        """Test configuration reload"""
-        try:
-            response = requests.post(f"{self.base_url}/api/config/reload")
-            assert response.status_code == 200
-            result = response.json()
-            assert result["status"] == "success"
-            self.test_results.append(("Configuration Reload", "PASS"))
-            return True
-        except Exception as e:
-            self.test_results.append(("Configuration Reload", f"FAIL: {e}"))
-            return False
-    
-    def run_all_tests(self):
-        """Run all tests"""
-        print("Running OCPP Broker Tests...")
-        print("=" * 50)
-        
-        # REST API tests
-        self.test_health_endpoint()
-        self.test_organizations_endpoint()
-        self.test_chargers_endpoint()
-        self.test_metrics_endpoint()
-        self.test_configuration_reload()
-        
-        # WebSocket test
-        asyncio.run(self.test_websocket_connection())
-        
-        # Print results
-        print("\nTest Results:")
-        print("-" * 50)
-        for test_name, result in self.test_results:
-            print(f"{test_name}: {result}")
-        
-        # Summary
-        passed = sum(1 for _, result in self.test_results if result == "PASS")
-        total = len(self.test_results)
-        print(f"\nSummary: {passed}/{total} tests passed")
-        
-        return passed == total
-
-# Run the tests
-tester = OCPPBrokerTester()
-tester.run_all_tests()
-```
-
-## 🔧 Integration Examples
-
-### **Example 1: Database Integration**
-
-```python
-# database_integration.py
-import asyncio
-import websockets
-import json
-import uuid
-import sqlite3
-from datetime import datetime
-
-class DatabaseIntegration:
-    def __init__(self, db_path="ocpp_broker.db"):
-        self.db_path = db_path
-        self.init_database()
-    
-    def init_database(self):
-        """Initialize database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Create tables
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS chargers (
-                id TEXT PRIMARY KEY,
-                organization TEXT,
-                status TEXT,
-                last_seen TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                charger_id TEXT,
-                message_type TEXT,
-                action TEXT,
-                payload TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (charger_id) REFERENCES chargers (id)
-            )
-        """)
-        
-        conn.commit()
-        conn.close()
-    
-    def log_message(self, charger_id, message_type, action, payload):
-        """Log message to database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT INTO messages (charger_id, message_type, action, payload)
-            VALUES (?, ?, ?, ?)
-        """, (charger_id, message_type, action, json.dumps(payload)))
-        
-        conn.commit()
-        conn.close()
-    
-    def update_charger_status(self, charger_id, status):
-        """Update charger status"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT OR REPLACE INTO chargers (id, status, last_seen)
-            VALUES (?, ?, ?)
-        """, (charger_id, status, datetime.now().isoformat()))
-        
-        conn.commit()
-        conn.close()
-    
-    async def simulate_charger_with_db(self, charger_id):
-        """Simulate charger with database logging"""
-        uri = f"ws://localhost:8765/MyChargingStation/{charger_id}"
-        
-        try:
-            async with websockets.connect(uri, subprotocols=["ocpp1.6"]) as ws:
-                print(f"✅ {charger_id} connected")
-                self.update_charger_status(charger_id, "connected")
-                
-                # Send BootNotification
-                boot_msg = [2, str(uuid.uuid4()), "BootNotification", {
-                    "chargePointVendor": "TestVendor",
-                    "chargePointModel": "TestModel"
-                }]
-                
-                await ws.send(json.dumps(boot_msg))
-                self.log_message(charger_id, "Call", "BootNotification", boot_msg[3])
-                
-                response = await ws.recv()
-                response_data = json.loads(response)
-                self.log_message(charger_id, "CallResult", "BootNotification", response_data[2])
-                
-                # Send Heartbeat
-                heartbeat_msg = [2, str(uuid.uuid4()), "Heartbeat", {}]
-                await ws.send(json.dumps(heartbeat_msg))
-                self.log_message(charger_id, "Call", "Heartbeat", heartbeat_msg[3])
-                
-                response = await ws.recv()
-                response_data = json.loads(response)
-                self.log_message(charger_id, "CallResult", "Heartbeat", response_data[2])
-                
-                print(f"📊 {charger_id} messages logged to database")
-                
-        except Exception as e:
-            print(f"❌ {charger_id} error: {e}")
-            self.update_charger_status(charger_id, "disconnected")
-    
-    def get_charger_history(self, charger_id):
-        """Get charger message history"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT message_type, action, payload, timestamp
-            FROM messages
-            WHERE charger_id = ?
-            ORDER BY timestamp DESC
-            LIMIT 10
-        """, (charger_id,))
-        
-        results = cursor.fetchall()
-        conn.close()
-        
-        return results
-
-# Run the database integration
-db = DatabaseIntegration()
-asyncio.run(db.simulate_charger_with_db("DB_CHARGER_001"))
-
-# Get charger history
-history = db.get_charger_history("DB_CHARGER_001")
-print("Charger History:")
-for record in history:
-    print(f"  {record[0]} {record[1]}: {record[2]} at {record[3]}")
-```
-
-### **Example 2: Message Queue Integration**
-
-```python
-# message_queue_integration.py
-import asyncio
-import websockets
-import json
-import uuid
-import pika
-from datetime import datetime
-
-class MessageQueueIntegration:
-    def __init__(self, rabbitmq_url="amqp://localhost"):
-        self.rabbitmq_url = rabbitmq_url
-        self.connection = None
-        self.channel = None
-        self.setup_rabbitmq()
-    
-    def setup_rabbitmq(self):
-        """Setup RabbitMQ connection"""
-        try:
-            self.connection = pika.BlockingConnection(
-                pika.URLParameters(self.rabbitmq_url)
-            )
-            self.channel = self.connection.channel()
-            
-            # Declare queues
-            self.channel.queue_declare(queue='ocpp_messages')
-            self.channel.queue_declare(queue='ocpp_responses')
-            
-            print("✅ RabbitMQ connection established")
-        except Exception as e:
-            print(f"❌ RabbitMQ connection failed: {e}")
-    
-    def publish_message(self, queue, message):
-        """Publish message to queue"""
-        try:
-            self.channel.basic_publish(
-                exchange='',
-                routing_key=queue,
-                body=json.dumps(message)
-            )
-            print(f"📤 Message published to {queue}")
-        except Exception as e:
-            print(f"❌ Failed to publish message: {e}")
-    
-    def consume_messages(self, queue, callback):
-        """Consume messages from queue"""
-        try:
-            self.channel.basic_consume(
-                queue=queue,
-                on_message_callback=callback,
-                auto_ack=True
-            )
-            print(f"📥 Consuming messages from {queue}")
-            self.channel.start_consuming()
-        except Exception as e:
-            print(f"❌ Failed to consume messages: {e}")
-    
-    async def simulate_charger_with_mq(self, charger_id):
-        """Simulate charger with message queue"""
-        uri = f"ws://localhost:8765/MyChargingStation/{charger_id}"
-        
-        try:
-            async with websockets.connect(uri, subprotocols=["ocpp1.6"]) as ws:
-                print(f"✅ {charger_id} connected")
-                
-                # Send BootNotification
-                boot_msg = [2, str(uuid.uuid4()), "BootNotification", {
-                    "chargePointVendor": "TestVendor",
-                    "chargePointModel": "TestModel"
-                }]
-                
-                await ws.send(json.dumps(boot_msg))
-                
-                # Publish to message queue
-                mq_message = {
-                    "charger_id": charger_id,
-                    "message_type": "Call",
-                    "action": "BootNotification",
-                    "payload": boot_msg[3],
-                    "timestamp": datetime.now().isoformat()
-                }
-                self.publish_message('ocpp_messages', mq_message)
-                
-                response = await ws.recv()
-                response_data = json.loads(response)
-                
-                # Publish response to queue
-                mq_response = {
-                    "charger_id": charger_id,
-                    "message_type": "CallResult",
-                    "action": "BootNotification",
-                    "payload": response_data[2],
-                    "timestamp": datetime.now().isoformat()
-                }
-                self.publish_message('ocpp_responses', mq_response)
-                
-                print(f"📊 {charger_id} messages published to queue")
-                
-        except Exception as e:
-            print(f"❌ {charger_id} error: {e}")
-    
-    def close(self):
-        """Close RabbitMQ connection"""
-        if self.connection:
-            self.connection.close()
-
-# Run the message queue integration
-mq = MessageQueueIntegration()
-asyncio.run(mq.simulate_charger_with_mq("MQ_CHARGER_001"))
-mq.close()
-```
-
-## 📚 Next Steps
-
-After exploring these advanced examples:
-
-1. **Learn About OCPP 1.6**: [OCPP 1.6 Features](../ocpp16-features.md)
-2. **Configure Production**: [Production Deployment](../deployment.md)
-3. **Explore API**: [API Reference](../api-reference.md)
-4. **Set Up Monitoring**: [Monitoring & Logging](../monitoring.md)
-
-## 🔗 Related Documentation
-
-- [Basic Examples](basic.md)
-- [OCPP 1.6 Features](../ocpp16-features.md)
-- [Broker-as-Backend Mode](../broker-as-backend.md)
-- [Production Deployment](../deployment.md)
-- [API Reference](../api-reference.md)
-
----
-
-*Last updated: October 2024*
+- [Basic examples](basic.md)
+- [Configuration](../configuration.md)
+- [Leader/follower relay](../leader-follower.md)
+- [Broker-as-backend mode](../broker_as_backend.md)
+- [API reference](../api-reference.md)
+- [Monitoring](../monitoring.md)

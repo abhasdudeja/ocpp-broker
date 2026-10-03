@@ -1,559 +1,118 @@
-# OCPP 1.6 Enhanced Features
-
-This document describes the comprehensive OCPP 1.6 support added to the OCPP Broker, including all profiles, commands, and advanced features.
-
-## Overview
-
-The OCPP Broker now supports the complete OCPP 1.6 specification with:
-
-- **Core Profile** (Mandatory) - All 19 core commands
-- **Smart Charging Profile** - Advanced charging management
-- **Firmware Management Profile** - Remote firmware updates
-- **Local Authorization List Profile** - Local authorization management
-- **Reservation Profile** - Charging station reservations
-- **Broker-as-Backend Mode** - Direct OCPP command processing
-
-## Architecture
-
-### Broker-as-Backend Mode
-
-The broker can now act as a backend when `connect_to_backend: false` is set in the configuration. This mode provides:
-
-- **Direct OCPP Processing**: No external backend connections needed
-- **Local Command Handling**: All OCPP commands processed locally
-- **Enhanced Performance**: Reduced latency and improved response times
-- **Simplified Deployment**: No external dependencies
-
-#### Configuration Example
-```yaml
-organizations:
-  - name: "LocalCharging"
-    connect_to_backend: false  # Broker acts as backend
-    backends: []  # No external backends needed
-    chargers:
-      - "CP_001"
-      - "CP_002"
-```
-
-### Enhanced Command Handling
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    OCPP 1.6 Broker                         │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
-│  │   Core Profile  │  │ Smart Charging │  │   Firmware   │ │
-│  │   - Authorize   │  │ - SetProfile   │  │ - UpdateFW   │ │
-│  │   - BootNotify │  │ - ClearProfile │  │ - GetDiag    │ │
-│  │   - Heartbeat  │  │ - GetSchedule  │  │              │ │
-│  │   - StatusNotify│  │ - TriggerMsg   │  │              │ │
-│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
-│  ┌─────────────────┐  ┌─────────────────┐                   │
-│  │ Local Auth List │  │   Reservation   │                   │
-│  │ - SendLocalList │  │ - ReserveNow    │                   │
-│  │ - GetLocalList  │  │ - CancelReserve │                   │
-│  └─────────────────┘  └─────────────────┘                   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Message Flow
-
-1. **Charger → Broker**: OCPP 1.6 message with validation
-2. **Broker → Handler**: Route to appropriate command handler
-3. **Handler → Processing**: Execute command-specific logic
-4. **Handler → Response**: Generate OCPP-compliant response
-5. **Broker → Charger**: Send response back to charger
-
-## Core Profile Commands
-
-### Authorization & Boot
-
-#### Authorize
-```json
-// Request
-[2, "12345", "Authorize", {"idTag": "ABCD1234"}]
-
-// Response
-[3, "12345", {"idTagInfo": {"status": "Accepted"}}]
-```
-
-#### BootNotification
-```json
-// Request
-[2, "12345", "BootNotification", {
-  "chargePointModel": "SingleSocketCharger",
-  "chargePointVendor": "VendorX",
-  "chargePointSerialNumber": "CP001",
-  "firmwareVersion": "1.0.0"
-}]
-
-// Response
-[3, "12345", {
-  "currentTime": "2023-01-01T12:00:00Z",
-  "interval": 300,
-  "status": "Accepted"
-}]
-```
-
-#### Heartbeat
-```json
-// Request
-[2, "12345", "Heartbeat", {}]
-
-// Response
-[3, "12345", {"currentTime": "2023-01-01T12:00:00Z"}]
-```
-
-### Status & Monitoring
-
-#### StatusNotification
-```json
-// Request
-[2, "12345", "StatusNotification", {
-  "connectorId": 1,
-  "errorCode": "NoError",
-  "status": "Available",
-  "timestamp": "2023-01-01T12:00:00Z"
-}]
-
-// Response
-[3, "12345", {}]
-```
-
-#### MeterValues
-```json
-// Request
-[2, "12345", "MeterValues", {
-  "connectorId": 1,
-  "transactionId": 12345,
-  "meterValue": [{
-    "timestamp": "2023-01-01T12:00:00Z",
-    "sampledValue": [{
-      "value": "100.5",
-      "context": "Sample.Periodic",
-      "format": "Raw",
-      "measurand": "Energy.Active.Import.Register",
-      "unit": "Wh"
-    }]
-  }]
-}]
-
-// Response
-[3, "12345", {}]
-```
-
-### Transaction Management
-
-#### StartTransaction
-```json
-// Request
-[2, "12345", "StartTransaction", {
-  "connectorId": 1,
-  "idTag": "ABCD1234",
-  "meterStart": 1000,
-  "timestamp": "2023-01-01T12:00:00Z"
-}]
-
-// Response
-[3, "12345", {
-  "transactionId": 12345,
-  "idTagInfo": {"status": "Accepted"}
-}]
-```
-
-#### StopTransaction
-```json
-// Request
-[2, "12345", "StopTransaction", {
-  "transactionId": 12345,
-  "timestamp": "2023-01-01T12:30:00Z",
-  "meterStop": 2000,
-  "reason": "EVDisconnected"
-}]
-
-// Response
-[3, "12345", {"idTagInfo": {"status": "Accepted"}}]
-```
-
-## Smart Charging Profile
-
-### Charging Profile Management
-
-#### SetChargingProfile
-```json
-// Request
-[2, "12345", "SetChargingProfile", {
-  "connectorId": 1,
-  "csChargingProfiles": {
-    "chargingProfileId": 1,
-    "stackLevel": 0,
-    "chargingProfilePurpose": "TxProfile",
-    "chargingProfileKind": "Absolute",
-    "chargingSchedule": {
-      "chargingRateUnit": "W",
-      "chargingSchedulePeriod": [{
-        "startPeriod": 0,
-        "limit": 10000
-      }]
-    }
-  }
-}]
-
-// Response
-[3, "12345", {"status": "Accepted"}]
-```
-
-#### ClearChargingProfile
-```json
-// Request
-[2, "12345", "ClearChargingProfile", {
-  "id": 1,
-  "connectorId": 1,
-  "chargingProfilePurpose": "TxProfile",
-  "stackLevel": 0
-}]
-
-// Response
-[3, "12345", {"status": "Accepted"}]
-```
-
-### Schedule Management
-
-#### GetCompositeSchedule
-```json
-// Request
-[2, "12345", "GetCompositeSchedule", {
-  "connectorId": 1,
-  "duration": 3600,
-  "chargingRateUnit": "W"
-}]
-
-// Response
-[3, "12345", {
-  "status": "Accepted",
-  "connectorId": 1,
-  "scheduleStart": "2023-01-01T12:00:00Z",
-  "chargingSchedule": {
-    "duration": 3600,
-    "chargingRateUnit": "W",
-    "chargingSchedulePeriod": [{
-      "startPeriod": 0,
-      "limit": 10000
-    }]
-  }
-}]
-```
-
-## Firmware Management Profile
-
-### Remote Firmware Updates
-
-#### UpdateFirmware
-```json
-// Request
-[2, "12345", "UpdateFirmware", {
-  "location": "https://example.com/firmware.bin",
-  "retrieveDate": "2023-01-01T12:00:00Z",
-  "retryInterval": 300,
-  "retryCount": 3
-}]
-
-// Response
-[3, "12345", {"status": "Accepted"}]
-```
-
-#### GetDiagnostics
-```json
-// Request
-[2, "12345", "GetDiagnostics", {
-  "location": "https://example.com/diagnostics",
-  "startTime": "2023-01-01T00:00:00Z",
-  "stopTime": "2023-01-01T23:59:59Z"
-}]
-
-// Response
-[3, "12345", {"status": "Accepted"}]
-```
-
-## Local Authorization List Profile
-
-### Authorization Management
-
-#### SendLocalList
-```json
-// Request
-[2, "12345", "SendLocalList", {
-  "listVersion": 1,
-  "updateType": "Full",
-  "localAuthorizationList": [{
-    "idTag": "ABCD1234",
-    "idTagInfo": {
-      "status": "Accepted",
-      "expiryDate": "2023-12-31T23:59:59Z"
-    }
-  }]
-}]
-
-// Response
-[3, "12345", {"status": "Accepted"}]
-```
-
-#### GetLocalListVersion
-```json
-// Request
-[2, "12345", "GetLocalListVersion", {}]
-
-// Response
-[3, "12345", {"listVersion": 1}]
-```
-
-## Reservation Profile
-
-### Charging Station Reservations
-
-#### ReserveNow
-```json
-// Request
-[2, "12345", "ReserveNow", {
-  "connectorId": 1,
-  "expiryDate": "2023-01-01T18:00:00Z",
-  "idTag": "ABCD1234",
-  "reservationId": 12345
-}]
-
-// Response
-[3, "12345", {"status": "Accepted"}]
-```
-
-#### CancelReservation
-```json
-// Request
-[2, "12345", "CancelReservation", {
-  "reservationId": 12345
-}]
-
-// Response
-[3, "12345", {"status": "Accepted"}]
-```
-
-## Configuration
-
-### Enhanced Configuration File
-
-```yaml
-broker:
-  host: 0.0.0.0
-  port: 8765
-  ocpp_version: "1.6"
-  enable_validation: true
-  enable_smart_charging: true
-  enable_firmware_management: true
-
-organizations:
-  - name: "EVFleetCorp"
-    connect_to_backend: true
-    ocpp_features:
-      - core_profile
-      - smart_charging
-      - firmware_management
-      - local_auth
-      - reservations
-    backends:
-      - id: "backend_primary"
-        url: "ws://ocpp-backend.evfleet.com/ocpp"
-        leader: true
-        supported_commands:
-          - "Authorize"
-          - "BootNotification"
-          - "SetChargingProfile"
-          - "UpdateFirmware"
-          # ... all supported commands
-```
-
-## API Enhancements
-
-### New REST Endpoints
-
-#### Get Supported Commands
+# OCPP 1.6 Support
+
+This page lists which OCPP 1.6J messages the broker handles, in which direction, and how to use them. Only OCPP 1.6 over JSON (`ocpp1.6`) is implemented.
+
+The OCPP protocol handling is done by the upstream [`ocpp`](https://github.com/mobilityhouse/ocpp) library (v16 `ChargePoint`): it parses frames, validates every request and response against the OCPP 1.6 JSON schemas and builds CALLERRORs. The broker supplies the business logic on top.
+
+## Who sends what
+
+OCPP has two directions, and the broker supports each differently:
+
+| Direction | Broker mode (`connect_to_backend: false`) | Relay mode (`connect_to_backend: true`) |
+|-----------|-------------------------------------------|------------------------------------------|
+| **Charger to central system** (requests the charger initiates) | The broker answers all ten of them itself | Forwarded to the leader backend unchanged; followers get a copy |
+| **Central system to charger** (commands) | Sent through the broker's REST API; the broker returns the charger's reply | The backend sends them over its own link and they reach the charger; you can also send them through the REST API |
+
+## Charger-initiated messages (broker mode)
+
+These are every message an OCPP 1.6 charger can initiate, and the broker answers all of them:
+
+| Message | Profile | Handling |
+|---------|---------|----------|
+| `BootNotification` | Core | Always `Accepted`; `interval` from `ocpp.commands.core.heartbeat_interval` (default 300) |
+| `Heartbeat` | Core | Returns the current time |
+| `StatusNotification` | Core | Logged and stored |
+| `MeterValues` | Core | Stored |
+| `Authorize` | Core | Answered from the organization's [tags](tag-management.md) |
+| `StartTransaction` | Core | Authorizes the tag, returns a `transactionId` |
+| `StopTransaction` | Core | Updates the stored transaction |
+| `DataTransfer` | Core | Applies the `data_transfer` rules ([Configuration](configuration.md#datatransfer)) |
+| `DiagnosticsStatusNotification` | Firmware Management | Acknowledged and stored |
+| `FirmwareStatusNotification` | Firmware Management | Acknowledged and stored |
+
+Details of each reply, with real exchanges, are in [Broker-as-Backend](broker_as_backend.md). Any other action a charger sends gets a CALLERROR: `NotImplemented` for a known OCPP 1.6 action, `NotSupported` for an unknown one, and `ProtocolError` (with a `cause`) when the payload breaks the schema.
+
+## Central-system commands
+
+Every OCPP 1.6 action a central system may send can be sent through the REST API (`POST /api/ocpp/organizations/{org}/chargers/{charger}/commands`). The broker supplies a typed route for each:
+
+| Profile | Actions with a typed route (`.../commands/{Action}`) |
+|---------|-------------------------------------------------------|
+| Core | `ChangeAvailability`, `ChangeConfiguration`, `ClearCache`, `DataTransfer`, `GetConfiguration`, `RemoteStartTransaction`, `RemoteStopTransaction`, `Reset`, `UnlockConnector` |
+| Firmware Management | `GetDiagnostics`, `UpdateFirmware` |
+| Local Authorization List | `GetLocalListVersion`, `SendLocalList` |
+| Reservation | `ReserveNow`, `CancelReservation` |
+| Smart Charging | `SetChargingProfile`, `ClearChargingProfile`, `GetCompositeSchedule` |
+| Remote Trigger | `TriggerMessage` |
+
+The generic `/commands` route takes `{"action": ..., "payload": {...}, "timeout": ...}` with the OCPP camelCase payload; the typed routes take snake_case fields. Body fields are listed in the [API Reference](api-reference.md#typed-commands).
+
+The call waits for the charger's answer and returns it in `response` (a CALLRESULT) or `error` (a CALLERROR), or HTTP `504` on timeout. In broker mode the request is validated against the schema first and a bad one is `422`; in relay mode it is sent as given.
+
+### Examples
+
+All are valid OCPP 1.6 payloads (checked against the schema). They use the generic route so the payload is the OCPP payload:
+
 ```bash
-GET /api/ocpp/commands
-```
-
-#### Get Commands by Profile
-```bash
-GET /api/ocpp/commands/core
-GET /api/ocpp/commands/smart_charging
-GET /api/ocpp/commands/firmware
-```
-
-#### Send OCPP Command
-```bash
-POST /api/ocpp/commands/{charger_id}
-{
-  "action": "RemoteStartTransaction",
-  "payload": {
-    "idTag": "ABCD1234",
-    "connectorId": 1
-  }
+export BROKER=http://localhost:8765
+send() {  # usage: send CHARGER ACTION 'PAYLOAD_JSON'
+  curl -s -X POST "$BROKER/api/ocpp/organizations/MyOrg/chargers/$1/commands" \
+    -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+    -d "{\"action\": \"$2\", \"payload\": $3, \"timeout\": 30}"
 }
+
+# Start charging remotely
+send CP001 RemoteStartTransaction '{"idTag": "ADMIN001", "connectorId": 1}'
+
+# Limit a connector to 16 A
+send CP001 SetChargingProfile '{"connectorId": 1, "csChargingProfiles": {
+  "chargingProfileId": 1, "stackLevel": 0, "chargingProfilePurpose": "TxDefaultProfile",
+  "chargingProfileKind": "Absolute",
+  "chargingSchedule": {"chargingRateUnit": "A", "chargingSchedulePeriod": [{"startPeriod": 0, "limit": 16}]}}}'
+
+# Push a local authorization list
+send CP001 SendLocalList '{"listVersion": 1, "updateType": "Full", "localAuthorizationList": [
+  {"idTag": "ADMIN001", "idTagInfo": {"status": "Accepted", "expiryDate": "2030-12-31T23:59:59Z"}}]}'
+
+# Reserve a connector
+send CP001 ReserveNow '{"connectorId": 1, "expiryDate": "2030-01-01T18:00:00Z", "idTag": "ADMIN001", "reservationId": 7}'
+
+# Ask the charger to resend its status
+send CP001 TriggerMessage '{"requestedMessage": "StatusNotification", "connectorId": 1}'
+
+# Firmware and diagnostics
+send CP001 UpdateFirmware '{"location": "https://example.com/fw.bin", "retrieveDate": "2030-01-01T12:00:00Z", "retryInterval": 300}'
+send CP001 GetDiagnostics '{"location": "ftp://example.com/diag", "startTime": "2026-01-01T00:00:00Z", "stopTime": "2026-01-02T00:00:00Z"}'
 ```
 
-#### Validate OCPP Message
-```bash
-POST /api/ocpp/validate
-{
-  "message": "[2, \"12345\", \"Authorize\", {\"idTag\": \"ABCD1234\"}]"
-}
+## What the broker does not do
+
+The broker moves and stores OCPP data; it does not implement charging policy:
+
+- **Smart charging:** profiles are only forwarded to chargers. The broker computes no schedules and keeps no profile state.
+- **Reservations:** `ReserveNow` / `CancelReservation` are forwarded. The broker does not track or enforce reservations (a `StartTransaction` against a reserved connector is not checked).
+- **Local authorization list:** the list you send is the list you build. It is not generated from the tag list automatically, and the broker does not track which version a charger holds.
+- **Firmware:** the broker does not host firmware or diagnostics files; `location` is whatever URL you supply.
+- **Transactions:** the broker issues ids and stores start/stop records. It does not keep a table of open transactions, enforce one transaction per connector, or compute energy.
+- **Other OCPP versions:** OCPP 2.0.1 is not implemented. The `ocpp_subprotocol` setting only controls which WebSocket subprotocol is negotiated; relay mode will carry other versions' frames as opaque text, but nothing else about them is supported or tested.
+
+## Error responses a charger can receive
+
+| Code | When |
+|------|------|
+| `NotImplemented` | The action is valid OCPP 1.6 but not something a central system receives (for example `ReserveNow`) |
+| `NotSupported` | The action is not an OCPP 1.6 action |
+| `ProtocolError` | The payload is missing a required property (the `cause` names it) |
+| `InternalError` | Relay mode: the backend could not take the request (`Backend unavailable, please retry`); or an unexpected error in a handler |
+
+```
+[4,"17","ProtocolError","Payload for Action is incomplete",{"cause":"'chargePointModel' is a required property"}]
+[4,"18","NotImplemented","Request Action is recognized but not supported by the receiver",{"cause":"No handler for ReserveNow registered."}]
 ```
 
-## Error Handling
+## Related documentation
 
-### OCPP Error Codes
-
-- `NotImplemented` - Command not implemented
-- `NotSupported` - Command not supported
-- `InternalError` - Internal server error
-- `ProtocolError` - Protocol violation
-- `SecurityError` - Security violation
-- `FormationViolation` - Message format error
-- `PropertyConstraintViolation` - Property constraint error
-- `OccurenceConstraintViolation` - Occurrence constraint error
-- `TypeConstraintViolation` - Type constraint error
-- `GenericError` - Generic error
-
-### Error Response Format
-
-```json
-[4, "12345", "FormationViolation", "Required field 'idTag' missing", {}]
-```
-
-## Testing
-
-### Running Tests
-
-```bash
-# Run all OCPP tests
-pytest tests/test_ocpp_commands.py -v
-
-# Run specific test categories
-pytest tests/test_ocpp_commands.py::TestOCPPCommandHandlers -v
-pytest tests/test_ocpp_commands.py::TestOCPPValidation -v
-pytest tests/test_ocpp_commands.py::TestOCPPCommandRouter -v
-```
-
-### Test Coverage
-
-- ✅ Core Profile commands (19/19)
-- ✅ Smart Charging Profile commands (5/5)
-- ✅ Firmware Management Profile commands (2/2)
-- ✅ Local Authorization List Profile commands (2/2)
-- ✅ Reservation Profile commands (2/2)
-- ✅ Message validation
-- ✅ Error handling
-- ✅ Integration tests
-
-## Performance
-
-### Benchmarks
-
-- **Message Processing**: < 1ms per command
-- **Validation**: < 0.5ms per message
-- **Concurrent Connections**: 1000+ chargers
-- **Memory Usage**: < 50MB for 100 chargers
-
-### Optimization Features
-
-- Async command processing
-- Message validation caching
-- Connection pooling
-- Efficient JSON parsing
-- Minimal memory footprint
-
-## Migration Guide
-
-### From Legacy to OCPP 1.6
-
-1. **Update Configuration**
-   ```yaml
-   # Add OCPP 1.6 settings
-   ocpp_version: "1.6"
-   enable_validation: true
-   ```
-
-2. **Enable Enhanced Router**
-   ```python
-   broker.enable_ocpp_router(True)
-   ```
-
-3. **Update Command Handling**
-   ```python
-   # Old way
-   await broker.command_router.route_backend_message(backend, msg)
-   
-   # New way
-   await broker.ocpp_router.route_charger_message(charger_id, msg)
-   ```
-
-4. **Add Validation**
-   ```python
-   result = await broker.validate_ocpp_message(message)
-   if not result.valid:
-       # Handle validation errors
-   ```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Validation Errors**
-   - Check message format
-   - Verify required fields
-   - Validate data types
-
-2. **Command Not Found**
-   - Ensure command is registered
-   - Check profile configuration
-   - Verify handler implementation
-
-3. **Performance Issues**
-   - Monitor memory usage
-   - Check connection limits
-   - Optimize validation rules
-
-### Debug Mode
-
-```yaml
-logging:
-  level: "DEBUG"
-  ocpp_commands: true
-  ocpp_validation: true
-  ocpp_errors: true
-```
-
-## Future Enhancements
-
-### Planned Features
-
-- OCPP 2.0.1 support
-- Advanced smart charging algorithms
-- Machine learning integration
-- Enhanced security features
-- Real-time analytics
-- Multi-tenant support
-
-### Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit pull request
-
-## Support
-
-For questions and support:
-
-- **Documentation**: [docs/](docs/)
-- **Issues**: [GitHub Issues](https://github.com/your-repo/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-repo/discussions)
-- **Email**: support@your-domain.com
+- [Broker-as-Backend Mode](broker_as_backend.md)
+- [API Reference](api-reference.md)
+- [Tag Management](tag-management.md)
+- [Configuration Guide](configuration.md)

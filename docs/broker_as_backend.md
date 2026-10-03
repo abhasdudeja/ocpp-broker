@@ -1,303 +1,131 @@
-# Broker-as-Backend Feature
+# Broker-as-Backend Mode
 
-## 🎯 Overview
+In broker mode the broker is the central system: chargers connect to it and it answers them itself, with no external backend. An organization is in broker mode when `connect_to_backend: false`.
 
-The OCPP broker now supports acting as a backend when `connect_to_backend` is set to `false` in the configuration. This feature allows the broker to handle OCPP commands directly without forwarding them to external backends.
-
-## 🔧 How It Works
-
-### **Traditional Mode** (`connect_to_backend: true`)
 ```
-Charger ←→ Broker ←→ External Backend
+Charger <--- WebSocket ---> Broker (central system)
 ```
-- Broker acts as a relay between chargers and external backends
-- Messages are forwarded to/from external OCPP backends
-- Leader-follower logic applies to external backends
 
-### **Broker-as-Backend Mode** (`connect_to_backend: false`)
-```
-Charger ←→ Broker (acting as backend)
-```
-- Broker processes OCPP commands directly
-- No external backend connections needed
-- Full OCPP 1.6 command support with local processing
+Compare relay mode (`connect_to_backend: true`), where the broker forwards frames to your own backends; see [Leader/Follower](leader-follower.md).
 
-## 📋 Configuration
+## Configuration
 
-### **Basic Configuration**
 ```yaml
 organizations:
   - name: "LocalCharging"
-    connect_to_backend: false  # 🎯 Broker acts as backend
-    backends: []  # No external backends needed
-    chargers:
-      - "CP_001"
-      - "CP_002"
+    connect_to_backend: false      # required: the default is true (relay mode)
+    ocpp_subprotocol: "ocpp1.6"    # optional, this is the default
+    tags:                          # who may charge
+      - id_tag: "ADMIN001"
+        status: "Accepted"
+    charger_auth:                  # optional HTTP Basic credentials per charger
+      credentials:
+        CP001: {password_hash: "pbkdf2_sha256$200000$<salt>$<hash>"}
+
+ocpp:
+  commands:
+    core:
+      heartbeat_interval: 300      # seconds, sent in the BootNotification reply
 ```
 
-### **Enhanced Configuration**
-```yaml
-organizations:
-  - name: "SmartCharging"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-      - firmware_management
-    backends: []
-    chargers:
-      - "SMART_001"
-      - "SMART_002"
+Chargers connect to `ws://HOST:8765/LocalCharging/{charger id}`. Details of every setting are in the [Configuration Guide](configuration.md).
+
+## What the broker handles
+
+The broker implements every message an OCPP 1.6 charger can initiate. Each request is validated against the OCPP 1.6 schema by the `ocpp` library before the broker looks at it; a request that does not fit the schema is answered with a CALLERROR.
+
+| Charger sends | Broker does | Reply |
+|---------------|-------------|-------|
+| `BootNotification` | Records the charger in MongoDB (`charger_configurations`) when enabled | Always `Accepted`, with `currentTime` and `interval` = `ocpp.commands.core.heartbeat_interval` (default 300) |
+| `Heartbeat` | Stores the latest heartbeat time in MongoDB (heartbeats are not kept individually) | `currentTime` |
+| `StatusNotification` | Stores it in MongoDB (`charger_statuses`, and the latest per connector in `charger_statuses_latest`) | empty |
+| `Authorize` | Looks the tag up in the organization's tags (see below) | `idTagInfo` |
+| `StartTransaction` | Authorizes the tag, allocates a transaction id, stores the transaction | `transactionId` and `idTagInfo` |
+| `StopTransaction` | Authorizes the tag if one is given, updates the stored transaction | `idTagInfo` |
+| `MeterValues` | Stores the readings in MongoDB (`meter_values`) | empty |
+| `DataTransfer` | Applies the `data_transfer` rules ([Configuration](configuration.md#datatransfer)) | `status` and optional `data` |
+| `DiagnosticsStatusNotification` | Logs it and stores the raw message | empty |
+| `FirmwareStatusNotification` | Logs it and stores the raw message | empty |
+
+MongoDB writes happen only when MongoDB is enabled. Without it the broker still answers every message, but nothing is persisted.
+
+Anything else a charger sends is answered with a CALLERROR: `NotImplemented` for a known OCPP 1.6 action (for example `ReserveNow`, which only the central system may send) and `NotSupported` for an unknown action. A payload that violates the schema gets a CALLERROR (for example `ProtocolError` for a missing required field) whose `cause` says why.
+
+### Authorization
+
+`Authorize`, `StartTransaction` and `StopTransaction` use the organization's tags ([Tag Management](tag-management.md)):
+
+| Tag | `idTagInfo.status` |
+|-----|--------------------|
+| not in the tag list | `Invalid` |
+| listed, `expiry_date` in the past (or not a readable date) | `Expired` |
+| listed | the tag's own status (`Accepted`, `Blocked`, `Expired`, `Invalid`, `ConcurrentTx`) |
+
+`parentIdTag` and `expiryDate` are returned when the tag has them.
+
+### Transactions
+
+- `StartTransaction` **always** gets a `transactionId`, even when the tag is not accepted. `idTagInfo.status` tells the charger whether to continue; per OCPP a charger must stop the transaction if it is not `Accepted`.
+- Transaction ids come from a per-organization counter in MongoDB (first id is 1, atomic, survives restarts). Without MongoDB the broker falls back to an in-memory counter seeded from the clock and logs a `TRANSACTION IDS ... ARE NOT DURABLE` warning once per organization. Those ids are only unique within the process and may collide with ids from before a restart.
+- The broker does not keep a table of open transactions and does not check that a `StopTransaction` refers to a transaction it started. A `StopTransaction` without an `idTag` is answered `idTagInfo: Invalid`.
+- Reservations, smart-charging profiles and local-list contents are not tracked by the broker. They are sent to chargers on request (below).
+
+## Commands from the broker to chargers
+
+The central system initiates these through the [REST API](api-reference.md#ocpp-commands-apiocpp). The broker sends the request through the `ocpp` library, validates it against the OCPP 1.6 schema (`422` if invalid), waits for the charger and returns the charger's reply:
+
+```bash
+curl -X POST http://localhost:8765/api/ocpp/organizations/LocalCharging/chargers/CP001/commands/ChangeAvailability \
+  -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"connector_id": 1, "type": "Inoperative"}'
 ```
 
-## 🚀 Features
+Typed routes exist for `CancelReservation`, `ChangeAvailability`, `ChangeConfiguration`, `ClearCache`, `ClearChargingProfile`, `DataTransfer`, `GetCompositeSchedule`, `GetConfiguration`, `GetDiagnostics`, `GetLocalListVersion`, `RemoteStartTransaction`, `RemoteStopTransaction`, `ReserveNow`, `Reset`, `SendLocalList`, `SetChargingProfile`, `TriggerMessage`, `UnlockConnector` and `UpdateFirmware`. The generic `/commands` route accepts any OCPP 1.6 central-system action.
 
-### **OCPP 1.6 Command Support**
-When acting as backend, the broker supports all OCPP 1.6 commands:
+## Example exchange
 
-#### **Core Profile Commands**
-- ✅ `Authorize` - Authorization management
-- ✅ `BootNotification` - Charger registration
-- ✅ `Heartbeat` - Connection monitoring
-- ✅ `StatusNotification` - Status updates
-- ✅ `MeterValues` - Energy measurements
-- ✅ `StartTransaction` - Transaction initiation
-- ✅ `StopTransaction` - Transaction completion
-- ✅ `ChangeAvailability` - Availability control
-- ✅ `ChangeConfiguration` - Configuration management
-- ✅ `ClearCache` - Cache management
-- ✅ `DataTransfer` - Custom data exchange
-- ✅ `GetConfiguration` - Configuration retrieval
-- ✅ `RemoteStartTransaction` - Remote start
-- ✅ `RemoteStopTransaction` - Remote stop
-- ✅ `Reset` - Charger reset
-- ✅ `SendLocalList` - Authorization list management
-- ✅ `SetChargingProfile` - Charging profile management
-- ✅ `UnlockConnector` - Connector unlocking
-- ✅ `UpdateFirmware` - Firmware updates
+```
+> [2,"1","BootNotification",{"chargePointVendor":"Acme","chargePointModel":"X1"}]
+< [3,"1",{"currentTime":"2026-10-03T06:26:03.605560+00:00","interval":300,"status":"Accepted"}]
 
-#### **Smart Charging Profile Commands**
-- ✅ `ClearChargingProfile` - Profile clearing
-- ✅ `GetCompositeSchedule` - Schedule retrieval
-- ✅ `SetChargingProfile` - Profile setting
-- ✅ `TriggerMessage` - Message triggering
+> [2,"4","Authorize",{"idTag":"ADMIN001"}]
+< [3,"4",{"idTagInfo":{"status":"Accepted","parentIdTag":"ROOT"}}]
 
-#### **Firmware Management Profile Commands**
-- ✅ `GetDiagnostics` - Diagnostics retrieval
-- ✅ `UpdateFirmware` - Firmware updates
+> [2,"6","Authorize",{"idTag":"NOBODY"}]
+< [3,"6",{"idTagInfo":{"status":"Invalid"}}]
 
-#### **Local Authorization List Profile Commands**
-- ✅ `GetLocalListVersion` - List version retrieval
-- ✅ `SendLocalList` - List management
+> [2,"7","StartTransaction",{"connectorId":1,"idTag":"NOBODY","meterStart":0,"timestamp":"2026-01-01T12:00:00Z"}]
+< [3,"7",{"transactionId":1791008765,"idTagInfo":{"status":"Invalid"}}]
 
-#### **Reservation Profile Commands**
-- ✅ `CancelReservation` - Reservation cancellation
-- ✅ `ReserveNow` - Reservation creation
+> [2,"15","DataTransfer",{"vendorId":"Other"}]
+< [3,"15",{"status":"UnknownVendorId"}]
 
-## 🔄 Message Flow
-
-### **Charger to Broker**
-1. Charger sends OCPP request
-2. Broker receives and validates message
-3. Broker processes command using OCPP 1.6 handlers
-4. Broker generates appropriate response
-5. Broker sends response back to charger
-
-### **Example Flow**
-```json
-// Charger sends BootNotification
-[2, "12345", "BootNotification", {
-  "chargePointModel": "TestModel",
-  "chargePointVendor": "TestVendor"
-}]
-
-// Broker responds
-[3, "12345", {
-  "currentTime": "2023-01-01T12:00:00Z",
-  "interval": 300,
-  "status": "Accepted"
-}]
+> [2,"18","ReserveNow",{"connectorId":1}]
+< [4,"18","NotImplemented","Request Action is recognized but not supported by the receiver",{"cause":"No handler for ReserveNow registered."}]
 ```
 
-## 🛠️ Implementation Details
+(The large `transactionId` is the clock-seeded fallback used when MongoDB is off.) `DataTransfer` with an unknown vendor was answered by a config with `data_transfer.known_vendors: ["ABB"]`.
 
-### **Enhanced Router Integration**
-```python
-# Broker uses OCPP 1.6 router when available
-if self._use_ocpp_router:
-    response = await self.ocpp_router.route_charger_message(charger_id, msg)
-    if response:
-        await charger_ws.send_text(response)
-```
+## Behaviour to know about
 
-### **Legacy Support**
-```python
-# Fallback to legacy processing
-else:
-    await self._process_legacy_message(charger_id, charger_ws, msg)
-```
+- **Session lifecycle:** one session per `(organization, charger id)`. If the same charger connects again the old connection is closed with code `4003` and replaced. The broker pings chargers every 20 s and drops a connection that does not answer within another 20 s.
+- **Persistence and restarts:** without MongoDB, tags added through the API and everything else in memory are lost on restart; only the tags in `config.yaml` come back. With MongoDB see [MongoDB Integration](mongodb-integration.md).
+- **Scale:** one process, with sessions held in memory. Running several broker instances needs a load balancer that keeps a charger on one instance, and tag changes must be re-synced (`POST /api/tags/sync`).
+- **Logging:** each handled request is logged at INFO (`BootNotification received (Acme / X1) ...`, `Authorize for ADMIN001 → Accepted`, ...). The log level is fixed at INFO.
 
-### **Command Processing**
-```python
-async def _handle_ocpp_action(self, charger_id: str, action: str, payload: dict):
-    """Handle OCPP actions when broker acts as backend"""
-    if action == "BootNotification":
-        return {
-            "currentTime": "2023-01-01T12:00:00Z",
-            "interval": 300,
-            "status": "Accepted"
-        }
-    # ... handle other actions
-```
+## Moving an organization to or from broker mode
 
-## 📊 Use Cases
+Switching is a configuration change and a restart:
 
-### **1. Development and Testing**
-- Local OCPP testing without external backends
-- Rapid prototyping of OCPP applications
-- Unit testing of OCPP implementations
+1. Set `connect_to_backend` to `false` (or `true` and add `backends`).
+2. Restart `ocpp-broker-server`; chargers reconnect on their own retry schedule.
 
-### **2. Standalone Charging Stations**
-- Direct charger management
-- Local authorization and control
-- Independent charging operations
+Moving to broker mode means the broker now owns authorization and transaction ids. Existing transactions that the old backend started are not known to the broker; ids restart from the MongoDB counter, so make sure they do not overlap with ids the chargers still hold.
 
-### **3. Edge Computing**
-- Local processing at charging sites
-- Reduced network dependencies
-- Faster response times
+## Related documentation
 
-### **4. Hybrid Deployments**
-- Some organizations use external backends
-- Others use broker-as-backend
-- Mixed deployment scenarios
-
-## 🔧 Configuration Examples
-
-### **Simple Local Charging**
-```yaml
-organizations:
-  - name: "LocalCharging"
-    connect_to_backend: false
-    chargers:
-      - "LOCAL_001"
-      - "LOCAL_002"
-```
-
-### **Smart Charging with Local Backend**
-```yaml
-organizations:
-  - name: "SmartLocal"
-    connect_to_backend: false
-    ocpp_features:
-      - core_profile
-      - smart_charging
-    chargers:
-      - "SMART_001"
-```
-
-### **Mixed Deployment**
-```yaml
-organizations:
-  - name: "ExternalBackend"
-    connect_to_backend: true
-    backends:
-      - id: "external"
-        url: "ws://backend.example.com"
-        leader: true
-    chargers:
-      - "EXT_001"
-      
-  - name: "LocalBackend"
-    connect_to_backend: false
-    chargers:
-      - "LOCAL_001"
-```
-
-## 🚀 Benefits
-
-### **1. Simplified Architecture**
-- No external backend dependencies
-- Reduced infrastructure requirements
-- Easier deployment and maintenance
-
-### **2. Enhanced Performance**
-- Local processing reduces latency
-- No network overhead for backend communication
-- Faster response times
-
-### **3. Cost Efficiency**
-- No external backend licensing costs
-- Reduced infrastructure requirements
-- Lower operational costs
-
-### **4. Flexibility**
-- Easy switching between modes
-- Hybrid deployments supported
-- Gradual migration paths
-
-## 🔍 Monitoring and Logging
-
-### **Enhanced Logging**
-```
-🎯 Broker acting as backend for charger CP_001 (org: LocalCharging)
-[CP_001] ← Received: [2, "12345", "BootNotification", {...}]
-[CP_001] → Sent response: [3, "12345", {...}]
-```
-
-### **Command Processing Logs**
-```
-[CP_001] → BootNotification → backend
-[CP_001] ← OCPP response sent
-```
-
-## 🛡️ Security Considerations
-
-### **Local Authorization**
-- Authorization lists managed locally
-- No external authorization dependencies
-- Secure local credential management
-
-### **Data Privacy**
-- All data processed locally
-- No external data transmission
-- Enhanced privacy protection
-
-## 🔄 Migration Path
-
-### **From External Backend to Broker-as-Backend**
-1. Update configuration: `connect_to_backend: false`
-2. Remove external backend configurations
-3. Restart broker
-4. Verify charger connections
-
-### **Gradual Migration**
-1. Start with test chargers
-2. Verify functionality
-3. Gradually migrate more chargers
-4. Monitor performance and stability
-
-## 📈 Performance
-
-### **Expected Improvements**
-- **Latency**: 50-80% reduction
-- **Throughput**: 2-3x increase
-- **Resource Usage**: 30-40% reduction
-- **Reliability**: 99.9% uptime
-
-### **Scalability**
-- Supports 1000+ concurrent chargers
-- Efficient memory usage
-- Optimized message processing
-
-## 🎯 Conclusion
-
-The broker-as-backend feature provides a powerful alternative to traditional OCPP deployments, offering:
-
-- **Complete OCPP 1.6 Support** with local processing
-- **Enhanced Performance** with reduced latency
-- **Simplified Architecture** without external dependencies
-- **Cost Efficiency** with reduced infrastructure requirements
-- **Flexibility** for various deployment scenarios
-
-This feature makes the OCPP broker a complete solution for both traditional relay deployments and modern standalone charging management.
+- [Configuration Guide](configuration.md)
+- [API Reference](api-reference.md)
+- [Tag Management](tag-management.md)
+- [MongoDB Integration](mongodb-integration.md)
+- [Architecture](architecture.md)

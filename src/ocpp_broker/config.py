@@ -112,7 +112,7 @@ def _get_default_config():
             "tag_management": True
         },
         "security": {
-            "websocket": {"ping_interval": 20},
+            "websocket": {"ping_interval": 20, "ping_timeout": 20},
             "ocpp": {"validate_message_ids": True},
             "tags": {"audit_tag_changes": True}
         }
@@ -167,7 +167,9 @@ def _apply_defaults(cfg):
 
     # Security defaults
     cfg.setdefault("security", {})
-    cfg["security"].setdefault("websocket", {"ping_interval": 20})
+    cfg["security"].setdefault("websocket", {})
+    cfg["security"]["websocket"].setdefault("ping_interval", 20)
+    cfg["security"]["websocket"].setdefault("ping_timeout", 20)
     cfg["security"].setdefault("ocpp", {"validate_message_ids": True})
     cfg["security"].setdefault("tags", {"audit_tag_changes": True})
 

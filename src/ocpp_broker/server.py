@@ -193,6 +193,30 @@ def load_broker_config(config_path: str | None) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Server configuration
+# ---------------------------------------------------------------------------
+def build_uvicorn_config(application: FastAPI, cfg: dict) -> uvicorn.Config:
+    """
+    Build the uvicorn config from the broker configuration.
+
+    ``security.websocket.ping_interval`` / ``ping_timeout`` (seconds, default 20
+    each) drive the WebSocket keepalive on charger sockets: the server pings
+    every interval and closes a socket that does not answer within the timeout,
+    so half-open "zombie" connections are cleaned up instead of lingering.
+    """
+    broker_cfg = cfg.get("broker", {})
+    ws_cfg = cfg.get("security", {}).get("websocket", {})
+    return uvicorn.Config(
+        application,
+        host=broker_cfg.get("host", "0.0.0.0"),
+        port=broker_cfg.get("port", 8765),
+        log_level="info",
+        loop="asyncio",
+        ws_ping_interval=ws_cfg.get("ping_interval", 20),
+        ws_ping_timeout=ws_cfg.get("ping_timeout", 20),
+    )
+
+# ---------------------------------------------------------------------------
 # Main async runner
 # ---------------------------------------------------------------------------
 async def main_async(cfg: dict):
@@ -200,11 +224,7 @@ async def main_async(cfg: dict):
     await broker.load_config()
     logger.info("OCPP Broker ready — waiting for chargers...")
 
-    host = cfg.get("broker", {}).get("host", "0.0.0.0")
-    port = cfg.get("broker", {}).get("port", 8765)
-
-    config = uvicorn.Config(app, host=host, port=port, log_level="info", loop="asyncio")
-    server = uvicorn.Server(config)
+    server = uvicorn.Server(build_uvicorn_config(app, cfg))
     await server.serve()
 
 

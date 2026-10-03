@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
+from starlette.websockets import WebSocketDisconnect
+
 from .backend_manager import DEFAULT_MAX_BUFFERED, DEFAULT_OUTAGE_TIMEOUT, BackendConnection
 from .middleware import process_charger_to_backend
 from .sockets import locked_send
@@ -462,6 +464,8 @@ class ChargerSession:
         adapter._charge_point = self.charge_point
         try:
             await self.charge_point.start()
+        except WebSocketDisconnect:
+            logger.info("Charger %s disconnected", self.charger_id)
         except Exception as exc:
             logger.exception("ChargePoint %s terminated with error: %s", self.charger_id, exc)
 

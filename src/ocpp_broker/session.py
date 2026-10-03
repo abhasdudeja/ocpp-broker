@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from .backend_manager import BackendConnection
+from .backend_manager import DEFAULT_MAX_BUFFERED, DEFAULT_OUTAGE_TIMEOUT, BackendConnection
 from .middleware import process_charger_to_backend
 from .sockets import locked_send
 from .charge_point import BrokerChargePoint, StarletteWebSocketAdapter
@@ -310,10 +310,14 @@ class ChargerSession:
             org=self.org_name,
             is_leader=True,
             subprotocol=leader_subprotocol,
+            max_buffered=self.org_entry.get("backend_buffer_size", DEFAULT_MAX_BUFFERED),
+            outage_timeout=self.org_entry.get("backend_outage_timeout", DEFAULT_OUTAGE_TIMEOUT),
+            on_undeliverable=self._reject_charger_call,
         )
         logger.info("🔗 Establishing leader backend for charger %s -> %s (subprotocol: %s)", 
                    self.charger_id, leader_config["url"], leader_subprotocol)
-        await self.backend_conn.connect()
+        # Do not block the charger on the backend: frames buffer until it is reachable.
+        await self.backend_conn.connect(wait=False)
         self.broker.org_backends.setdefault(self.org_name, {}).setdefault(self.charger_id, {})["leader"] = self.backend_conn
 
         # Follower connections
@@ -327,13 +331,30 @@ class ChargerSession:
                 org=self.org_name,
                 is_leader=False,
                 subprotocol=follower_subprotocol,
+                max_buffered=0,  # followers are best-effort; never block on them
             )
             self.follower_conns.append(follower_conn)
             logger.info("🔗 Establishing follower backend for charger %s -> %s (subprotocol: %s)", 
                        self.charger_id, follower_cfg["url"], follower_subprotocol)
-            await follower_conn.connect()
+            await follower_conn.connect(wait=False)
         self.broker.org_backends[self.org_name][self.charger_id]["followers"] = self.follower_conns
 
+    async def _reject_charger_call(self, message: str):
+        """
+        The backend could not take a frame from the charger (outage or full
+        outbox). Answer a CALL with a CALLERROR so the charger is not left
+        waiting; anything else (e.g. a CALLRESULT) is simply dropped.
+        """
+        try:
+            parsed = json.loads(message)
+        except ValueError:
+            return
+        if isinstance(parsed, list) and len(parsed) >= 2 and parsed[0] == 2:
+            error = [4, parsed[1], "InternalError", "Backend unavailable, please retry", {}]
+            logger.warning("[%s] answering %s with CallError: backend unavailable", self.charger_id, parsed[2] if len(parsed) > 2 else "CALL")
+            await self.send_to_charger(json.dumps(error))
+        else:
+            logger.warning("[%s] dropped an undeliverable frame: %s", self.charger_id, message[:200])
     async def _run_local_charge_point(self):
         logger.info(
             "🎯 Broker acting as backend for charger %s (org: %s)", self.charger_id, self.org_name
@@ -357,16 +378,6 @@ class ChargerSession:
         if not self.backend_conn:
             logger.warning("⚠️ No backend connection for charger %s", self.charger_id)
             return
-
-        # Ensure backend connection is ready before starting relay
-        if not self.backend_conn.connected_event.is_set():
-            logger.info("⏳ Waiting for backend connection to be ready for charger %s...", self.charger_id)
-            try:
-                await asyncio.wait_for(self.backend_conn.connected_event.wait(), timeout=30.0)
-                logger.info("✅ Backend connection ready for charger %s", self.charger_id)
-            except asyncio.TimeoutError:
-                logger.error("❌ Timeout waiting for backend connection for charger %s", self.charger_id)
-                return
 
         logger.info("🚀 Relay active for charger %s", self.charger_id)
         

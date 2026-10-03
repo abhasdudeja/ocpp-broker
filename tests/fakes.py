@@ -3,6 +3,7 @@
 import asyncio
 import json
 
+import websockets
 from starlette.websockets import WebSocketDisconnect
 
 
@@ -39,3 +40,60 @@ class FakeCharger:
                 return json.loads(self.sent.pop(0))
             await asyncio.sleep(0.01)
         raise AssertionError("no reply from broker")
+
+class FakeBackend:
+    """A real websockets server standing in for the central system."""
+
+    def __init__(self, subprotocol="ocpp1.6"):
+        self.subprotocol = subprotocol
+        self.port = None
+        self.received: list[str] = []  # every text frame, across connections
+        self.paths: list[str] = []  # request path of each connection
+        self.clients: list = []
+        self._server = None
+
+    @property
+    def url(self) -> str:
+        return f"ws://127.0.0.1:{self.port}/ocpp"
+
+    async def start(self, port: int = 0):
+        self._server = await websockets.serve(
+            self._handle, "127.0.0.1", port, subprotocols=[self.subprotocol]
+        )
+        self.port = self._server.sockets[0].getsockname()[1]
+        return self
+
+    async def _handle(self, ws):
+        self.clients.append(ws)
+        self.paths.append(ws.request.path)
+        try:
+            async for message in ws:
+                self.received.append(message)
+        except websockets.ConnectionClosed:
+            pass
+
+    async def stop(self):
+        """Take the backend down: drops the listener and every open connection."""
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
+        self.clients.clear()
+
+    async def send(self, frame):
+        """Push a frame to the (most recent) connected client."""
+        await self.clients[-1].send(json.dumps(frame))
+
+    def received_frames(self) -> list:
+        return [json.loads(m) for m in self.received]
+
+
+async def wait_for(predicate, timeout: float = 3.0, interval: float = 0.01):
+    """Poll until ``predicate()`` is truthy or fail the test."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(interval)
+    raise AssertionError("condition not reached in time")

@@ -194,29 +194,6 @@ class OcppBroker:
             )
             return
 
-        # Validate message if enabled for this organization when backend is leader
-        validate_messages = session.org_entry.get("validate_messages_when_backend_leader", False)
-        if validate_messages:
-            from .message_validator import validate_ocpp_message
-            
-            # Get strict mode from org config
-            validation_config = session.org_entry.get("validation", {})
-            strict_mode = validation_config.get("strict_mode", True)
-            
-            is_valid, error_msg, validated_msg = validate_ocpp_message(message, strict_mode=strict_mode)
-            
-            if not is_valid:
-                logger.warning(
-                    f"❌ Backend message validation failed for charger {backend_conn.id}: {error_msg}. "
-                    f"Message: {message[:200]}"
-                )
-                # In strict mode, reject invalid messages
-                if strict_mode:
-                    logger.error(f"❌ Rejecting invalid message from backend in strict mode")
-                    return
-                # In non-strict mode, log warning but forward anyway
-                logger.warning(f"⚠️ Forwarding invalid message from backend in non-strict mode")
-
         # Save command to MongoDB when broker is leader
         try:
             import json

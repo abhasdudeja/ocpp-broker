@@ -7,6 +7,13 @@ logger = logging.getLogger("ocpp_broker.config")
 
 DEFAULT_CONFIG_PATH = os.environ.get("OCPP_BROKER_CONFIG", "config.yaml")
 
+# Per-organization settings that used to drive the (removed) custom message validator.
+_REMOVED_ORG_KEYS = (
+    "validate_messages_when_backend_leader",
+    "validate_messages_when_broker_backend",
+    "validation",
+)
+
 
 def _load_env_file():
     """Load environment variables from .env file if it exists."""
@@ -176,9 +183,14 @@ def _apply_defaults(cfg):
         org.setdefault("chargers", [])
         org.setdefault("ocpp_features", ["core_profile"])
         org.setdefault("ocpp_subprotocol", "ocpp1.6")  # Default OCPP subprotocol
-        org.setdefault("validate_messages_when_backend_leader", False)  # Default: no validation when backend is leader
-        org.setdefault("validate_messages_when_broker_backend", False)  # Default: no validation when broker acts as backend
-        org.setdefault("validation", {"strict_mode": True})  # Validation settings
+        for removed in _REMOVED_ORG_KEYS:
+            if removed in org:
+                logger.warning(
+                    "Organization %s: '%s' is no longer supported and is ignored. Messages are validated "
+                    "by the ocpp library when the broker acts as the backend; relay mode forwards them untouched.",
+                    name,
+                    removed,
+                )
         org.setdefault("tag_management", {"enabled": False})
         org.setdefault("tags", [])
         

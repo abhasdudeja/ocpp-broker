@@ -335,20 +335,10 @@ class ChargerSession:
         self.broker.org_backends[self.org_name][self.charger_id]["followers"] = self.follower_conns
 
     async def _run_local_charge_point(self):
-        # Check if validation is enabled for this organization when broker acts as backend
-        validate_messages = self.org_entry.get("validate_messages_when_broker_backend", False)
         logger.info(
-            "🎯 Broker acting as backend for charger %s (org: %s, validation: %s)", 
-            self.charger_id, 
-            self.org_name,
-            "enabled" if validate_messages else "disabled"
+            "🎯 Broker acting as backend for charger %s (org: %s)", self.charger_id, self.org_name
         )
-        adapter = StarletteWebSocketAdapter(
-            self.websocket, 
-            validate_messages=validate_messages,
-            org_entry=self.org_entry,
-            send_lock=self._send_lock,
-        )
+        adapter = StarletteWebSocketAdapter(self.websocket, send_lock=self._send_lock)
         self.charge_point = BrokerChargePoint(
             charge_point_id=self.charger_id,
             websocket=adapter,
@@ -378,20 +368,12 @@ class ChargerSession:
                 logger.error("❌ Timeout waiting for backend connection for charger %s", self.charger_id)
                 return
 
-        # Check if validation is enabled for this organization when backend is leader
-        validate_messages = self.org_entry.get("validate_messages_when_backend_leader", False)
-        logger.info("🚀 Relay active for charger %s (validation: %s)", 
-                   self.charger_id, "enabled" if validate_messages else "disabled")
+        logger.info("🚀 Relay active for charger %s", self.charger_id)
         
         while True:
             try:
                 msg = await self.websocket.receive_text()
-                msg_out, parsed = await process_charger_to_backend(
-                    self.charger_id, 
-                    msg, 
-                    validate=validate_messages,
-                    org_entry=self.org_entry
-                )
+                msg_out, parsed = await process_charger_to_backend(self.charger_id, msg)
                 if self._resolve_pending_call(parsed):
                     continue  # reply to a broker-issued command; the backend never asked for it
                 if parsed and isinstance(parsed, list) and len(parsed) >= 3:

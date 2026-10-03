@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, List
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
+from pymongo import ReturnDocument
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 from pydantic import BaseModel, Field
 
@@ -68,6 +69,22 @@ class MongoDBService:
             raise RuntimeError("MongoDB not connected. Call connect() first.")
         return self.db[collection_name]
     
+    async def next_sequence(self, name: str) -> int:
+        """
+        Atomically increment and return the named counter (first value is 1).
+
+        Unlike the save_* helpers this raises on failure: callers hand out
+        identifiers from it and must know when it could not be reached.
+        """
+        if not self._connected:
+            raise RuntimeError("MongoDB not connected")
+        doc = await self._get_collection("counters").find_one_and_update(
+            {"_id": name},
+            {"$inc": {"seq": 1}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        return int(doc["seq"])
     def _get_collection_name_for_action(self, action: str) -> str:
         """
         Get the collection name for a specific OCPP action.

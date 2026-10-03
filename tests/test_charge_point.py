@@ -59,7 +59,7 @@ class DummyBroker:
     def get_registry(self, org_name: str):
         return self.registry
 
-    def next_transaction_id(self):
+    async def next_transaction_id(self, org_name):
         self._next_transaction += 1
         return self._next_transaction
 

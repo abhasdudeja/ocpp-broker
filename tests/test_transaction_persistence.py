@@ -58,7 +58,7 @@ class _Broker:
         self.mongodb_service = mongodb_service
         self._tx = 0
 
-    def next_transaction_id(self):
+    async def next_transaction_id(self, org_name):
         self._tx += 1
         return self._tx
 

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-import random
+import time
 from typing import Dict, Optional, Tuple
 
 from .backend_manager import BackendConnection
@@ -29,7 +29,9 @@ class OcppBroker:
         self.mongodb_service = None  # Will be initialized if MongoDB is configured
         self.config_data: Dict[str, object] = {}
         self._cfg_path = "config.yaml"
-        self._transaction_seed = random.randint(1000, 9999)
+        # Only used when MongoDB cannot supply transaction ids; see next_transaction_id.
+        self._fallback_tx_counters: Dict[str, int] = {}
+        self._fallback_warned: set[str] = set()
 
     # ------------------------------------------------------------------
     # Configuration and initialization
@@ -137,10 +139,46 @@ class OcppBroker:
     def get_registry(self, org_name: str) -> ChargerRegistry:
         return self.org_registries[org_name]
 
-    def next_transaction_id(self) -> int:
-        self._transaction_seed += 1
-        return self._transaction_seed
+    async def next_transaction_id(self, org_name: str) -> int:
+        """
+        Allocate a transaction id from a per-organization counter.
 
+        The counter lives in MongoDB (``$inc``, so it is atomic across broker
+        instances and survives restarts). If MongoDB is unavailable we fall back
+        to an in-memory counter and warn loudly: those ids are only unique
+        within this process and may collide with ids issued before a restart.
+        """
+        mongodb = getattr(self, "mongodb_service", None)
+        if mongodb is not None and mongodb.is_connected():
+            try:
+                value = await mongodb.next_sequence(f"transaction_id:{org_name}")
+                self._fallback_warned.discard(org_name)
+                return value
+            except Exception as exc:
+                logger.error(
+                    "Could not allocate transaction id from MongoDB for org '%s': %s",
+                    org_name,
+                    exc,
+                )
+        return self._next_fallback_transaction_id(org_name)
+
+    def _next_fallback_transaction_id(self, org_name: str) -> int:
+        if org_name not in self._fallback_warned:
+            self._fallback_warned.add(org_name)
+            logger.warning(
+                "!!! TRANSACTION IDS FOR ORG '%s' ARE NOT DURABLE !!! MongoDB is not "
+                "available, so ids come from an in-memory counter. They restart with "
+                "the broker and can collide with ids already stored by the charger or "
+                "backend. Configure MongoDB (mongodb.enabled) before production use.",
+                org_name,
+            )
+        counter = self._fallback_tx_counters.get(org_name)
+        if counter is None:
+            # Seed from the clock so a restarted broker does not start over at 1.
+            counter = int(time.time())
+        counter += 1
+        self._fallback_tx_counters[org_name] = counter
+        return counter
     async def forward_backend_message(self, backend_conn: BackendConnection, message: str):
         """Deliver backend messages to the connected charger websocket."""
         session = self.sessions.get((backend_conn.org, backend_conn.id))
@@ -238,7 +276,10 @@ class OcppBroker:
             enabled = os.environ.get("MONGODB_ENABLED", "").lower() in ("true", "1", "yes", "on")
         
         if not enabled:
-            logger.info("MongoDB not configured or disabled")
+            logger.warning(
+                "MongoDB not configured or disabled: transaction ids will come from a "
+                "non-durable in-memory counter and nothing will be persisted."
+            )
             return
         
         try:

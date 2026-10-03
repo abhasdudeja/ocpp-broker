@@ -299,7 +299,7 @@ class BrokerChargePoint(OcppChargePoint):
 
     @on("StartTransaction")
     async def on_start_transaction(self, connector_id: int, id_tag: str, **payload):
-        transaction_id = self.broker.next_transaction_id()
+        transaction_id = await self.broker.next_transaction_id(self.org_name)
         self.logger.info(
             "StartTransaction connector=%s id_tag=%s transaction=%s payload=%s",
             connector_id,

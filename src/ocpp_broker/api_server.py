@@ -394,16 +394,9 @@ def create_ocpp_command_api(broker) -> APIRouter:
     
     async def send_ocpp_command(org_name: str, charger_id: str, action: str, payload: Dict[str, Any], timeout: int = 30) -> Dict[str, Any]:
         """Send OCPP command to charger and wait for response"""
-        session = broker.sessions.get(charger_id)
+        session = broker.sessions.get((org_name, charger_id))
         if not session:
-            raise HTTPException(status_code=404, detail=f"Charger {charger_id} not connected")
-        
-        # Verify charger belongs to the specified organization
-        if session.org_name != org_name:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Charger {charger_id} does not belong to organization {org_name}"
-            )
+            raise HTTPException(status_code=404, detail=f"Charger {org_name}/{charger_id} not connected")
         
         # Generate unique message ID
         message_id = str(uuid.uuid4())
@@ -460,8 +453,8 @@ def create_ocpp_command_api(broker) -> APIRouter:
     async def list_chargers(org_name: str = Path(..., description="Organization name")):
         """List all connected chargers for an organization"""
         chargers = []
-        for charger_id, session in broker.sessions.items():
-            if session.org_name == org_name:
+        for (session_org, charger_id), session in list(broker.sessions.items()):
+            if session_org == org_name:
                 chargers.append({
                     "charger_id": charger_id,
                     "organization": org_name,
@@ -476,16 +469,10 @@ def create_ocpp_command_api(broker) -> APIRouter:
         charger_id: str = Path(..., description="Charger ID")
     ):
         """Get status of a specific charger"""
-        session = broker.sessions.get(charger_id)
+        session = broker.sessions.get((org_name, charger_id))
         if not session:
-            raise HTTPException(status_code=404, detail=f"Charger {charger_id} not connected")
-        
-        if session.org_name != org_name:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Charger {charger_id} does not belong to organization {org_name}"
-            )
-        
+            raise HTTPException(status_code=404, detail=f"Charger {org_name}/{charger_id} not connected")
+
         return {
             "charger_id": charger_id,
             "organization": org_name,

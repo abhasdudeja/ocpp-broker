@@ -36,6 +36,29 @@ class ChargerSession:
         self.backend_conn: Optional[BackendConnection] = None
         self.follower_conns: list[BackendConnection] = []
         self.charge_point: Optional[BrokerChargePoint] = None
+        # Set by OcppBroker.handle_charger; lets a newer connection evict this one.
+        self.handler_task: Optional[asyncio.Task] = None
+        self.finished = asyncio.Event()
+
+    async def evict(self, grace: float = 5.0):
+        """
+        Disconnect this session because the same charger connected again.
+        Closes the socket and waits for the handler to unwind, cancelling it if
+        the peer never completes the close handshake.
+        """
+        try:
+            await self.websocket.close(code=4003, reason="Replaced by a newer connection")
+        except Exception as exc:
+            logger.debug("Error closing replaced socket for %s: %s", self.charger_id, exc)
+
+        task = self.handler_task
+        if task is None or task.done() or task is asyncio.current_task():
+            return
+        try:
+            await asyncio.wait_for(self.finished.wait(), timeout=grace)
+        except asyncio.TimeoutError:
+            logger.warning("Replaced session for %s did not exit; cancelling it", self.charger_id)
+            task.cancel()
 
     async def start(self):
         # Verify charger is connected before proceeding
@@ -60,6 +83,11 @@ class ChargerSession:
         """Close session and all associated backend connections."""
         logger.info(f"Closing session for charger {self.charger_id}")
         
+        # Forget our backend links, unless a newer session already replaced them
+        links = self.broker.org_backends.get(self.org_name, {}).get(self.charger_id)
+        if links is not None and links.get("leader") is self.backend_conn:
+            del self.broker.org_backends[self.org_name][self.charger_id]
+
         # Close all backend connections (leader and followers)
         if self.backend_conn:
             await self.backend_conn.close()
@@ -107,7 +135,7 @@ class ChargerSession:
             raise RuntimeError(f"Charger {self.charger_id} websocket not connected")
         
         # Verify charger session exists in broker
-        if self.charger_id not in self.broker.sessions:
+        if self.broker.sessions.get((self.org_name, self.charger_id)) is not self:
             logger.error("❌ Cannot connect to backend: charger %s session not found in broker", self.charger_id)
             raise RuntimeError(f"Charger {self.charger_id} session not found")
         

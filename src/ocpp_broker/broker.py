@@ -1,6 +1,7 @@
+import asyncio
 import logging
 import random
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from .backend_manager import BackendConnection
 from .registry import ChargerRegistry
@@ -21,7 +22,8 @@ class OcppBroker:
     def __init__(self):
         self.org_backends: Dict[str, Dict[str, BackendConnection]] = {}
         self.org_registries: Dict[str, ChargerRegistry] = {}
-        self.sessions: Dict[str, ChargerSession] = {}
+        # Keyed by (org_name, charger_id): the same charger id may exist in several orgs.
+        self.sessions: Dict[Tuple[str, str], ChargerSession] = {}
         self.tag_manager: Optional[TagManager] = None
         self.data_transfer_handler = None  # Will be created on first use
         self.mongodb_service = None  # Will be initialized if MongoDB is configured
@@ -103,15 +105,30 @@ class OcppBroker:
             org_entry=org_entry,
             websocket=websocket,
         )
-        self.sessions[charger_id] = session
+        key = (org_name, charger_id)
+        # Swap synchronously (no await between lookup and store) so two racing
+        # connects can't both believe they are the first.
+        previous = self.sessions.get(key)
+        self.sessions[key] = session
+        session.handler_task = asyncio.current_task()
 
         try:
+            if previous is not None:
+                logger.warning(
+                    "Charger %s/%s reconnected while a session was still open; replacing it",
+                    org_name,
+                    charger_id,
+                )
+                await previous.evict()
             await session.start()
         except Exception as exc:
             logger.exception("Error in message handling for %s: %s", charger_id, exc)
         finally:
             await session.close()
-            self.sessions.pop(charger_id, None)
+            # Only drop our own entry: a newer connection may have replaced us.
+            if self.sessions.get(key) is session:
+                del self.sessions[key]
+            session.finished.set()
             logger.info("🧹 Cleaned up charger %s session.", charger_id)
 
     # ------------------------------------------------------------------
@@ -120,17 +137,13 @@ class OcppBroker:
     def get_registry(self, org_name: str) -> ChargerRegistry:
         return self.org_registries[org_name]
 
-    def get_org_for_charger(self, charger_id: str) -> Optional[str]:
-        session = self.sessions.get(charger_id)
-        return session.org_name if session else None
-
     def next_transaction_id(self) -> int:
         self._transaction_seed += 1
         return self._transaction_seed
 
     async def forward_backend_message(self, backend_conn: BackendConnection, message: str):
         """Deliver backend messages to the connected charger websocket."""
-        session = self.sessions.get(backend_conn.id)
+        session = self.sessions.get((backend_conn.org, backend_conn.id))
         if not session:
             logger.warning(
                 "Cannot deliver backend message to %s: charger not connected", backend_conn.id

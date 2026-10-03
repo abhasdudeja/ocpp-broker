@@ -225,7 +225,7 @@ class TestBrokerToBackendProtocol:
         mock_websocket = Mock()
         mock_websocket.client_state = mock_client_state
         mock_session.websocket = mock_websocket
-        mock_broker.sessions = {"CHARGER001": mock_session}
+        mock_broker.sessions = {("testOrg", "CHARGER001"): mock_session}
         
         # Mock websocket connection
         mock_ws = AsyncMock()
@@ -247,7 +247,7 @@ class TestBrokerToBackendProtocol:
         )
         
         # Ensure sessions dict is properly set up
-        assert "CHARGER001" in mock_broker.sessions, "Mock session should be in broker.sessions"
+        assert ("testOrg", "CHARGER001") in mock_broker.sessions, "Mock session should be in broker.sessions"
         assert backend_conn._is_charger_still_connected(), "Charger should appear connected"
         
         # Start connection (will fail but we can check the call)
@@ -274,7 +274,7 @@ class TestBrokerToBackendProtocol:
         mock_websocket = Mock()
         mock_websocket.client_state = mock_client_state
         mock_session.websocket = mock_websocket
-        mock_broker.sessions = {"CHARGER001": mock_session}
+        mock_broker.sessions = {("testOrg", "CHARGER001"): mock_session}
         
         # Mock websocket with matching subprotocol
         mock_ws = AsyncMock()
@@ -296,7 +296,7 @@ class TestBrokerToBackendProtocol:
         )
         
         # Ensure sessions dict is properly set up
-        assert "CHARGER001" in mock_broker.sessions, "Mock session should be in broker.sessions"
+        assert ("testOrg", "CHARGER001") in mock_broker.sessions, "Mock session should be in broker.sessions"
         assert backend_conn._is_charger_still_connected(), "Charger should appear connected"
         
         # Capture log messages
@@ -331,7 +331,7 @@ class TestBrokerToBackendProtocol:
         mock_websocket = Mock()
         mock_websocket.client_state = mock_client_state
         mock_session.websocket = mock_websocket
-        mock_broker.sessions = {"CHARGER001": mock_session}
+        mock_broker.sessions = {("testOrg", "CHARGER001"): mock_session}
         
         # Mock websocket with mismatched subprotocol
         mock_ws = AsyncMock()
@@ -353,7 +353,7 @@ class TestBrokerToBackendProtocol:
         )
         
         # Ensure sessions dict is properly set up
-        assert "CHARGER001" in mock_broker.sessions, "Mock session should be in broker.sessions"
+        assert ("testOrg", "CHARGER001") in mock_broker.sessions, "Mock session should be in broker.sessions"
         assert backend_conn._is_charger_still_connected(), "Charger should appear connected"
         
         # Capture log messages
@@ -467,7 +467,7 @@ class TestBackendDisconnectionOnChargerDisconnect:
         mock_session.websocket = Mock()
         mock_session.websocket.client_state = Mock()
         mock_session.websocket.client_state.name = "DISCONNECTED"  # Charger is disconnected
-        mock_broker.sessions["CHARGER001"] = mock_session
+        mock_broker.sessions[("testOrg", "CHARGER001")] = mock_session
         
         # Verify that _is_charger_still_connected returns False
         assert not backend_conn._is_charger_still_connected(), "Should detect charger as disconnected"
@@ -510,7 +510,7 @@ class TestBackendDisconnectionOnChargerDisconnect:
         
         # Initially connected
         mock_session.websocket.client_state.name = "CONNECTED"
-        mock_broker.sessions["CHARGER001"] = mock_session
+        mock_broker.sessions[("testOrg", "CHARGER001")] = mock_session
         
         # Create an async iterator that yields one message then stops
         async def message_generator():

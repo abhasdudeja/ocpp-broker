@@ -56,7 +56,7 @@ class TestChargerEndpoints:
     def test_list_chargers_with_data(self, api_client, mock_broker_with_sessions, mock_session):
         """Test listing chargers with data"""
         mock_session.charger_id = "CP_001"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
         
         response = api_client.get("/api/ocpp/organizations/TestOrg/chargers")
         assert response.status_code == 200
@@ -68,7 +68,7 @@ class TestChargerEndpoints:
     def test_get_charger_status_success(self, api_client, mock_broker_with_sessions, mock_session):
         """Test getting charger status successfully"""
         mock_session.charger_id = "CP_001"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
         
         response = api_client.get("/api/ocpp/organizations/TestOrg/chargers/CP_001/status")
         assert response.status_code == 200
@@ -87,7 +87,7 @@ class TestChargerEndpoints:
         """Test getting charger status with wrong organization"""
         mock_session.charger_id = "CP_001"
         mock_session.org_name = "OtherOrg"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("OtherOrg", "CP_001"): mock_session}
         
         response = api_client.get("/api/ocpp/organizations/TestOrg/chargers/CP_001/status")
         assert response.status_code == 404
@@ -99,7 +99,7 @@ class TestGenericCommand:
     def test_send_generic_command_success(self, api_client, mock_broker_with_sessions, mock_session):
         """Test sending a generic OCPP command"""
         mock_session.charger_id = "CP_001"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
         
         command_data = {
             "action": "Reset",
@@ -139,7 +139,7 @@ class TestGenericCommand:
         """Test sending command with wrong organization"""
         mock_session.charger_id = "CP_001"
         mock_session.org_name = "OtherOrg"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("OtherOrg", "CP_001"): mock_session}
         
         command_data = {
             "action": "Reset",
@@ -160,7 +160,7 @@ class TestCoreProfileCommands:
     def setup_charger(self, mock_broker_with_sessions, mock_session):
         """Setup a charger session for testing"""
         mock_session.charger_id = "CP_001"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
         return mock_session
     
     def test_change_availability(self, api_client, mock_broker_with_sessions, setup_charger):
@@ -336,7 +336,7 @@ class TestSmartChargingCommands:
     def setup_charger(self, mock_broker_with_sessions, mock_session):
         """Setup a charger session for testing"""
         mock_session.charger_id = "CP_001"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
         return mock_session
     
     def test_clear_charging_profile(self, api_client, mock_broker_with_sessions, setup_charger):
@@ -390,7 +390,7 @@ class TestFirmwareManagementCommands:
     def setup_charger(self, mock_broker_with_sessions, mock_session):
         """Setup a charger session for testing"""
         mock_session.charger_id = "CP_001"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
         return mock_session
     
     def test_get_diagnostics(self, api_client, mock_broker_with_sessions, setup_charger):
@@ -416,7 +416,7 @@ class TestLocalAuthListCommands:
     def setup_charger(self, mock_broker_with_sessions, mock_session):
         """Setup a charger session for testing"""
         mock_session.charger_id = "CP_001"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
         return mock_session
     
     def test_get_local_list_version(self, api_client, mock_broker_with_sessions, setup_charger):
@@ -435,7 +435,7 @@ class TestReservationCommands:
     def setup_charger(self, mock_broker_with_sessions, mock_session):
         """Setup a charger session for testing"""
         mock_session.charger_id = "CP_001"
-        mock_broker_with_sessions.sessions = {"CP_001": mock_session}
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
         return mock_session
     
     def test_cancel_reservation(self, api_client, mock_broker_with_sessions, setup_charger):

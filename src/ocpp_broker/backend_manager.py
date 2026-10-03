@@ -78,7 +78,7 @@ class BackendConnection:
 
     def _is_charger_still_connected(self) -> bool:
         """Check if the charger is still connected to the broker before connecting to backend."""
-        session = self.broker.sessions.get(self.id)
+        session = self.broker.sessions.get((self.org, self.id))
         if not session:
             return False
         # Check if charger websocket is still connected

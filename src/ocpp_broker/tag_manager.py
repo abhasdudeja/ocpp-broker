@@ -7,13 +7,18 @@ Supports both MongoDB persistence and in-memory storage.
 """
 
 import asyncio
+import csv
+import io
+import json
 import logging
+from collections import Counter
 from datetime import datetime, timezone
-from typing import Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from .schemas.tags import (
-    OCPPTag, TagList, TagStatus, TagSearchRequest, 
-    TagSearchResponse
+    BulkTagItemResult, BulkTagResult, OCPPTag, TagImportError, TagImportResult,
+    TagList, TagSearchRequest, TagSearchResponse, TagStatistics, TagStatus,
+    TagValidationResult,
 )
 
 
@@ -249,26 +254,7 @@ class TagManager:
     async def search_tags(self, org_name: str, search_request: TagSearchRequest) -> TagSearchResponse:
         """Search tags with filters"""
         try:
-            # Load tags from MongoDB if available and cache is empty
-            if self._use_mongodb and self.mongodb_service.is_connected():
-                # Check if we need to load from MongoDB
-                org_tags_in_cache = [tag for tag_key, tag in self._tags.items() if tag_key.startswith(f"{org_name}:")]
-                if not org_tags_in_cache:
-                    # Load all tags for this org from MongoDB
-                    try:
-                        tags_dicts = await self.mongodb_service.list_tags(org_name=org_name)
-                        for tag_dict in tags_dicts:
-                            tag = OCPPTag(**tag_dict)
-                            tag_key = f"{org_name}:{tag.id_tag}"
-                            self._tags[tag_key] = tag
-                    except Exception as e:
-                        logger.warning(f"Error loading tags from MongoDB: {e}")
-            
-            # Get organization's tags
-            org_tags = []
-            for tag_key, tag in self._tags.items():
-                if tag_key.startswith(f"{org_name}:"):
-                    org_tags.append(tag)
+            org_tags = await self._load_org_tags(org_name)
             
             # Apply filters
             filtered_tags = org_tags
@@ -333,6 +319,259 @@ class TagManager:
         
         return self._tag_lists.get(org_name)
     
+    # ------------------------------------------------------------------
+    # Helpers shared by statistics, validation, bulk, import and export
+    # ------------------------------------------------------------------
+    async def _load_org_tags(self, org_name: str) -> List[OCPPTag]:
+        """All of an organization's tags, filling the cache from MongoDB if it is empty."""
+        prefix = f"{org_name}:"
+        if self._use_mongodb and self.mongodb_service.is_connected():
+            if not any(key.startswith(prefix) for key in self._tags):
+                try:
+                    for tag_dict in await self.mongodb_service.list_tags(org_name=org_name):
+                        tag = OCPPTag(**tag_dict)
+                        self._tags[f"{org_name}:{tag.id_tag}"] = tag
+                except Exception as e:
+                    logger.warning(f"Error loading tags from MongoDB: {e}")
+        return [tag for key, tag in self._tags.items() if key.startswith(prefix)]
+
+    @staticmethod
+    def _expiry(tag: OCPPTag) -> Optional[datetime]:
+        """The tag's expiry as an aware datetime; ValueError if the stored text is not ISO 8601."""
+        if not tag.expiry_date:
+            return None
+        expiry = datetime.fromisoformat(tag.expiry_date.replace("Z", "+00:00"))
+        return expiry if expiry.tzinfo else expiry.replace(tzinfo=timezone.utc)
+
+    @classmethod
+    def _is_expired(cls, tag: OCPPTag) -> bool:
+        """Same rule authorize_tag applies: past expiry, or an expiry date we cannot read."""
+        try:
+            expiry = cls._expiry(tag)
+        except ValueError:
+            return True
+        return expiry is not None and expiry < datetime.now(timezone.utc)
+
+    # ------------------------------------------------------------------
+    # Statistics
+    # ------------------------------------------------------------------
+    async def get_tag_statistics(self, org_name: str) -> TagStatistics:
+        tags = await self._load_org_tags(org_name)
+        return TagStatistics(
+            total_tags=len(tags),
+            active_tags=sum(1 for t in tags if t.status == TagStatus.ACCEPTED and not self._is_expired(t)),
+            expired_tags=sum(1 for t in tags if t.status == TagStatus.EXPIRED or self._is_expired(t)),
+            blocked_tags=sum(1 for t in tags if t.status == TagStatus.BLOCKED),
+            tags_by_type=dict(Counter(t.tag_type.value for t in tags)),
+            tags_by_status=dict(Counter(t.status.value for t in tags)),
+        )
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+    async def validate_tag(
+        self,
+        org_name: str,
+        tag: OCPPTag,
+        check_duplicate: bool = True,
+        known_ids: Optional[set] = None,
+    ) -> TagValidationResult:
+        """
+        Check a tag against the organization's rules without storing it.
+
+        ``check_duplicate`` makes an already-stored id an error (use False when
+        validating an update). ``known_ids`` are extra ids that count as existing
+        parents, e.g. other tags in the same import batch.
+        """
+        errors: List[str] = []
+        warnings: List[str] = []
+
+        # OCPP idTag is a CiString20: printable ASCII (length is enforced by the model)
+        if not (tag.id_tag.isascii() and tag.id_tag.isprintable()) or tag.id_tag != tag.id_tag.strip():
+            errors.append("id_tag must be printable ASCII without leading or trailing spaces")
+
+        if check_duplicate and await self.get_tag(org_name, tag.id_tag):
+            errors.append(f"Tag {tag.id_tag} already exists in organization {org_name}")
+
+        if tag.expiry_date:
+            try:
+                expiry = self._expiry(tag)
+            except ValueError:
+                errors.append(f"expiry_date '{tag.expiry_date}' is not a valid ISO 8601 date")
+            else:
+                if expiry is not None and expiry < datetime.now(timezone.utc):
+                    warnings.append("expiry_date is in the past; the tag will authorize as Expired")
+
+        if tag.parent_id_tag:
+            if tag.parent_id_tag == tag.id_tag:
+                errors.append("parent_id_tag cannot be the tag itself")
+            elif not (known_ids and tag.parent_id_tag in known_ids) and not await self.get_tag(
+                org_name, tag.parent_id_tag
+            ):
+                errors.append(f"parent_id_tag '{tag.parent_id_tag}' does not exist in organization {org_name}")
+
+        return TagValidationResult(is_valid=not errors, errors=errors, warnings=warnings)
+
+    # ------------------------------------------------------------------
+    # Bulk operations
+    # ------------------------------------------------------------------
+    async def bulk_operation(self, org_name: str, operation: str, tags: List[OCPPTag]) -> BulkTagResult:
+        """Apply add / update / delete to each tag. Items are independent: one failing does not stop the rest."""
+        results: List[BulkTagItemResult] = []
+        for tag in tags:
+            error: Optional[str] = None
+            exists = await self.get_tag(org_name, tag.id_tag) is not None
+            if operation == "add":
+                if exists:
+                    error = "already exists"
+                elif not await self.add_tag(org_name, tag):
+                    error = "could not be added"
+            elif operation == "update":
+                if not exists:
+                    error = "not found"
+                elif not await self.update_tag(org_name, tag.id_tag, tag):
+                    error = "could not be updated"
+            elif operation == "delete":
+                if not exists:
+                    error = "not found"
+                elif not await self.delete_tag(org_name, tag.id_tag):
+                    error = "could not be deleted"
+            else:
+                raise ValueError(f"Unknown bulk operation: {operation}")
+            results.append(BulkTagItemResult(id_tag=tag.id_tag, success=error is None, error=error))
+
+        succeeded = sum(1 for r in results if r.success)
+        return BulkTagResult(
+            operation=operation,
+            total=len(results),
+            succeeded=succeeded,
+            failed=len(results) - succeeded,
+            results=results,
+        )
+
+    # ------------------------------------------------------------------
+    # Import / export
+    # ------------------------------------------------------------------
+    _CSV_FIELDS = ["id_tag", "status", "tag_type", "expiry_date", "parent_id_tag", "description"]
+    _CSV_METADATA_FIELDS = ["created_at", "updated_at", "metadata"]
+
+    @staticmethod
+    def _parse_import(source: str, data: str) -> List[Dict[str, Any]]:
+        """Turn the uploaded text into raw tag dicts; ValueError if it is not parseable at all."""
+        if source == "json":
+            try:
+                parsed = json.loads(data)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON: {e}") from e
+            records = parsed.get("tags") if isinstance(parsed, dict) else parsed
+            if not isinstance(records, list):
+                raise ValueError("JSON must be a list of tags or an object with a 'tags' list")
+            return records
+
+        records = []
+        for row in csv.DictReader(io.StringIO(data)):
+            record: Dict[str, Any] = {k: v for k, v in row.items() if k and v not in (None, "")}
+            if "metadata" in record:
+                try:
+                    record["metadata"] = json.loads(record["metadata"])
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid metadata JSON for tag {record.get('id_tag')}: {e}") from e
+            records.append(record)
+        return records
+
+    async def import_tags(
+        self,
+        org_name: str,
+        source: str,
+        data: str,
+        overwrite_existing: bool = False,
+        validate_only: bool = False,
+    ) -> TagImportResult:
+        """
+        Import tags from JSON or CSV text. Bad records are reported and skipped;
+        good ones still go in. With ``validate_only`` nothing is changed.
+        """
+        records = self._parse_import(source, data)
+        errors: List[TagImportError] = []
+        parsed: List[tuple] = []  # (record number, OCPPTag)
+        for number, record in enumerate(records, start=1):
+            try:
+                parsed.append((number, OCPPTag(**record)))
+            except Exception as e:
+                id_tag = record.get("id_tag") if isinstance(record, dict) else None
+                errors.append(TagImportError(record=number, id_tag=id_tag, error=_describe(e)))
+
+        batch_ids = {tag.id_tag for _, tag in parsed}
+        imported = updated = skipped = 0
+        seen: set = set()
+        for number, tag in parsed:
+            if tag.id_tag in seen:
+                errors.append(TagImportError(record=number, id_tag=tag.id_tag, error="duplicate id_tag in the import"))
+                continue
+            seen.add(tag.id_tag)
+
+            exists = await self.get_tag(org_name, tag.id_tag) is not None
+            if exists and not overwrite_existing:
+                skipped += 1
+                continue
+
+            check = await self.validate_tag(org_name, tag, check_duplicate=False, known_ids=batch_ids)
+            if not check.is_valid:
+                errors.append(TagImportError(record=number, id_tag=tag.id_tag, error="; ".join(check.errors)))
+                continue
+
+            if validate_only:
+                ok = True
+            elif exists:
+                ok = await self.update_tag(org_name, tag.id_tag, tag)
+            else:
+                ok = await self.add_tag(org_name, tag)
+            if not ok:
+                errors.append(TagImportError(record=number, id_tag=tag.id_tag, error="could not be stored"))
+            elif exists:
+                updated += 1
+            else:
+                imported += 1
+
+        return TagImportResult(
+            source=source,
+            validate_only=validate_only,
+            total=len(records),
+            imported=imported,
+            updated=updated,
+            skipped=skipped,
+            errors=errors,
+        )
+
+    async def export_tags(self, org_name: str, fmt: str = "json", include_metadata: bool = True) -> str:
+        """Serialise the organization's tags as JSON or CSV text (re-importable with import_tags)."""
+        tags = await self._load_org_tags(org_name)
+        drop = set() if include_metadata else set(self._CSV_METADATA_FIELDS)
+        rows = [{k: v for k, v in tag.model_dump(mode="json").items() if k not in drop} for tag in tags]
+
+        if fmt == "json":
+            return json.dumps(
+                {
+                    "organization": org_name,
+                    "exported_at": datetime.now(timezone.utc).isoformat(),
+                    "count": len(rows),
+                    "tags": rows,
+                },
+                indent=2,
+            )
+        if fmt != "csv":
+            raise ValueError(f"Unsupported export format: {fmt}")
+
+        fields = self._CSV_FIELDS + ([] if not include_metadata else self._CSV_METADATA_FIELDS)
+        out = io.StringIO()
+        writer = csv.DictWriter(out, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        for row in rows:
+            if row.get("metadata") is not None:
+                row["metadata"] = json.dumps(row["metadata"])
+            writer.writerow(row)
+        return out.getvalue()
+
     async def authorize_tag(self, org_name: str, id_tag: str) -> Dict[str, Any]:
         """
         Authorize a tag for charging.
@@ -380,3 +619,13 @@ class TagManager:
                 "expiry_date": None,
                 "parent_id_tag": None
             }
+
+
+def _describe(error: Exception) -> str:
+    """Readable one-liner for a bad import record (pydantic's own text is multi-line)."""
+    errors = getattr(error, "errors", None)
+    if callable(errors):
+        return "; ".join(
+            f"{'.'.join(str(part) for part in item['loc']) or 'record'}: {item['msg']}" for item in errors()
+        )
+    return str(error) or type(error).__name__

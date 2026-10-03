@@ -9,12 +9,13 @@ All REST API endpoints for the OCPP Broker:
 """
 import asyncio
 import logging
+import re
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from fastapi import Body, Depends, FastAPI, HTTPException, APIRouter, Path, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from ._version import __version__
@@ -23,7 +24,8 @@ from .session import CommandRejected
 
 # Import schemas and services
 from .schemas.tags import (
-    OCPPTag, TagSearchRequest, TagStatus, TagType
+    BulkTagRequest, OCPPTag, TagExportRequest, TagImportRequest, TagSearchRequest,
+    TagStatus, TagType
 )
 from .mongodb_service import (
     StatusNotificationRequest,
@@ -339,6 +341,93 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error getting tag list: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
+    @router.get("/organizations/{org_name}/statistics")
+    async def get_tag_statistics(
+        org_name: str = Path(..., description="Organization name")
+    ):
+        """Counts of the organization's tags by status and type"""
+        try:
+            return (await tag_manager.get_tag_statistics(org_name)).model_dump()
+        except HTTPException:
+            raise
+        except Exception as e:
+            tag_logger.error(f"Error getting tag statistics: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/organizations/{org_name}/tags/validate")
+    async def validate_tag(
+        org_name: str = Path(..., description="Organization name"),
+        tag: OCPPTag = Body(..., description="Tag to validate (nothing is stored)"),
+        for_update: bool = Query(False, description="Skip the 'already exists' check")
+    ):
+        """Check a tag against the organization's rules"""
+        try:
+            result = await tag_manager.validate_tag(org_name, tag, check_duplicate=not for_update)
+            return result.model_dump()
+        except HTTPException:
+            raise
+        except Exception as e:
+            tag_logger.error(f"Error validating tag: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/organizations/{org_name}/tags/bulk")
+    async def bulk_tag_operation(
+        org_name: str = Path(..., description="Organization name"),
+        request: BulkTagRequest = Body(..., description="Operation (add, update or delete) and the tags")
+    ):
+        """Add, update or delete many tags; each item succeeds or fails on its own"""
+        try:
+            return (await tag_manager.bulk_operation(org_name, request.operation, request.tags)).model_dump()
+        except HTTPException:
+            raise
+        except Exception as e:
+            tag_logger.error(f"Error in bulk tag operation: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/organizations/{org_name}/tags/import")
+    async def import_tags(
+        org_name: str = Path(..., description="Organization name"),
+        request: TagImportRequest = Body(..., description="JSON or CSV text to import")
+    ):
+        """Import tags; bad records are reported in `errors` and the rest still go in"""
+        try:
+            result = await tag_manager.import_tags(
+                org_name,
+                request.source,
+                request.data,
+                overwrite_existing=request.overwrite_existing,
+                validate_only=request.validate_only,
+            )
+            return result.model_dump()
+        except HTTPException:
+            raise
+        except ValueError as e:  # the text could not be parsed at all
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            tag_logger.error(f"Error importing tags: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/organizations/{org_name}/tags/export")
+    async def export_tags(
+        org_name: str = Path(..., description="Organization name"),
+        request: TagExportRequest = Body(TagExportRequest(), description="Export format")
+    ):
+        """Export the organization's tags as JSON or CSV (re-importable)"""
+        try:
+            body = await tag_manager.export_tags(org_name, request.format, request.include_metadata)
+        except HTTPException:
+            raise
+        except Exception as e:
+            tag_logger.error(f"Error exporting tags: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+        if request.format == "csv":
+            filename = re.sub(r"[^A-Za-z0-9_.-]", "_", org_name)
+            return Response(
+                content=body,
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{filename}-tags.csv"'},
+            )
+        return Response(content=body, media_type="application/json")
     @router.post("/organizations/{org_name}/tags/authorize")
     async def authorize_tag(
         org_name: str = Path(..., description="Organization name"),

@@ -4,7 +4,7 @@ OCPP Tag Management Schemas
 Simple Pydantic models for basic tag management.
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -64,3 +64,66 @@ class TagSearchResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+class TagStatistics(BaseModel):
+    """Counts of an organization's tags."""
+    total_tags: int
+    active_tags: int  # Accepted and not past their expiry date
+    expired_tags: int  # status Expired, or past their expiry date
+    blocked_tags: int
+    tags_by_type: Dict[str, int]
+    tags_by_status: Dict[str, int]
+
+
+class TagValidationResult(BaseModel):
+    """Outcome of validating one tag. Errors make it invalid; warnings do not."""
+    is_valid: bool
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class BulkTagRequest(BaseModel):
+    operation: Literal["add", "update", "delete"]
+    tags: List[OCPPTag]
+
+
+class BulkTagItemResult(BaseModel):
+    id_tag: str
+    success: bool
+    error: Optional[str] = None
+
+
+class BulkTagResult(BaseModel):
+    operation: str
+    total: int
+    succeeded: int
+    failed: int
+    results: List[BulkTagItemResult]
+
+
+class TagImportRequest(BaseModel):
+    source: Literal["json", "csv"] = "json"
+    data: str
+    overwrite_existing: bool = False
+    validate_only: bool = False  # report what would happen without changing anything
+
+
+class TagImportError(BaseModel):
+    record: int  # 1-based position of the record in the input
+    id_tag: Optional[str] = None
+    error: str
+
+
+class TagImportResult(BaseModel):
+    source: str
+    validate_only: bool
+    total: int
+    imported: int  # new tags (would be) added
+    updated: int  # existing tags (would be) overwritten
+    skipped: int  # existing tags left alone because overwrite_existing is false
+    errors: List[TagImportError]
+
+
+class TagExportRequest(BaseModel):
+    format: Literal["json", "csv"] = "json"
+    include_metadata: bool = True  # created_at, updated_at and metadata

@@ -202,7 +202,7 @@ tags:
 
 **Add a new tag:**
 ```bash
-curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tags" \
+curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags" \
   -H "Content-Type: application/json" \
   -d '{
     "id_tag": "NEW_USER",
@@ -218,12 +218,12 @@ curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tag
 
 **Get a specific tag:**
 ```bash
-curl "http://localhost:8080/api/tags/organizations/MyChargingStation/tags/USER123456"
+curl "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/USER123456"
 ```
 
 **Update a tag:**
 ```bash
-curl -X PUT "http://localhost:8080/api/tags/organizations/MyChargingStation/tags/USER123456" \
+curl -X PUT "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/USER123456" \
   -H "Content-Type: application/json" \
   -d '{
     "id_tag": "USER123456",
@@ -235,26 +235,26 @@ curl -X PUT "http://localhost:8080/api/tags/organizations/MyChargingStation/tags
 
 **Delete a tag:**
 ```bash
-curl -X DELETE "http://localhost:8080/api/tags/organizations/MyChargingStation/tags/USER123456"
+curl -X DELETE "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/USER123456"
 ```
 
 #### **Tag Search and Filtering**
 
 **Search tags with filters:**
 ```bash
-curl "http://localhost:8080/api/tags/organizations/MyChargingStation/tags?status=Accepted&tag_type=RFID&limit=50"
+curl "http://localhost:8765/api/tags/organizations/MyChargingStation/tags?status=Accepted&tag_type=RFID&limit=50"
 ```
 
 **Get tag statistics:**
 ```bash
-curl "http://localhost:8080/api/tags/organizations/MyChargingStation/statistics"
+curl "http://localhost:8765/api/tags/organizations/MyChargingStation/statistics"
 ```
 
 #### **Bulk Operations**
 
 **Bulk add tags:**
 ```bash
-curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tags/bulk" \
+curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/bulk" \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "add",
@@ -279,7 +279,7 @@ curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tag
 
 **Import tags from JSON:**
 ```bash
-curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tags/import" \
+curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/import" \
   -H "Content-Type: application/json" \
   -d '{
     "source": "json",
@@ -290,7 +290,7 @@ curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tag
 
 **Export tags to CSV:**
 ```bash
-curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tags/export" \
+curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/export" \
   -H "Content-Type: application/json" \
   -d '{
     "format": "csv",
@@ -342,7 +342,7 @@ The broker performs comprehensive tag validation:
 #### **Tag Statistics API**
 
 ```bash
-curl "http://localhost:8080/api/tags/organizations/MyChargingStation/statistics"
+curl "http://localhost:8765/api/tags/organizations/MyChargingStation/statistics"
 ```
 
 **Response:**
@@ -368,7 +368,7 @@ curl "http://localhost:8080/api/tags/organizations/MyChargingStation/statistics"
 #### **Tag Management Status**
 
 ```bash
-curl "http://localhost:8080/api/tags/status"
+curl "http://localhost:8765/api/tags/status"
 ```
 
 **Response:**
@@ -597,12 +597,12 @@ USER003,Blocked,RFID,Blocked User,"{""role"":""user"",""reason"":""violation""}"
 
 **Check tag management status:**
 ```bash
-curl "http://localhost:8080/api/tags/status"
+curl "http://localhost:8765/api/tags/status"
 ```
 
 **Validate a specific tag:**
 ```bash
-curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tags/validate" \
+curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/validate" \
   -H "Content-Type: application/json" \
   -d '{
     "id_tag": "USER123456",
@@ -613,7 +613,7 @@ curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tag
 
 **Test tag authorization:**
 ```bash
-curl -X POST "http://localhost:8080/api/tags/organizations/MyChargingStation/tags/authorize" \
+curl -X POST "http://localhost:8765/api/tags/organizations/MyChargingStation/tags/authorize" \
   -H "Content-Type: application/json" \
   -d '"USER123456"'
 ```

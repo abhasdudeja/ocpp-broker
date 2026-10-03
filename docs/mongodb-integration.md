@@ -388,7 +388,7 @@ import requests
 
 # Save a status notification
 response = requests.post(
-    "http://localhost:8080/api/mongodb/status-notification",
+    "http://localhost:8765/api/mongodb/status-notification",
     json={
         "org_name": "orgA",
         "charger_id": "CHARGER_001",

@@ -18,6 +18,7 @@ def mock_broker_with_tag_manager():
     """Create a mock broker with tag manager"""
     broker = Mock(spec=OcppBroker)
     broker.tag_manager = Mock(spec=TagManager)
+    broker.tag_manager.mongodb_service = None  # instance attribute, not in the spec
     broker.tag_manager._tag_lists = {
         "Org1": {},
         "Org2": {}

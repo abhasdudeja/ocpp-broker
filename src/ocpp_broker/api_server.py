@@ -7,7 +7,6 @@ All REST API endpoints for the OCPP Broker:
 - MongoDB OCPP Data API (saves OCPP data to MongoDB)
 - Broker Management API (orgs, backends, etc.)
 """
-import asyncio
 import json
 import logging
 import uuid
@@ -15,7 +14,6 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, APIRouter, Query, Path, Body
 from pydantic import BaseModel, Field
-import uvicorn
 
 # Import schemas and services
 from .schemas.tags import (
@@ -177,23 +175,41 @@ class ReserveNowRequest(BaseModel):
 # API Router Creation Functions
 # ============================================================================
 
+class _TagManagerRef:
+    """
+    Resolves ``broker.tag_manager`` on every access.
+
+    The router is built before the broker has loaded its configuration (the
+    tag manager is created during config load), so it must not capture the
+    tag manager at construction time.
+    """
+
+    def __init__(self, broker):
+        self._broker = broker
+
+    def _resolve(self):
+        return getattr(self._broker, "tag_manager", None)
+
+    def __bool__(self) -> bool:
+        return self._resolve() is not None
+
+    def __getattr__(self, name: str):
+        manager = self._resolve()
+        if manager is None:
+            raise HTTPException(status_code=503, detail="Tag management not enabled")
+        return getattr(manager, name)
+
+
 def create_tag_api(broker) -> APIRouter:
     """Create tag management API router"""
     router = APIRouter(prefix="/api/tags", tags=["Tag Management"])
-    
-    # Get tag manager from broker
-    tag_manager = broker.tag_manager if broker and hasattr(broker, 'tag_manager') else None
-    
-    if not tag_manager:
-        @router.get("/status")
-        async def tag_management_status():
-            return {"enabled": False, "message": "Tag management not enabled"}
-        
-        return router
-    
+    tag_manager = _TagManagerRef(broker)
+
     @router.get("/status")
     async def tag_management_status():
         """Get tag management status"""
+        if not tag_manager:
+            return {"enabled": False, "message": "Tag management not enabled"}
         mongodb_enabled = (
             tag_manager.mongodb_service is not None and 
             tag_manager.mongodb_service.is_connected()
@@ -217,6 +233,8 @@ def create_tag_api(broker) -> APIRouter:
                 return {"success": True, "message": f"Tag {tag.id_tag} added successfully"}
             else:
                 raise HTTPException(status_code=400, detail="Failed to add tag")
+        except HTTPException:
+            raise
         except Exception as e:
             tag_logger.error(f"Error adding tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -233,6 +251,8 @@ def create_tag_api(broker) -> APIRouter:
                 return tag.model_dump()
             else:
                 raise HTTPException(status_code=404, detail="Tag not found")
+        except HTTPException:
+            raise
         except Exception as e:
             tag_logger.error(f"Error getting tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -250,6 +270,8 @@ def create_tag_api(broker) -> APIRouter:
                 return {"success": True, "message": f"Tag {id_tag} updated successfully"}
             else:
                 raise HTTPException(status_code=400, detail="Failed to update tag")
+        except HTTPException:
+            raise
         except Exception as e:
             tag_logger.error(f"Error updating tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -266,6 +288,8 @@ def create_tag_api(broker) -> APIRouter:
                 return {"success": True, "message": f"Tag {id_tag} deleted successfully"}
             else:
                 raise HTTPException(status_code=400, detail="Failed to delete tag")
+        except HTTPException:
+            raise
         except Exception as e:
             tag_logger.error(f"Error deleting tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -292,6 +316,8 @@ def create_tag_api(broker) -> APIRouter:
             )
             result = await tag_manager.search_tags(org_name, search_request)
             return result.dict()
+        except HTTPException:
+            raise
         except Exception as e:
             tag_logger.error(f"Error searching tags: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -307,6 +333,8 @@ def create_tag_api(broker) -> APIRouter:
                 return tag_list.dict()
             else:
                 return {"listVersion": 0, "tags": []}
+        except HTTPException:
+            raise
         except Exception as e:
             tag_logger.error(f"Error getting tag list: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -327,6 +355,8 @@ def create_tag_api(broker) -> APIRouter:
                     "parentIdTag": result.get("parent_id_tag")
                 }
             }
+        except HTTPException:
+            raise
         except Exception as e:
             tag_logger.error(f"Error authorizing tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -337,6 +367,8 @@ def create_tag_api(broker) -> APIRouter:
         try:
             organizations = list(tag_manager._tag_lists.keys())
             return {"organizations": organizations}
+        except HTTPException:
+            raise
         except Exception as e:
             tag_logger.error(f"Error listing organizations: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -350,6 +382,8 @@ def create_tag_api(broker) -> APIRouter:
                 "success": True,
                 "message": f"Synced tags from MongoDB{' for ' + org_name if org_name else ' (all organizations)'}"
             }
+        except HTTPException:
+            raise
         except Exception as e:
             tag_logger.error(f"Error syncing tags from MongoDB: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -1131,24 +1165,20 @@ def create_mongodb_api(broker) -> APIRouter:
 # Main API Creation
 # ============================================================================
 
+def mount_api_routers(app: FastAPI, broker) -> None:
+    """Mount every REST router (tags, OCPP commands, MongoDB) on ``app``."""
+    app.include_router(create_tag_api(broker))
+    app.include_router(create_ocpp_command_api(broker))
+    app.include_router(create_mongodb_api(broker))
+
+
 def create_api(broker):
     """
     Create FastAPI app bound to a running OcppBroker instance.
     Includes all API endpoints: Tag Management, OCPP Commands, MongoDB, and Broker Management.
     """
     app = FastAPI(title="OCPP Broker API", version="1.0")
-    
-    # Include tag management API
-    tag_router = create_tag_api(broker)
-    app.include_router(tag_router)
-    
-    # Include OCPP command API
-    ocpp_command_router = create_ocpp_command_api(broker)
-    app.include_router(ocpp_command_router)
-    
-    # Include MongoDB API
-    mongodb_router = create_mongodb_api(broker)
-    app.include_router(mongodb_router)
+    mount_api_routers(app, broker)
 
     # Broker Management API
     @app.get("/orgs")
@@ -1212,17 +1242,3 @@ def create_api(broker):
         return {"status": "config_reloaded"}
 
     return app
-
-
-async def start_api(broker, host="0.0.0.0", port=8080):
-    """
-    Launch FastAPI in background using uvicorn Server. This returns immediately and runs the server task.
-    """
-    app = create_api(broker)
-    config = uvicorn.Config(app, host=host, port=port, log_level="info")
-    server = uvicorn.Server(config)
-
-    loop = asyncio.get_event_loop()
-    # run uvicorn in background
-    loop.create_task(server.serve())
-    logger.info(f"API Server running at http://{host}:{port}")

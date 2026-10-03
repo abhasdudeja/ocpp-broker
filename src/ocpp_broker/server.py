@@ -8,6 +8,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketDisconnect
 
+from ocpp_broker.api_server import mount_api_routers
 from ocpp_broker.broker import OcppBroker
 
 # ---------------------------------------------------------------------------
@@ -26,6 +27,11 @@ logging.basicConfig(
 app = FastAPI(title="OCPP Broker", version="0.3.3")
 
 broker = OcppBroker()  # global broker instance
+
+# REST routers (tags, OCPP commands, MongoDB) share this app and port with the
+# charger WebSocket endpoint. They resolve everything through ``broker`` at
+# request time, so ``main_async`` must configure this instance, not replace it.
+mount_api_routers(app, broker)
 
 
 # ---------------------------------------------------------------------------
@@ -190,8 +196,6 @@ def load_broker_config(config_path: str | None) -> dict:
 # Main async runner
 # ---------------------------------------------------------------------------
 async def main_async(cfg: dict):
-    global broker
-    broker = OcppBroker()
     broker._cfg_path = cfg.get("_path", "config.yaml")
     await broker.load_config()
     logger.info("OCPP Broker ready — waiting for chargers...")

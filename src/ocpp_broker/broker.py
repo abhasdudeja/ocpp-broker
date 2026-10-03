@@ -41,11 +41,15 @@ class OcppBroker:
         
         # Initialize MongoDB service if configured
         await self._initialize_mongodb()
+        # Created here (not on first charger) so the REST API sees it from startup
+        self._ensure_tag_manager()
 
     async def ensure_org_initialized(self, org_name: str):
         if org_name not in self.org_registries:
             self.org_registries[org_name] = ChargerRegistry()
+        self._ensure_tag_manager()
 
+    def _ensure_tag_manager(self):
         if self.tag_manager is None:
             # Pass MongoDB service to TagManager if available
             mongodb = getattr(self, "mongodb_service", None)

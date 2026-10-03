@@ -11,6 +11,8 @@ from ocpp_broker.api_server import create_api
 from ocpp_broker.broker import OcppBroker
 from ocpp_broker.session import ChargerSession, CommandRejected, CommandResult, SessionMode
 
+from .fakes import AUTH_HEADERS
+
 
 @pytest.fixture
 def mock_broker_with_sessions():
@@ -40,7 +42,7 @@ def mock_session():
 def api_client(mock_broker_with_sessions):
     """Create API client"""
     app = create_api(mock_broker_with_sessions)
-    return TestClient(app)
+    return TestClient(app, headers=AUTH_HEADERS)
 
 
 class TestChargerEndpoints:

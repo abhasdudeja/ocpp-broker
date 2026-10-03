@@ -6,6 +6,9 @@ import json
 import websockets
 from starlette.websockets import WebSocketDisconnect
 
+API_KEY = "test-api-key"
+AUTH_HEADERS = {"X-API-Key": API_KEY}
+
 
 class FakeCharger:
     """Just enough of a Starlette WebSocket for a broker-mode session."""

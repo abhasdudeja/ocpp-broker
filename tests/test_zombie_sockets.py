@@ -9,11 +9,9 @@ play dead, and a normal websockets client that answers pings.
 import asyncio
 import base64
 import os
-import socket
 
 import pytest
 import pytest_asyncio
-import uvicorn
 import websockets
 
 from ocpp_broker import server
@@ -41,23 +39,8 @@ def test_ping_settings_default_to_20_seconds():
 
 
 @pytest_asyncio.fixture
-async def live_server(monkeypatch):
-    monkeypatch.setattr(server.broker, "config_data", ORGS)
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    cfg = {
-        "broker": {"host": "127.0.0.1", "port": port},
-        "security": {"websocket": {"ping_interval": 0.2, "ping_timeout": 0.2}},
-    }
-    uv = uvicorn.Server(server.build_uvicorn_config(server.app, cfg))
-    uv.config.log_level = "warning"
-    task = asyncio.create_task(uv.serve(sockets=[sock]))
-    await wait_for(lambda: uv.started)
-    yield port
-    uv.should_exit = True
-    await asyncio.wait_for(task, timeout=10)
-    server.broker.sessions.clear()
+async def live_server(run_server):
+    return await run_server(ORGS, ping_interval=0.2, ping_timeout=0.2)
 
 
 async def _silent_client(port: int, charger_id: str):

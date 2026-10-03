@@ -12,6 +12,8 @@ from ocpp_broker.broker import OcppBroker
 from ocpp_broker.tag_manager import TagManager
 from ocpp_broker.schemas.tags import OCPPTag, TagStatus, TagType
 
+from .fakes import AUTH_HEADERS
+
 
 @pytest.fixture
 def mock_broker_with_tag_manager():
@@ -90,14 +92,14 @@ def mock_broker_without_tag_manager():
 def api_client_with_tags(mock_broker_with_tag_manager):
     """Create API client with tag manager"""
     app = create_api(mock_broker_with_tag_manager)
-    return TestClient(app)
+    return TestClient(app, headers=AUTH_HEADERS)
 
 
 @pytest.fixture
 def api_client_without_tags(mock_broker_without_tag_manager):
     """Create API client without tag manager"""
     app = create_api(mock_broker_without_tag_manager)
-    return TestClient(app)
+    return TestClient(app, headers=AUTH_HEADERS)
 
 
 class TestTagStatus:

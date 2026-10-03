@@ -172,6 +172,11 @@ def _apply_defaults(cfg):
     cfg["security"]["websocket"].setdefault("ping_timeout", 20)
     cfg["security"].setdefault("ocpp", {"validate_message_ids": True})
     cfg["security"].setdefault("tags", {"audit_tag_changes": True})
+    # REST API: needs security.api_key (or OCPP_BROKER_API_KEY) unless explicitly opened up
+    cfg["security"].setdefault("allow_unauthenticated_api", False)
+    cfg["security"].setdefault("cors", {})
+    cfg["security"]["cors"].setdefault("allow_origins", [])  # explicit origins only
+    cfg["security"]["cors"].setdefault("allow_credentials", False)
 
     # Organization defaults
     for org in cfg["organizations"]:
@@ -198,6 +203,7 @@ def _apply_defaults(cfg):
         org.setdefault("leader_failover_timeout", 15)  # seconds the leader may be down before a follower takes over (0 = never)
         org.setdefault("tag_management", {"enabled": False})
         org.setdefault("tags", [])
+        _normalize_charger_auth(org)
         
         # Set backend defaults
         for backend in org.get("backends", []):
@@ -215,6 +221,49 @@ def _apply_defaults(cfg):
 
     return cfg
 
+
+def _normalize_charger_auth(org):
+    """
+    Normalise ``charger_auth`` (OCPP security profile 1 credentials) for one org.
+
+    ``credentials`` maps charger id -> ``{password_hash: ...}`` or
+    ``{password: ...}`` (a bare string means password). Authentication is
+    required when the org lists credentials, unless ``required`` says otherwise.
+    """
+    name = org["name"]
+    auth = org.setdefault("charger_auth", {})
+    credentials = {}
+    for charger_id, entry in (auth.get("credentials") or {}).items():
+        if isinstance(entry, str):
+            entry = {"password": entry}
+        if not isinstance(entry, dict) or not (entry.get("password_hash") or entry.get("password")):
+            raise ValueError(
+                f"Organization {name}: credentials for charger {charger_id} need password_hash or password"
+            )
+        credentials[str(charger_id)] = entry
+    auth["credentials"] = credentials
+    auth.setdefault("required", bool(credentials))
+
+    plaintext = [cid for cid, entry in credentials.items() if "password_hash" not in entry]
+    if plaintext:
+        logger.warning(
+            "Organization %s: %d charger credential(s) are stored as plaintext 'password'; "
+            "prefer 'password_hash' (run: python -m ocpp_broker.auth).",
+            name,
+            len(plaintext),
+        )
+    if auth["required"] and not credentials:
+        logger.warning(
+            "Organization %s requires charger authentication but lists no credentials: "
+            "every charger will be rejected.",
+            name,
+        )
+    if not auth["required"]:
+        logger.warning(
+            "Organization %s accepts UNAUTHENTICATED chargers. Add charger_auth.credentials to enforce "
+            "HTTP Basic auth (OCPP security profile 1).",
+            name,
+        )
 
 def _validate_config(cfg):
     """Validate configuration structure and values"""

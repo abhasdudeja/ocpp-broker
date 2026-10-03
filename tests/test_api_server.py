@@ -13,6 +13,8 @@ from ocpp_broker import api_server
 from ocpp_broker.api_server import create_api
 from ocpp_broker.broker import OcppBroker
 
+from .fakes import AUTH_HEADERS
+
 
 @pytest.fixture
 def mock_broker():
@@ -28,7 +30,7 @@ def mock_broker():
 def api_client(mock_broker):
     """Create a test client for the API"""
     app = create_api(mock_broker)
-    return TestClient(app)
+    return TestClient(app, headers=AUTH_HEADERS)
 
 
 def _backend(url, leader, connected):

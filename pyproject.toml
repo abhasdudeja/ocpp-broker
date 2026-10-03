@@ -15,7 +15,7 @@ requires-python = ">=3.10"
 dependencies = [
   "websockets>=11.0",
   "pyyaml>=6.0",
-  "fastapi>=0.110.0",
+  "fastapi>=0.111.0",
   "uvicorn>=0.29.0",
   "ocpp>=1.0.0",
   "motor>=3.3.0",
@@ -41,3 +41,4 @@ where = ["src"]
 
 [project.scripts]
 ocpp-broker-server = "ocpp_broker.server:main"
+ocpp-broker-hash-password = "ocpp_broker.auth:hash_password_cli"

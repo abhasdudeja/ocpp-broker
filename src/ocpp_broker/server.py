@@ -6,9 +6,11 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from starlette.websockets import WebSocketDisconnect
 
 from ocpp_broker.api_server import mount_api_routers
+from ocpp_broker.auth import authenticate_charger, configured_api_key
 from ocpp_broker.broker import OcppBroker
 
 # ---------------------------------------------------------------------------
@@ -34,6 +36,20 @@ broker = OcppBroker()  # global broker instance
 mount_api_routers(app, broker)
 
 
+async def _deny_unauthorized(websocket: WebSocket) -> None:
+    """Refuse the WebSocket upgrade with HTTP 401 (falls back to a plain close)."""
+    try:
+        await websocket.send_denial_response(
+            PlainTextResponse(
+                "Unauthorized",
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="OCPP", charset="UTF-8"'},
+            )
+        )
+    except RuntimeError:
+        # The ASGI server does not support denial responses; close instead (HTTP 403).
+        await websocket.close(code=1008, reason="Unauthorized")
+
 # ---------------------------------------------------------------------------
 # WebSocket endpoint for chargers
 # ---------------------------------------------------------------------------
@@ -54,6 +70,14 @@ async def ocpp_entry(websocket: WebSocket, org_name: str, charger_id: str):
         None,
     )
     
+    # OCPP security profile 1: HTTP Basic auth on the upgrade request. Checked
+    # before anything else so an unauthenticated peer learns nothing about us.
+    if not await authenticate_charger(org_entry, charger_id, websocket.headers.get("authorization")):
+        logger.warning(
+            f"❌ Rejected charger {charger_id} from org '{org_name}': authentication failed"
+        )
+        await _deny_unauthorized(websocket)
+        return
     # Determine expected subprotocol (from org config or default to ocpp1.6)
     expected_subprotocol = "ocpp1.6"  # Default
     if org_entry:
@@ -144,16 +168,35 @@ async def health_check():
 
 
 # ---------------------------------------------------------------------------
-# CORS (useful for ngrok testing)
+# CORS
 # ---------------------------------------------------------------------------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def apply_cors(application: FastAPI, cfg: dict) -> None:
+    """
+    Enable CORS for the explicit origins in ``security.cors.allow_origins``.
 
+    With no origins configured no CORS headers are sent (same-origin only).
+    ``"*"`` is accepted for credential-less use but can never be combined with
+    ``allow_credentials``: browsers refuse that pairing and it would expose
+    credentialed requests to any site.
+    """
+    cors = (cfg.get("security") or {}).get("cors") or {}
+    origins = [str(o) for o in (cors.get("allow_origins") or []) if o]
+    credentials = bool(cors.get("allow_credentials", False))
+    if not origins:
+        logger.info("CORS disabled (security.cors.allow_origins is empty)")
+        return
+    if "*" in origins:
+        if credentials:
+            logger.error("security.cors: '*' cannot be combined with allow_credentials; credentials disabled")
+            credentials = False
+        logger.warning("security.cors allows any origin; list explicit origins in production")
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=credentials,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+    )
 
 # ---------------------------------------------------------------------------
 # Config loader
@@ -216,12 +259,25 @@ def build_uvicorn_config(application: FastAPI, cfg: dict) -> uvicorn.Config:
         ws_ping_timeout=ws_cfg.get("ping_timeout", 20),
     )
 
+def _log_api_security(cfg: dict) -> None:
+    if configured_api_key(cfg):
+        logger.info("REST API protected by API key")
+    elif (cfg.get("security") or {}).get("allow_unauthenticated_api"):
+        logger.warning("REST API is UNAUTHENTICATED (security.allow_unauthenticated_api is true)")
+    else:
+        logger.warning(
+            "REST API is DISABLED: every /api request returns 503 until security.api_key "
+            "(or OCPP_BROKER_API_KEY) is set"
+        )
+
 # ---------------------------------------------------------------------------
 # Main async runner
 # ---------------------------------------------------------------------------
 async def main_async(cfg: dict):
     broker._cfg_path = cfg.get("_path", "config.yaml")
     await broker.load_config()
+    apply_cors(app, broker.config_data)
+    _log_api_security(broker.config_data)
     logger.info("OCPP Broker ready — waiting for chargers...")
 
     server = uvicorn.Server(build_uvicorn_config(app, cfg))

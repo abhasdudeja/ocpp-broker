@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 
 from ocpp_broker import api_server, server
 
+from .fakes import AUTH_HEADERS
+
 
 def test_all_routers_are_mounted_on_server_app():
     paths = set(server.app.openapi()["paths"])
@@ -15,7 +17,7 @@ def test_all_routers_are_mounted_on_server_app():
     assert "/api/mongodb/health" in paths
     assert any(p.startswith("/api/ocpp/organizations/") for p in paths)
 
-    client = TestClient(server.app)
+    client = TestClient(server.app, headers=AUTH_HEADERS)
     assert client.get("/health").status_code == 200
     assert client.get("/api/mongodb/health").status_code == 200
 
@@ -26,7 +28,7 @@ def test_start_api_is_gone():
 
 def test_tag_router_sees_tag_manager_created_after_startup(monkeypatch):
     """The tag manager is built on config load, long after the router exists."""
-    client = TestClient(server.app)
+    client = TestClient(server.app, headers=AUTH_HEADERS)
 
     monkeypatch.setattr(server.broker, "tag_manager", None)
     assert client.get("/api/tags/status").json()["enabled"] is False

@@ -13,10 +13,11 @@ import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
-from fastapi import FastAPI, HTTPException, APIRouter, Query, Path, Body
+from fastapi import Body, Depends, FastAPI, HTTPException, APIRouter, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from .auth import make_api_key_dependency
 from .session import CommandRejected
 
 # Import schemas and services
@@ -1018,12 +1019,16 @@ def create_management_api(broker) -> APIRouter:
 
 
 def mount_api_routers(app: FastAPI, broker) -> None:
-    """Mount every REST router (tags, OCPP commands, MongoDB, management) on ``app``."""
-    app.include_router(create_tag_api(broker))
-    app.include_router(create_ocpp_command_api(broker))
-    app.include_router(create_mongodb_api(broker))
-    app.include_router(create_management_api(broker))
+    """
+    Mount every REST router (tags, OCPP commands, MongoDB, management) on ``app``.
 
+    All of them sit behind the API-key dependency; there is no unprotected REST route.
+    """
+    protect = [Depends(make_api_key_dependency(broker))]
+    app.include_router(create_tag_api(broker), dependencies=protect)
+    app.include_router(create_ocpp_command_api(broker), dependencies=protect)
+    app.include_router(create_mongodb_api(broker), dependencies=protect)
+    app.include_router(create_management_api(broker), dependencies=protect)
 
 def create_api(broker):
     """Create a standalone FastAPI app exposing every REST router for ``broker``."""

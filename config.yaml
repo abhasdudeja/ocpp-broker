@@ -10,13 +10,22 @@ broker:
   ocpp_version: "1.6"
 
 # =============================================================================
-# API SERVER CONFIGURATION
+# SECURITY
 # =============================================================================
-api:
-  host: 0.0.0.0
-  port: 8080
-  enable_swagger: true
-
+# The REST API (/api/..., /orgs/...) is served on the broker port above and
+# needs an API key. Set it here or, preferably, in the environment:
+#   OCPP_BROKER_API_KEY=<long random string>
+# Clients send it as "X-API-Key: <key>" (or "Authorization: Bearer <key>").
+# With no key configured every REST request returns 503 (fails closed).
+security:
+  # api_key: "change-me"
+  # allow_unauthenticated_api: false   # true = open REST API (development only)
+  cors:
+    allow_origins: []            # explicit origins, e.g. ["https://dashboard.example.com"]
+    allow_credentials: false     # never combinable with "*"
+  websocket:
+    ping_interval: 20            # seconds between pings to chargers
+    ping_timeout: 20             # a charger that does not answer a ping in time is dropped
 # =============================================================================
 # ORGANIZATIONS CONFIGURATION
 # =============================================================================
@@ -25,7 +34,20 @@ organizations:
   - name: "orgA"
     connect_to_backend: false   # ✅ Will connect to external backends
     ocpp_subprotocol: "ocpp1.6"  # OCPP WebSocket subprotocol (e.g., "ocpp1.6", "ocpp2.0.1")
-    # Tag management for external backend mode
+    # Relay resilience (all optional; defaults shown)
+    # backend_buffer_size: 200       # frames held while the backend is unreachable
+    # backend_outage_timeout: 30     # seconds before a held CALL is answered with a CallError
+    # leader_failover_timeout: 15    # seconds the leader may be down before a follower takes over (0 = never)
+    # Charger authentication: HTTP Basic on the WebSocket upgrade (OCPP security
+    # profile 1). The username must be the charger id in the URL. Once an
+    # organization lists credentials, only those chargers may connect.
+    # Generate a hash with:  python -m ocpp_broker.auth
+    # charger_auth:
+    #   credentials:
+    #     SLTEST01:
+    #       password_hash: "pbkdf2_sha256$200000$<salt>$<hash>"
+    #     SLTEST02:
+    #       password: "plaintext-works-but-is-discouraged"    # Tag management for external backend mode
     tag_management:
       enabled: true
     # Pre-configured tags

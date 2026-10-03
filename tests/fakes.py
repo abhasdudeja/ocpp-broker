@@ -100,3 +100,42 @@ async def wait_for(predicate, timeout: float = 3.0, interval: float = 0.01):
             return
         await asyncio.sleep(interval)
     raise AssertionError("condition not reached in time")
+
+class ScriptedCharger:
+    """A charge point driven by the test, speaking OCPP-J over a real WebSocket."""
+
+    def __init__(self, ws):
+        self.ws = ws
+        self._ids = 0
+
+    @classmethod
+    async def connect(cls, port: int, org: str, charger_id: str, **kwargs):
+        ws = await websockets.connect(
+            f"ws://127.0.0.1:{port}/{org}/{charger_id}",
+            subprotocols=["ocpp1.6"],
+            ping_interval=None,
+            **kwargs,
+        )
+        return cls(ws)
+
+    def next_id(self, prefix="m") -> str:
+        self._ids += 1
+        return f"{prefix}-{self._ids}"
+
+    async def send(self, frame) -> None:
+        await self.ws.send(json.dumps(frame))
+
+    async def call(self, action: str, payload: dict, message_id: str | None = None) -> str:
+        """Send a CALL and return its id (read the answer with recv)."""
+        message_id = message_id or self.next_id()
+        await self.send([2, message_id, action, payload])
+        return message_id
+
+    async def recv(self, timeout: float = 5.0):
+        return json.loads(await asyncio.wait_for(self.ws.recv(), timeout))
+
+    async def close(self) -> None:
+        await self.ws.close()
+
+
+BOOT_PAYLOAD = {"chargePointVendor": "TestVendor", "chargePointModel": "TestModel"}

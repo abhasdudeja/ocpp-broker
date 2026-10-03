@@ -9,7 +9,7 @@ from unittest.mock import Mock, AsyncMock, MagicMock
 
 from ocpp_broker.api_server import create_api
 from ocpp_broker.broker import OcppBroker
-from ocpp_broker.session import ChargerSession, SessionMode
+from ocpp_broker.session import ChargerSession, CommandRejected, CommandResult, SessionMode
 
 
 @pytest.fixture
@@ -30,7 +30,9 @@ def mock_session():
     session.org_name = "TestOrg"
     session.mode = SessionMode.BROKER
     session.backend_conn = None
-    session.send_to_charger = AsyncMock()
+    session.send_command = AsyncMock(
+        return_value=CommandResult("m", "success", response={"status": "Accepted"})
+    )
     return session
 
 
@@ -116,10 +118,79 @@ class TestGenericCommand:
         assert data["charger_id"] == "CP_001"
         assert data["organization"] == "TestOrg"
         assert data["action"] == "Reset"
-        assert data["status"] == "sent"
+        assert data["status"] == "success"
+        assert data["response"] == {"status": "Accepted"}
         assert "message_id" in data
-        mock_session.send_to_charger.assert_called_once()
-    
+        action, payload, timeout, message_id = mock_session.send_command.call_args.args
+        assert (action, payload, timeout) == ("Reset", {"type": "Hard"}, 30)
+        assert message_id == data["message_id"]
+
+    def test_charger_call_error_is_reported_not_swallowed(self, api_client, mock_broker_with_sessions, mock_session):
+        mock_session.send_command.return_value = CommandResult(
+            "m", "error", error="NotSupported: no such feature"
+        )
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
+
+        response = api_client.post(
+            "/api/ocpp/organizations/TestOrg/chargers/CP_001/commands",
+            json={"action": "Reset", "payload": {"type": "Hard"}},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "error"
+        assert response.json()["error"] == "NotSupported: no such feature"
+
+    def test_silent_charger_returns_504_with_the_same_body(self, api_client, mock_broker_with_sessions, mock_session):
+        mock_session.send_command.return_value = CommandResult("m", "timeout", error="No response within 5s")
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
+
+        response = api_client.post(
+            "/api/ocpp/organizations/TestOrg/chargers/CP_001/commands",
+            json={"action": "Reset", "payload": {"type": "Hard"}, "timeout": 5},
+        )
+
+        assert response.status_code == 504
+        assert response.json()["status"] == "timeout"
+        assert response.json()["action"] == "Reset"
+
+    def test_invalid_command_is_422(self, api_client, mock_broker_with_sessions, mock_session):
+        mock_session.send_command.side_effect = CommandRejected("Unknown OCPP 1.6 action: Bogus")
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
+
+        response = api_client.post(
+            "/api/ocpp/organizations/TestOrg/chargers/CP_001/commands",
+            json={"action": "Bogus", "payload": {}},
+        )
+
+        assert response.status_code == 422
+        assert "Bogus" in response.json()["detail"]
+
+    def test_disconnected_charger_is_503(self, api_client, mock_broker_with_sessions, mock_session):
+        mock_session.send_command.side_effect = ConnectionError("Charger CP_001 is disconnected")
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
+
+        response = api_client.post(
+            "/api/ocpp/organizations/TestOrg/chargers/CP_001/commands",
+            json={"action": "Reset", "payload": {"type": "Hard"}},
+        )
+
+        assert response.status_code == 503
+
+    def test_command_outcome_can_be_fetched_afterwards(self, api_client, mock_broker_with_sessions, mock_session):
+        mock_broker_with_sessions.sessions = {("TestOrg", "CP_001"): mock_session}
+        sent = api_client.post(
+            "/api/ocpp/organizations/TestOrg/chargers/CP_001/commands",
+            json={"action": "Reset", "payload": {"type": "Hard"}},
+        ).json()
+
+        fetched = api_client.get(f"/api/ocpp/commands/{sent['message_id']}/response")
+
+        assert fetched.status_code == 200
+        assert fetched.json()["status"] == "success"
+        assert fetched.json()["response"] == {"status": "Accepted"}
+
+    def test_unknown_message_id_is_404(self, api_client):
+        assert api_client.get("/api/ocpp/commands/nope/response").status_code == 404
     def test_send_command_charger_not_found(self, api_client, mock_broker_with_sessions):
         """Test sending command to non-existent charger"""
         mock_broker_with_sessions.sessions = {}
@@ -176,7 +247,7 @@ class TestCoreProfileCommands:
         )
         assert response.status_code == 200
         assert response.json()["action"] == "ChangeAvailability"
-        setup_charger.send_to_charger.assert_called_once()
+        setup_charger.send_command.assert_called_once()
     
     def test_change_configuration(self, api_client, mock_broker_with_sessions, setup_charger):
         """Test ChangeConfiguration command"""

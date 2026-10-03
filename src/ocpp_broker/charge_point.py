@@ -119,8 +119,8 @@ class BrokerChargePoint(OcppChargePoint):
     services (tag manager, registry, etc.).
     """
 
-    def __init__(self, charge_point_id: str, websocket, broker, org_name: str):
-        super().__init__(charge_point_id, websocket)
+    def __init__(self, charge_point_id: str, websocket, broker, org_name: str, response_timeout: float = 30):
+        super().__init__(charge_point_id, websocket, response_timeout=response_timeout)
         self.broker = broker
         self.org_name = org_name
         self.logger = logging.getLogger(f"ocpp_broker.charge_point.{charge_point_id}")

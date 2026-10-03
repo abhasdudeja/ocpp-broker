@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import json
 import logging
+import re
+import uuid
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -11,6 +16,21 @@ from .charge_point import BrokerChargePoint, StarletteWebSocketAdapter
 
 logger = logging.getLogger("ocpp_broker.session")
 
+# Upper bound for a remote command's response wait (also the BrokerChargePoint
+# library timeout, so the per-request timeout is the only one that ever fires).
+COMMAND_MAX_TIMEOUT = 300
+
+
+class CommandRejected(ValueError):
+    """The requested command is not a valid OCPP 1.6 CALL; nothing was sent."""
+
+
+@dataclass
+class CommandResult:
+    message_id: str
+    status: str  # "success" | "error" | "timeout"
+    response: Optional[Dict[str, Any]] = None  # camelCase CallResult payload
+    error: Optional[str] = None  # "<code>: <description>" for a CallError
 
 class SessionMode(str, Enum):
     BROKER = "broker"
@@ -39,7 +59,10 @@ class ChargerSession:
         # Set by OcppBroker.handle_charger; lets a newer connection evict this one.
         self.handler_task: Optional[asyncio.Task] = None
         self.finished = asyncio.Event()
-
+        self._closed = asyncio.Event()
+        # message id -> future resolved with the charger's CallResult/CallError
+        # frame (relay mode only; broker mode uses BrokerChargePoint.call)
+        self._pending_calls: Dict[str, asyncio.Future] = {}
     async def evict(self, grace: float = 5.0):
         """
         Disconnect this session because the same charger connected again.
@@ -82,7 +105,11 @@ class ChargerSession:
     async def close(self):
         """Close session and all associated backend connections."""
         logger.info(f"Closing session for charger {self.charger_id}")
-        
+        self._closed.set()
+        for future in self._pending_calls.values():
+            if not future.done():
+                future.set_exception(ConnectionError(f"Charger {self.charger_id} disconnected"))
+        self._pending_calls.clear()        
         # Forget our backend links, unless a newer session already replaced them
         links = self.broker.org_backends.get(self.org_name, {}).get(self.charger_id)
         if links is not None and links.get("leader") is self.backend_conn:
@@ -107,6 +134,111 @@ class ChargerSession:
             await self.websocket.send_text(message)
         except Exception as exc:
             logger.warning("Failed to deliver backend message to %s: %s", self.charger_id, exc)
+
+    # ------------------------------------------------------------------ #
+    # Remote commands (REST -> charger)                                  #
+    # ------------------------------------------------------------------ #
+    async def send_command(
+        self,
+        action: str,
+        payload: Dict[str, Any],
+        timeout: float = 30,
+        message_id: Optional[str] = None,
+    ) -> CommandResult:
+        """
+        Send an OCPP CALL to the charger and wait for its CallResult/CallError.
+
+        ``payload`` uses OCPP's camelCase keys. Raises CommandRejected if the
+        request is not a valid OCPP 1.6 CALL and ConnectionError if the charger
+        is (or becomes) unreachable. A charger that does not answer within
+        ``timeout`` yields a result with status "timeout".
+        """
+        message_id = message_id or str(uuid.uuid4())
+        if self._closed.is_set():
+            raise ConnectionError(f"Charger {self.charger_id} is disconnected")
+        if self.mode is SessionMode.BROKER:
+            return await self._command_via_charge_point(action, payload, timeout, message_id)
+        return await self._command_via_relay(action, payload, timeout, message_id)
+
+    async def _command_via_charge_point(self, action, payload, timeout, message_id) -> CommandResult:
+        from ocpp.charge_point import camel_to_snake_case, remove_nones, serialize_as_dict, snake_to_camel_case
+        from ocpp.exceptions import OCPPError
+        from ocpp.messages import Call, validate_payload
+        from ocpp.v16 import call
+
+        if self.charge_point is None:
+            raise ConnectionError(f"Charger {self.charger_id} is not ready for commands yet")
+
+        if not re.fullmatch(r"[A-Za-z]+", action or ""):
+            raise CommandRejected(f"Invalid OCPP action name: {action!r}")
+        request_cls = getattr(call, action, None)
+        if not (isinstance(request_cls, type) and dataclasses.is_dataclass(request_cls)):
+            raise CommandRejected(f"Unknown OCPP 1.6 action: {action}")
+        try:
+            request = request_cls(**camel_to_snake_case(payload))
+        except TypeError as exc:
+            raise CommandRejected(f"Invalid payload for {action}: {exc}") from exc
+        try:
+            await validate_payload(
+                Call(unique_id=message_id, action=action, payload=remove_nones(snake_to_camel_case(serialize_as_dict(request)))),
+                "1.6",
+            )
+        except OCPPError as exc:
+            raise CommandRejected(f"Invalid payload for {action}: {exc}") from exc
+
+        call_task = asyncio.ensure_future(
+            self.charge_point.call(request, suppress=False, unique_id=message_id)
+        )
+        closed_task = asyncio.ensure_future(self._closed.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {call_task, closed_task}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            closed_task.cancel()
+            if not call_task.done():
+                call_task.cancel()  # releases the library's call lock; a late reply is ignored
+
+        if call_task not in done:
+            if self._closed.is_set():
+                raise ConnectionError(f"Charger {self.charger_id} disconnected before replying")
+            return CommandResult(message_id, "timeout", error=f"No response within {timeout}s")
+        try:
+            result = call_task.result()
+        except OCPPError as exc:  # CallError sent by the charger
+            return CommandResult(message_id, "error", error=f"{exc.code}: {exc.description}")
+        except asyncio.TimeoutError as exc:
+            return CommandResult(message_id, "timeout", error=str(exc))
+        response = snake_to_camel_case(remove_nones(serialize_as_dict(result)))
+        return CommandResult(message_id, "success", response=response)
+
+    async def _command_via_relay(self, action, payload, timeout, message_id) -> CommandResult:
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending_calls[message_id] = future
+        try:
+            await self.websocket.send_text(json.dumps([2, message_id, action, payload]))
+            frame = await asyncio.wait_for(future, timeout)
+        except asyncio.TimeoutError:
+            return CommandResult(message_id, "timeout", error=f"No response within {timeout}s")
+        finally:
+            self._pending_calls.pop(message_id, None)
+
+        if frame[0] == 4:  # CALLERROR: [4, id, code, description, details]
+            code = frame[2] if len(frame) > 2 else "GenericError"
+            description = frame[3] if len(frame) > 3 else ""
+            return CommandResult(message_id, "error", error=f"{code}: {description}")
+        return CommandResult(message_id, "success", response=frame[2] if len(frame) > 2 else {})
+
+    def _resolve_pending_call(self, parsed: Any) -> bool:
+        """Hand a charger CallResult/CallError to the REST caller waiting for it."""
+        if not (isinstance(parsed, list) and len(parsed) >= 2 and parsed[0] in (3, 4)):
+            return False
+        future = self._pending_calls.get(parsed[1])
+        if future is None:
+            return False
+        if not future.done():
+            future.set_result(parsed)
+        return True
 
     # ------------------------------------------------------------------ # 
     # Internal helpers                                                   # 
@@ -204,6 +336,7 @@ class ChargerSession:
             websocket=adapter,
             broker=self.broker,
             org_name=self.org_name,
+            response_timeout=COMMAND_MAX_TIMEOUT,
         )
         # Store reference to charge_point in adapter for MongoDB saving
         adapter._charge_point = self.charge_point
@@ -241,6 +374,8 @@ class ChargerSession:
                     validate=validate_messages,
                     org_entry=self.org_entry
                 )
+                if self._resolve_pending_call(parsed):
+                    continue  # reply to a broker-issued command; the backend never asked for it
                 if parsed and isinstance(parsed, list) and len(parsed) >= 3:
                     action = parsed[2]
                     logger.info("[%s] → %s → backend", self.charger_id, action)

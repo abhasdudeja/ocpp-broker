@@ -7,13 +7,17 @@ All REST API endpoints for the OCPP Broker:
 - MongoDB OCPP Data API (saves OCPP data to MongoDB)
 - Broker Management API (orgs, backends, etc.)
 """
-import json
+import asyncio
 import logging
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, APIRouter, Query, Path, Body
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from .session import CommandRejected
 
 # Import schemas and services
 from .schemas.tags import (
@@ -34,6 +38,8 @@ from .mongodb_service import (
 logger = logging.getLogger("ocpp_broker.api")
 tag_logger = logging.getLogger("ocpp_broker.tag_api")
 ocpp_logger = logging.getLogger("ocpp_broker.ocpp_command_api")
+
+MAX_REMEMBERED_COMMANDS = 1000
 mongodb_logger = logging.getLogger("ocpp_broker.mongodb_api")
 
 
@@ -389,66 +395,85 @@ def create_ocpp_command_api(broker) -> APIRouter:
     """Create OCPP command API router"""
     router = APIRouter(prefix="/api/ocpp", tags=["OCPP Commands"])
     
-    # Store pending command responses
-    pending_responses: Dict[str, Dict[str, Any]] = {}
-    
-    async def send_ocpp_command(org_name: str, charger_id: str, action: str, payload: Dict[str, Any], timeout: int = 30) -> Dict[str, Any]:
-        """Send OCPP command to charger and wait for response"""
+    # Outcome of every command, newest last. Bounded so it cannot grow forever;
+    # GET /commands/{message_id}/response reads it.
+    pending_responses: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+
+    def _remember(message_id: str, record: Dict[str, Any]) -> None:
+        pending_responses[message_id] = record
+        while len(pending_responses) > MAX_REMEMBERED_COMMANDS:
+            pending_responses.popitem(last=False)
+
+    async def _save_to_mongodb(**fields) -> None:
+        mongodb = getattr(broker, "mongodb_service", None)
+        if mongodb and mongodb.is_connected():
+            try:
+                await mongodb.save_ocpp_message(**fields)
+            except Exception as e:
+                ocpp_logger.warning(f"Failed to save {fields.get('action')} to MongoDB: {e}")
+
+    async def send_ocpp_command(org_name: str, charger_id: str, action: str, payload: Dict[str, Any], timeout: int = 30):
+        """
+        Send an OCPP command to a charger and return the charger's actual reply.
+
+        Broker mode goes through BrokerChargePoint.call(); relay mode intercepts
+        the matching CallResult by message id. The reply is in ``response``
+        (CallResult payload) or ``error`` (CallError); a charger that stays
+        silent for ``timeout`` seconds yields HTTP 504 with the same body.
+        """
         session = broker.sessions.get((org_name, charger_id))
         if not session:
             raise HTTPException(status_code=404, detail=f"Charger {org_name}/{charger_id} not connected")
-        
-        # Generate unique message ID
+
         message_id = str(uuid.uuid4())
-        
-        # Create OCPP message: [MessageType, UniqueID, Action, Payload]
-        # Type 2 = CALL (from Central System to Charge Point)
-        ocpp_message = [2, message_id, action, payload]
-        message_json = json.dumps(ocpp_message)
-        
-        # Store pending response
-        pending_responses[message_id] = {
+        record: Dict[str, Any] = {
+            "message_id": message_id,
             "organization": org_name,
             "charger_id": charger_id,
             "action": action,
             "status": "pending",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "response": None,
+            "error": None,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        
+        _remember(message_id, record)
+
+        await _save_to_mongodb(
+            org_name=org_name, charger_id=charger_id, message_type="call", action=action,
+            payload=payload, direction="broker_to_charger", message_id=message_id,
+        )
+
         try:
-            # Save command to MongoDB before sending
-            mongodb = getattr(broker, "mongodb_service", None)
-            if mongodb and mongodb.is_connected():
-                try:
-                    await mongodb.save_ocpp_message(
-                        org_name=org_name,
-                        charger_id=charger_id,
-                        message_type="call",
-                        action=action,
-                        payload=payload,
-                        direction="broker_to_charger",
-                        message_id=message_id
-                    )
-                except Exception as e:
-                    ocpp_logger.warning(f"Failed to save command {action} to MongoDB: {e}")
-            
-            # Send command to charger
-            await session.send_to_charger(message_json)
-            ocpp_logger.info(f"Sent OCPP command {action} to charger {org_name}/{charger_id} (message_id: {message_id})")
-            
-            return {
-                "message_id": message_id,
-                "organization": org_name,
-                "charger_id": charger_id,
-                "action": action,
-                "status": "sent",
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+            result = await session.send_command(action, payload, timeout, message_id)
+        except CommandRejected as e:
+            pending_responses.pop(message_id, None)
+            raise HTTPException(status_code=422, detail=str(e))
+        except ConnectionError as e:
+            record.update(status="error", error=str(e))
+            raise HTTPException(status_code=503, detail=str(e))
+        except asyncio.CancelledError:
+            record.update(status="cancelled", error="Request was cancelled before the charger replied")
+            raise
         except Exception as e:
             ocpp_logger.error(f"Error sending OCPP command to {org_name}/{charger_id}: {e}")
-            pending_responses.pop(message_id, None)
+            record.update(status="error", error=f"Failed to send command: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to send command: {str(e)}")
-    
+
+        record.update(status=result.status, response=result.response, error=result.error)
+        ocpp_logger.info(
+            f"OCPP command {action} to {org_name}/{charger_id} finished: {result.status} (message_id: {message_id})"
+        )
+        if result.status != "timeout":
+            await _save_to_mongodb(
+                org_name=org_name, charger_id=charger_id,
+                message_type="call_result" if result.status == "success" else "call_error",
+                action=action,
+                payload=result.response if result.response is not None else {"error": result.error},
+                direction="charger_to_broker", message_id=message_id,
+            )
+        if result.status == "timeout":
+            return JSONResponse(status_code=504, content=record)
+        return record
     @router.get("/organizations/{org_name}/chargers")
     async def list_chargers(org_name: str = Path(..., description="Organization name")):
         """List all connected chargers for an organization"""

@@ -44,9 +44,9 @@ organizations:
     # Generate a hash with:  python -m ocpp_broker.auth
     # charger_auth:
     #   credentials:
-    #     SLTEST01:
+    #     CP001:
     #       password_hash: "pbkdf2_sha256$200000$<salt>$<hash>"
-    #     SLTEST02:
+    #     CP002:
     #       password: "plaintext-works-but-is-discouraged"    # Tag management for external backend mode
     tag_management:
       enabled: true
@@ -61,12 +61,12 @@ organizations:
           department: "IT"
     backends:
       - id: backendA1
-        url: ws://ocppmgl.ev-opt.com/EV/EDMS
+        url: ws://backend.example.com/ocpp  # replace with your central system's WebSocket base URL
         leader: true
         ocpp_subprotocol: "ocpp1.6"  # Backend-specific subprotocol (overrides org-level)
         chargers:
-          - SLTEST01
-          - SLTEST02
+          - CP001
+          - CP002
 
 # =============================================================================
 # OCPP 1.6 SPECIFIC CONFIGURATION

@@ -245,6 +245,15 @@
             "title": "Revision",
             "type": "string"
           },
+          "store": {
+            "description": "Where the organizations live: the configuration file, or MongoDB (admin.store)",
+            "enum": [
+              "file",
+              "mongodb"
+            ],
+            "title": "Store",
+            "type": "string"
+          },
           "writable": {
             "title": "Writable",
             "type": "boolean"
@@ -262,6 +271,7 @@
           }
         },
         "required": [
+          "store",
           "path",
           "revision",
           "modified",

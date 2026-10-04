@@ -326,21 +326,21 @@ def config_file(tmp_path):
 
 
 def orgs(store):
-    return store.snapshot().organizations
+    return store.snapshot_sync().organizations
 
 
 def test_a_snapshot_names_the_file_by_its_content(config_file):
     store = FileConfigStore(str(config_file))
-    first = store.snapshot()
+    first = store.snapshot_sync()
     assert first.organizations == [{"name": "Fleet", "connect_to_backend": False}]
-    assert store.snapshot().revision == first.revision
+    assert store.snapshot_sync().revision == first.revision
     config_file.write_text(CONFIG + "# more\n", encoding="utf-8")
-    assert store.snapshot().revision != first.revision
+    assert store.snapshot_sync().revision != first.revision
 
 
 def test_a_snapshot_is_a_copy_the_caller_may_change(config_file):
     store = FileConfigStore(str(config_file))
-    store.snapshot().organizations[0]["name"] = "Changed"
+    store.snapshot_sync().organizations[0]["name"] = "Changed"
     assert orgs(store)[0]["name"] == "Fleet"
 
 
@@ -348,13 +348,13 @@ def test_a_file_that_is_not_yaml_or_not_a_mapping_is_reported(config_file):
     store = FileConfigStore(str(config_file))
     config_file.write_text("a: [unclosed", encoding="utf-8")
     with pytest.raises(ConfigError, match="not valid YAML"):
-        store.snapshot()
+        store.snapshot_sync()
     config_file.write_text("- just\n- a list\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="does not hold a mapping"):
-        store.snapshot()
+        store.snapshot_sync()
     config_file.write_text("organizations: [1, 2]\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="not a list of mappings"):
-        store.snapshot()
+        store.snapshot_sync()
 
 
 def test_a_missing_file_is_not_writable(tmp_path):
@@ -362,40 +362,40 @@ def test_a_missing_file_is_not_writable(tmp_path):
     writable, reason = store.writable()
     assert writable is False and "without a configuration file" in reason
     with pytest.raises(NotWritable):
-        store.snapshot()
+        store.snapshot_sync()
 
 
 def test_a_plan_says_when_the_file_is_not_the_one_the_change_was_made_from(config_file):
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
-    assert store.plan(snap.revision, snap.organizations).ok
-    plan = store.plan("0123456789abcdef", snap.organizations)
+    snap = store.snapshot_sync()
+    assert store.plan_sync(snap.revision, snap.organizations).ok
+    plan = store.plan_sync("0123456789abcdef", snap.organizations)
     assert not plan.ok and plan.base_revision != plan.current_revision and "has changed" in plan.errors[0]
 
 
 def test_a_plan_has_the_errors_the_loader_finds(config_file):
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
+    snap = store.snapshot_sync()
     bad = [{"name": "Fleet", "backends": [{"local": True}, {"local": True}]}]
-    plan = store.plan(snap.revision, bad)
+    plan = store.plan_sync(snap.revision, bad)
     assert not plan.ok and "only one backend can be local" in plan.errors[0]
 
 
 def test_a_plan_shows_only_the_warnings_the_change_adds(config_file):
     config_file.write_text(CONFIG + "  - name: Other\n    connect_to_backend: false\n", encoding="utf-8")
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
-    unchanged = store.plan(snap.revision, snap.organizations)
+    snap = store.snapshot_sync()
+    unchanged = store.plan_sync(snap.revision, snap.organizations)
     assert unchanged.warnings == [], "both organizations are open to any charger, and that was already so"
-    added = store.plan(snap.revision, [*snap.organizations, {"name": "Third", "connect_to_backend": False}])
+    added = store.plan_sync(snap.revision, [*snap.organizations, {"name": "Third", "connect_to_backend": False}])
     assert len(added.warnings) == 1 and "Third" in added.warnings[0]
 
 
 def test_a_plan_has_the_warnings_the_loader_gives_and_logs_none(config_file, caplog):
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
+    snap = store.snapshot_sync()
     with caplog.at_level("WARNING", logger="ocpp_broker.config"):
-        plan = store.plan(snap.revision, [*snap.organizations, {"name": "Fresh", "connect_to_backend": False}])
+        plan = store.plan_sync(snap.revision, [*snap.organizations, {"name": "Fresh", "connect_to_backend": False}])
     assert any("UNAUTHENTICATED" in w and "Fresh" in w for w in plan.warnings)
     assert "UNAUTHENTICATED" not in caplog.text, "checking a change is not news"
 
@@ -409,16 +409,16 @@ def test_check_reports_a_shape_the_loader_did_not_expect():
 async def test_applying_writes_the_organizations_and_nothing_else_changes_in_the_file(config_file, monkeypatch):
     monkeypatch.setenv("MONGODB_CONNECTION_STRING", "mongodb://user:from-the-environment@host/")
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
+    snap = store.snapshot_sync()
     new = snap.organizations + [{"name": "Newco", "connect_to_backend": False}]
-    applied = await store.apply(store.plan(snap.revision, new))
+    applied = await store.apply(store.plan_sync(snap.revision, new))
 
     written = yaml.safe_load(config_file.read_text(encoding="utf-8"))
     assert [o["name"] for o in written["organizations"]] == ["Fleet", "Newco"]
     assert written["broker"] == {"host": "0.0.0.0", "port": 8765} and written["mongodb"] == {"enabled": False}
     assert list(written) == ["broker", "mongodb", "organizations"], "the sections keep their order"
     assert "from-the-environment" not in config_file.read_text(encoding="utf-8"), "a value from the environment is not written to the file"
-    assert applied.revision == store.snapshot().revision
+    assert applied.revision == store.snapshot_sync().revision
     assert [o["name"] for o in applied.runtime["organizations"]] == ["Fleet", "Newco"]
     assert applied.runtime["organizations"][1]["backend_buffer_size"] == 200, "the runtime configuration has the defaults the file does not"
     assert "backend_buffer_size" not in written["organizations"][1]
@@ -427,8 +427,8 @@ async def test_applying_writes_the_organizations_and_nothing_else_changes_in_the
 @pytest.mark.asyncio
 async def test_applying_keeps_a_copy_of_the_file_as_it_was(config_file):
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
-    applied = await store.apply(store.plan(snap.revision, [{"name": "Other", "connect_to_backend": False}]))
+    snap = store.snapshot_sync()
+    applied = await store.apply(store.plan_sync(snap.revision, [{"name": "Other", "connect_to_backend": False}]))
     copy = config_file.parent / applied.backup
     assert copy.read_text(encoding="utf-8") == CONFIG, "the copy is the file as it was, comments included"
     assert "my notes" not in config_file.read_text(encoding="utf-8").split("\n", 2)[2], "the comments of the old file are gone from the new one"
@@ -440,8 +440,8 @@ async def test_two_changes_in_one_second_keep_two_copies(config_file):
     store = FileConfigStore(str(config_file))
     names = set()
     for number in range(3):
-        snap = store.snapshot()
-        applied = await store.apply(store.plan(snap.revision, [{"name": f"O{number}", "connect_to_backend": False}]))
+        snap = store.snapshot_sync()
+        applied = await store.apply(store.plan_sync(snap.revision, [{"name": f"O{number}", "connect_to_backend": False}]))
         names.add(applied.backup)
     assert len(names) == 3 and all((config_file.parent / name).exists() for name in names)
 
@@ -450,8 +450,8 @@ async def test_two_changes_in_one_second_keep_two_copies(config_file):
 async def test_only_the_latest_copies_are_kept(config_file):
     store = FileConfigStore(str(config_file), keep_backups=2)
     for number in range(5):
-        snap = store.snapshot()
-        await store.apply(store.plan(snap.revision, [{"name": f"O{number}", "connect_to_backend": False}]))
+        snap = store.snapshot_sync()
+        await store.apply(store.plan_sync(snap.revision, [{"name": f"O{number}", "connect_to_backend": False}]))
     copies = sorted(p.name for p in config_file.parent.iterdir() if ".bak-" in p.name)
     assert len(copies) == 2
     kept = [(config_file.parent / name).read_text(encoding="utf-8") for name in copies]
@@ -461,8 +461,8 @@ async def test_only_the_latest_copies_are_kept(config_file):
 @pytest.mark.asyncio
 async def test_a_file_changed_by_hand_in_between_is_not_overwritten(config_file):
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
-    plan = store.plan(snap.revision, [{"name": "Mine", "connect_to_backend": False}])
+    snap = store.snapshot_sync()
+    plan = store.plan_sync(snap.revision, [{"name": "Mine", "connect_to_backend": False}])
     config_file.write_text(CONFIG + "# edited by hand\n", encoding="utf-8")
     with pytest.raises(Conflict):
         await store.apply(plan)
@@ -473,8 +473,8 @@ async def test_a_file_changed_by_hand_in_between_is_not_overwritten(config_file)
 @pytest.mark.asyncio
 async def test_a_plan_with_errors_is_not_applied(config_file):
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
-    plan = store.plan(snap.revision, [{"name": "X", "backends": [{"local": True}, {"local": True}]}])
+    snap = store.snapshot_sync()
+    plan = store.plan_sync(snap.revision, [{"name": "X", "backends": [{"local": True}, {"local": True}]}])
     with pytest.raises(ConfigError, match="only one backend can be local"):
         await store.apply(plan)
     assert config_file.read_text(encoding="utf-8") == CONFIG
@@ -483,8 +483,8 @@ async def test_a_plan_with_errors_is_not_applied(config_file):
 @pytest.mark.asyncio
 async def test_a_failed_write_leaves_the_file_as_it_was_and_no_stray_files(config_file, monkeypatch):
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
-    plan = store.plan(snap.revision, [{"name": "X", "connect_to_backend": False}])
+    snap = store.snapshot_sync()
+    plan = store.plan_sync(snap.revision, [{"name": "X", "connect_to_backend": False}])
 
     def refuse(*args, **kwargs):
         raise OSError("disk full")
@@ -503,8 +503,8 @@ async def test_the_file_keeps_its_permissions(config_file):
     os.chmod(config_file, 0o640)  # not what a temporary file is created with (0o600)
     before = stat.S_IMODE(os.stat(config_file).st_mode)
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
-    await store.apply(store.plan(snap.revision, [{"name": "X", "connect_to_backend": False}]))
+    snap = store.snapshot_sync()
+    await store.apply(store.plan_sync(snap.revision, [{"name": "X", "connect_to_backend": False}]))
     assert stat.S_IMODE(os.stat(config_file).st_mode) == before
 
 
@@ -513,8 +513,8 @@ async def test_changes_made_at_the_same_time_are_taken_one_after_the_other(confi
     import asyncio
 
     store = FileConfigStore(str(config_file))
-    snap = store.snapshot()
-    plans = [store.plan(snap.revision, [{"name": f"O{n}", "connect_to_backend": False}]) for n in range(3)]
+    snap = store.snapshot_sync()
+    plans = [store.plan_sync(snap.revision, [{"name": f"O{n}", "connect_to_backend": False}]) for n in range(3)]
     outcomes = await asyncio.gather(*(store.apply(p) for p in plans), return_exceptions=True)
     assert sum(1 for o in outcomes if not isinstance(o, Exception)) == 1, "one wins; the others find the file changed"
     assert all(isinstance(o, Conflict) for o in outcomes if isinstance(o, Exception))

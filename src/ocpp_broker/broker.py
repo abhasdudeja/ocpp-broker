@@ -1,4 +1,5 @@
 import asyncio
+import os
 import logging
 import time
 import uuid
@@ -51,6 +52,10 @@ class OcppBroker:
         # The admin API changes organizations through these (admin_api.py); made when first used
         self.admin_store: Any = None
         self.audit: Any = None
+        # With admin.store: mongodb the organizations live in MongoDB; this is the revision this instance runs on
+        self.organizations_revision: Optional[str] = None
+        self._org_watch: Optional[asyncio.Future] = None
+        self._org_sync_failed: Optional[str] = None
         self._history_tasks: set = set()
         self._mongo_retry: Optional[asyncio.Future] = None
         self._presence_indexed = False
@@ -81,6 +86,8 @@ class OcppBroker:
         
         # Initialize MongoDB service if configured
         await self._initialize_mongodb()
+        if self.organizations_in_mongodb():
+            await self._start_organization_sync()
         # Created here (not on first charger) so the REST API sees it from startup
         self._ensure_tag_manager()
 
@@ -240,6 +247,64 @@ class OcppBroker:
                 if restored:
                     logger.info("Restored %d transaction id record(s) for %s/%s", restored, org_name, charger_id)
         return table
+
+    def organizations_in_mongodb(self) -> bool:
+        return (self.config_data.get("admin") or {}).get("store") == "mongodb"
+
+    async def sync_organizations(self) -> bool:
+        """
+        Make this instance run on the organizations stored in MongoDB (admin.store: mongodb). The first instance
+        to find none stores the organizations of its own configuration file. True if the organizations in use changed.
+        """
+        from .config_store import FileConfigStore, check
+        from .mongo_config_store import MongoConfigStore, encode, new_revision
+
+        service = getattr(self, "mongodb_service", None)
+        if service is None or not service.is_connected():
+            return False
+        document = await service.get_organizations()
+        if document is None:
+            path = self._cfg_path
+            seed = FileConfigStore(path).snapshot_sync().organizations if os.path.isfile(path) else []
+            if await service.seed_organizations(encode(seed), new_revision()):
+                logger.info("Stored the %d organization(s) of the configuration file in MongoDB; from now on MongoDB holds them", len(seed))
+            document = await service.get_organizations()
+            if document is None:
+                return False
+        revision = str(document["revision"])
+        if revision == self.organizations_revision:
+            return False
+        errors, _, runtime = check({"organizations": MongoConfigStore.decode(document)})
+        if errors or runtime is None:
+            if self._org_sync_failed != revision:  # said once, not at every poll
+                self._org_sync_failed = revision
+                logger.error("The organizations stored in MongoDB (revision %s) cannot be used, so this instance keeps the ones it has: %s", revision, "; ".join(errors))
+            return False
+        self.use_organizations(runtime["organizations"])
+        self.organizations_revision = revision
+        self._org_sync_failed = None
+        logger.info("Now running on the organizations stored in MongoDB (revision %s): %s", revision, ", ".join(o["name"] for o in runtime["organizations"]) or "none")
+        return True
+
+    async def _start_organization_sync(self) -> None:
+        poll = float((self.config_data.get("admin") or {}).get("poll_seconds", 5))
+        try:
+            await self.sync_organizations()
+        except Exception as exc:
+            logger.warning("Could not read the organizations from MongoDB yet: %s", exc)
+
+        async def watch() -> None:
+            while True:
+                await asyncio.sleep(poll)
+                try:
+                    await self.sync_organizations()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("Could not look for changed organizations in MongoDB: %s", exc)
+
+        if self._org_watch is None or self._org_watch.done():
+            self._org_watch = asyncio.ensure_future(watch())
 
     def use_organizations(self, organizations: list) -> None:
         """
@@ -480,3 +545,5 @@ class OcppBroker:
             task.cancel()
         for pending in list(self._history_tasks):
             pending.cancel()
+        if self._org_watch is not None and not self._org_watch.done():
+            self._org_watch.cancel()

@@ -80,6 +80,7 @@ export const adminOrg = (overrides: Partial<AdminOrg> = {}): AdminOrg => ({
 })
 
 export const adminConfig = (overrides: Partial<AdminConfig> = {}): AdminConfig => ({
+  store: 'file',
   path: '/etc/ocpp-broker/config.yaml',
   revision: 'rev-1',
   modified: '2026-10-04T10:00:00Z',
@@ -177,7 +178,10 @@ export function mockApi(routes: Record<string, unknown | (() => unknown)>, event
   return mockFetch((url, init) => {
     if (url.startsWith('/api/events')) return events ? events(init) : respond({ detail: 'no event stream' }, 404)
     const prefix = prefixes.find((p) => url.startsWith(p))
-    const standard = defaults.find(([pattern]) => pattern.test(url) && (prefix === undefined || prefix.length < url.length))
+    // A route the test gave for this very address (with or without a query) is its own; a route for a shorter address
+    // (a charger's page) does not stand in for what is under it (the charger's commands)
+    const given = prefix !== undefined && (url === prefix || url.startsWith(`${prefix}?`))
+    const standard = defaults.find(([pattern]) => pattern.test(url) && !given)
     if (standard) return respond(standard[1])
     // The charger page asks for its status history; a test about something else gets an empty history
     if (prefix === undefined && /^\/api\/history\/statuses/.test(url)) return respond({ available: true, reason: null, next_cursor: null, items: [] })

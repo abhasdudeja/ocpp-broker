@@ -1286,6 +1286,12 @@ export interface components {
              * @description Names the file as it is; changes must say which revision they were made from
              */
             revision: string;
+            /**
+             * Store
+             * @description Where the organizations live: the configuration file, or MongoDB (admin.store)
+             * @enum {string}
+             */
+            store: "file" | "mongodb";
             /** Writable */
             writable: boolean;
             /** Writable Reason */

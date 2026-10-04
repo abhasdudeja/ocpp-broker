@@ -8,7 +8,9 @@ It is **off by default**, because it lets whoever holds an API key rewrite the c
 admin:
   enabled: true              # default false: every /api/admin route answers 403
   audit_log: /var/log/ocpp-broker/admin-audit.jsonl   # default: next to the configuration file
-  keep_backups: 10           # copies of the configuration kept, default 10
+  keep_backups: 10           # copies of the configuration (or earlier versions in MongoDB) kept, default 10
+  store: file                # file (default) or mongodb: where the organizations live
+  poll_seconds: 5            # with store: mongodb, how often an instance looks for a change made elsewhere
 ```
 
 Turn it on only where the API key is as private as the configuration file itself. Give each person their own labelled key (`security.api_keys`, see [Configuration](configuration.md)) so the audit log says who did what.
@@ -37,7 +39,7 @@ A change is a list of `upsert` (add the organization, or give the one with that 
 
 **When the file changed meanwhile.** Every change names the revision it was made from. If the file is not that revision any more (someone edited it, or another change was applied), the change is refused with `409` rather than overwriting what is there. Read again and redo it.
 
-**Several instances.** Each broker instance has its own configuration file. A change applied to one is not seen by the others until they are restarted (or changed the same way); keep that in mind before using this with more than one instance, or keep the file in one place and restart the others.
+**Several instances.** With the default `store: file` each broker instance has its own configuration file, and a change applied to one is not seen by the others until they are restarted or changed the same way. To share the organizations, keep them in MongoDB:
 
 ## What chargers see
 
@@ -59,10 +61,32 @@ It is kept in memory (the latest 500, what `GET /api/admin/audit` and the consol
 
 With one shared API key the label is `api-key` for everyone. Give people their own labelled keys to tell them apart.
 
+## Keeping the organizations in MongoDB
+
+```yaml
+mongodb:
+  enabled: true
+  connection_string: "mongodb://..."
+admin:
+  enabled: true
+  store: mongodb
+  poll_seconds: 5
+```
+
+With `admin.store: mongodb` the organizations live in MongoDB (collection `config_organizations`) and every broker instance that uses the same database runs on them.
+
+- **Starting.** The first instance to start with an empty database stores the `organizations` of its own configuration file. From then on **MongoDB is the truth** and the `organizations` in every instance's file are no longer read (the file still holds ports, MongoDB, security and the other sections; edit those and restart as before). If MongoDB is not reachable at startup the instance runs on its file until it is.
+- **Changing.** The admin API and pages work as described above, against MongoDB: the same read, check and apply, with the same revision check. A change is one atomic compare-and-set on the revision, so two people applying at the same moment cannot both win; the loser is told the organizations changed. Nothing is lost on saving (there are no comments in a database) and the earlier versions are kept in `config_organizations_history` (the latest `keep_backups`).
+- **Reaching the other instances.** Each instance looks at the revision every `poll_seconds` and switches to the new organizations when it changed, so a change takes up to that long to reach all of them. Chargers connected to those instances keep their settings until they reconnect, as with the file.
+- **`drop_connections`** disconnects the chargers connected to the instance that handled the request; the other instances' chargers keep their connections until they reconnect.
+- **Audit log.** Every instance writes its entries to its own file and also to the collection `admin_audit`; the audit page reads the collection, so it shows the changes made through any instance.
+- **If the stored organizations cannot be used** (someone edited the database by hand) an instance logs it once and keeps the organizations it has.
+- Needs `mongodb.enabled: true` (the broker refuses to start otherwise). While MongoDB is down the admin routes answer `503`, and the instances keep running on what they have.
+
 ## What this is not
 
 - It does not manage users, roles or permissions: every API key opens everything the API allows, the admin routes included.
-- It does not change the sections other than `organizations`; edit the file and restart for those.
-- It does not undo: to go back, copy a `config.yaml.bak-...` file over the configuration and restart (or apply the reverse change).
+- It does not change the sections other than `organizations`; edit the file and restart for those (each instance has its own).
+- It does not undo: to go back, copy a `config.yaml.bak-...` file over the configuration and restart (or apply the reverse change). With `store: mongodb`, apply the reverse change; the earlier versions are in `config_organizations_history`.
 
 See the [API reference](api-reference.md#admin-apiadmin) for the routes and the [web console](web-console.md#admin) for the page.

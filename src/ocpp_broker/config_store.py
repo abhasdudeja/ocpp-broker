@@ -143,7 +143,7 @@ class FileConfigStore:
             raise ConfigError("The configuration file does not hold a mapping")
         return document, content
 
-    def snapshot(self) -> Snapshot:
+    def snapshot_sync(self) -> Snapshot:
         document, content = self._read()
         organizations = document.get("organizations") or []
         if not isinstance(organizations, list) or not all(isinstance(o, dict) for o in organizations):
@@ -152,7 +152,7 @@ class FileConfigStore:
         return Snapshot(self.path, revision_of(content), modified, copy.deepcopy(organizations))
 
     # ------------------------------------------------------------------ planning
-    def plan(self, revision: str, organizations: List[Dict[str, Any]]) -> Plan:
+    def plan_sync(self, revision: str, organizations: List[Dict[str, Any]]) -> Plan:
         """
         Check ``organizations`` as the new organizations of the file. ``revision`` is the file they were made from;
         the plan says if that is not the file as it is now.
@@ -169,8 +169,14 @@ class FileConfigStore:
             plan.errors.insert(0, "The configuration file has changed since this page loaded it. Reload, then make the change again.")
         return plan
 
+    async def snapshot(self) -> Snapshot:
+        return await asyncio.to_thread(self.snapshot_sync)
+
+    async def plan(self, revision: str, organizations: List[Dict[str, Any]]) -> Plan:
+        return await asyncio.to_thread(self.plan_sync, revision, organizations)
+
     # ------------------------------------------------------------------ applying
-    async def apply(self, plan: Plan) -> Applied:
+    async def apply(self, plan: Plan, updated_by: str = "") -> Applied:
         """Write a plan that is ok. Raises ``Conflict`` if the file is no longer the one it was made from."""
         if not plan.ok:
             raise ConfigError("; ".join(plan.errors))

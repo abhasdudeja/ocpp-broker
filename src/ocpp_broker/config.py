@@ -315,9 +315,14 @@ def _validate_admin(admin):
     """``admin``: whether the admin API may change organizations, where its audit log goes, how many backups are kept."""
     if not isinstance(admin, dict):
         raise ValueError("admin must be a mapping")
-    unknown = sorted(set(admin) - {"enabled", "audit_log", "keep_backups"})
+    unknown = sorted(set(admin) - {"enabled", "audit_log", "keep_backups", "store", "poll_seconds"})
     if unknown:
-        raise ValueError(f"admin.{unknown[0]} is not known; use enabled, audit_log or keep_backups")
+        raise ValueError(f"admin.{unknown[0]} is not known; use enabled, audit_log, keep_backups, store or poll_seconds")
+    if admin.get("store", "file") not in ("file", "mongodb"):
+        raise ValueError("admin.store must be file or mongodb")
+    poll = admin.get("poll_seconds")
+    if poll is not None and (isinstance(poll, bool) or not isinstance(poll, (int, float)) or poll < 1):
+        raise ValueError("admin.poll_seconds must be a number of seconds, 1 or more")
     if "enabled" in admin and not isinstance(admin["enabled"], bool):
         raise ValueError("admin.enabled must be true or false")
     if "audit_log" in admin and (not isinstance(admin["audit_log"], str) or not admin["audit_log"].strip()):
@@ -373,6 +378,8 @@ def _validate_config(cfg):
     
     validate_history_config(cfg.get("mongodb") or {})
     _validate_admin(cfg.get("admin") or {})
+    if (cfg.get("admin") or {}).get("store") == "mongodb" and not (cfg.get("mongodb") or {}).get("enabled"):
+        raise ValueError("admin.store: mongodb needs MongoDB (mongodb.enabled: true)")
     _validate_security(cfg.get("security") or {})
 
     level = (cfg.get("logging") or {}).get("level", "INFO")

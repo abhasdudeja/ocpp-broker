@@ -16,7 +16,7 @@ import logging
 import os
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Deque, List, Optional
+from typing import Any, Callable, Deque, List, Optional
 
 from .schemas.admin import AuditEntry
 
@@ -31,6 +31,8 @@ class AuditLog:
         self.path = path
         self._entries: Deque[AuditEntry] = deque(maxlen=keep)
         self._warned = False
+        # Called with every entry as it is recorded (the admin API sets it to copy entries into MongoDB)
+        self.mirror: Optional[Callable[[AuditEntry], None]] = None
         if path:
             self._load()
 
@@ -84,6 +86,11 @@ class AuditLog:
                 if not self._warned:
                     self._warned = True
                     logger.warning("Could not write the audit log %s (kept in memory only): %s", self.path, exc)
+        if self.mirror is not None:
+            try:
+                self.mirror(entry)
+            except Exception as exc:  # the copy is a convenience; the entry is already kept
+                logger.warning("Could not copy an audit entry to MongoDB: %s", exc)
         logger.info(
             "admin %s %s by %s from %s: %s",
             action, outcome, key_label or "unknown key", source or "unknown address", "; ".join(summary) or detail or "",

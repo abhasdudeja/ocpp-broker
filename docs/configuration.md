@@ -243,9 +243,11 @@ admin:
   enabled: false             # true: the admin API may change organizations and credentials
   audit_log: /var/log/ocpp-broker/admin-audit.jsonl   # default: <configuration file>.audit.jsonl
   keep_backups: 10           # copies of the configuration file kept when it is rewritten
+  store: file                # file, or mongodb to keep the organizations in MongoDB (shared by instances)
+  poll_seconds: 5            # with store: mongodb, how often an instance looks for a change
 ```
 
-See [Changing organizations while the broker runs](admin.md). Unknown names, a non-boolean `enabled` and a `keep_backups` that is not a whole number of 1 or more stop the broker at startup.
+See [Changing organizations while the broker runs](admin.md). Unknown names, a non-boolean `enabled`, a `store` other than `file` or `mongodb` (which also needs `mongodb.enabled: true`), a `poll_seconds` below 1 and a `keep_backups` that is not a whole number of 1 or more stop the broker at startup.
 
 ## Security section
 

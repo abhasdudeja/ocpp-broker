@@ -109,7 +109,7 @@ jobs:
         pip install -e ".[tests]"
 
     - name: Run the MongoDB tests
-      run: pytest tests/test_transaction_store_mongo.py tests/test_history_mongo.py -v --tb=short
+      run: pytest tests/test_transaction_store_mongo.py tests/test_history_mongo.py tests/test_admin_mongo.py -v --tb=short
 
   build-and-test:
     needs: ui

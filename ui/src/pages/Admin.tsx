@@ -93,9 +93,15 @@ function Organizations({ config }: { config: AdminConfig }) {
           </table>
         </div>
       )}
-      <p className="small muted">
-        Saving rewrites <code>{config.path}</code>: its comments are not kept, and a copy of the file as it was is kept next to it (the latest {config.keeps_backups}).
-      </p>
+      {config.store === 'mongodb' ? (
+        <p className="small muted">
+          The organizations are kept in MongoDB (<code>{config.path}</code>), shared by every broker instance that uses it. A change reaches the other instances within a few seconds; the earlier versions are kept (the latest {config.keeps_backups}).
+        </p>
+      ) : (
+        <p className="small muted">
+          Saving rewrites <code>{config.path}</code>: its comments are not kept, and a copy of the file as it was is kept next to it (the latest {config.keeps_backups}).
+        </p>
+      )}
     </>
   )
 }

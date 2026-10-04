@@ -29,6 +29,7 @@ from fastapi.responses import JSONResponse
 from .admin_edit import EditResult, apply_changes, normalized, view
 from .audit import AuditLog, describe_source
 from .config_store import DEFAULT_KEEP_BACKUPS, Applied, Conflict, ConfigError, FileConfigStore, NotWritable, Plan
+from .mongo_config_store import MongoConfigStore
 from .schemas.admin import (
     AdminApplied,
     AdminApplyRequest,
@@ -36,6 +37,7 @@ from .schemas.admin import (
     AdminConfig,
     AdminPlan,
     AdminRequest,
+    AuditEntry,
     AuditLogPage,
 )
 
@@ -71,21 +73,40 @@ def create_admin_api(broker: Any) -> APIRouter:
         if not settings().get("enabled"):
             raise HTTPException(status_code=403, detail=DISABLED)
 
-    def store() -> FileConfigStore:
-        path = getattr(broker, "_cfg_path", None) or "config.yaml"
+    def in_mongodb() -> bool:
+        return settings().get("store", "file") == "mongodb"
+
+    def store() -> Any:
+        """Where the organizations live: the configuration file, or (admin.store: mongodb) MongoDB."""
         keep = int(settings().get("keep_backups", DEFAULT_KEEP_BACKUPS))
-        current: Optional[FileConfigStore] = getattr(broker, "admin_store", None)
-        if current is None or current.path != os.path.abspath(path) or current.keep_backups != keep:
+        current = getattr(broker, "admin_store", None)
+        if in_mongodb():
+            service = getattr(broker, "mongodb_service", None)
+            if service is None:
+                raise HTTPException(status_code=503, detail="admin.store is mongodb, but MongoDB is not connected")
+            if not isinstance(current, MongoConfigStore) or current.service is not service or current.keep_backups != keep:
+                current = MongoConfigStore(service, keep)
+                broker.admin_store = current
+            return current
+        path = getattr(broker, "_cfg_path", None) or "config.yaml"
+        if not isinstance(current, FileConfigStore) or current.path != os.path.abspath(path) or current.keep_backups != keep:
             current = FileConfigStore(path, keep)
             broker.admin_store = current
         return current
 
     def audit() -> AuditLog:
-        path = settings().get("audit_log") or f"{store().path}.audit.jsonl"
+        # A file next to the configuration (this instance's own record), also mirrored to MongoDB when the
+        # organizations live there, so every instance's changes can be read from any of them
+        path = settings().get("audit_log") or f"{os.path.abspath(getattr(broker, '_cfg_path', None) or 'config.yaml')}.audit.jsonl"
         current: Optional[AuditLog] = getattr(broker, "audit", None)
         if current is None or current.path != path:
             current = AuditLog(path)
             broker.audit = current
+        service = getattr(broker, "mongodb_service", None)
+        if in_mongodb() and service is not None:
+            current.mirror = lambda entry: broker.writes.submit(lambda: service.save_admin_audit(entry.model_dump()), label="save_admin_audit")
+        else:
+            current.mirror = None
         return current
 
     def connected(names: List[str]) -> Dict[str, int]:
@@ -97,10 +118,10 @@ def create_admin_api(broker: Any) -> APIRouter:
 
     async def prepare(request: AdminRequest) -> tuple[EditResult, Plan]:
         """Work out what the changes would do, from the file as it is now. Nothing is written."""
-        snapshot = await asyncio.to_thread(store().snapshot)
+        snapshot = await store().snapshot()
         # Hashing a password takes a moment: do it away from the event loop
         result = await asyncio.to_thread(apply_changes, snapshot.organizations, request.changes, normalized)
-        plan = store().plan(request.revision, result.organizations)
+        plan = await store().plan(request.revision, result.organizations)
         plan.errors = list(dict.fromkeys([*result.errors, *plan.errors]))
         plan.warnings = list(dict.fromkeys([*result.warnings, *plan.warnings]))
         return result, plan
@@ -112,12 +133,13 @@ def create_admin_api(broker: Any) -> APIRouter:
         files = store()
         writable, reason = files.writable()
         try:
-            snapshot = await asyncio.to_thread(files.snapshot)
+            snapshot = await files.snapshot()
         except NotWritable as exc:
-            return AdminConfig(path=files.path, revision="", modified=datetime.now(timezone.utc), writable=False, writable_reason=reason or str(exc), keeps_backups=files.keep_backups, organizations=[])
+            return AdminConfig(store="mongodb" if in_mongodb() else "file", path=files.path, revision="", modified=datetime.now(timezone.utc), writable=False, writable_reason=reason or str(exc), keeps_backups=files.keep_backups, organizations=[])
         except ConfigError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         return AdminConfig(
+            store="mongodb" if in_mongodb() else "file",
             path=snapshot.path,
             revision=snapshot.revision,
             modified=snapshot.modified,
@@ -176,12 +198,12 @@ def create_admin_api(broker: Any) -> APIRouter:
         if unknown:
             raise refuse(422, f"drop_connections names organizations these changes do not touch: {', '.join(unknown)}")
         if plan.base_revision != plan.current_revision:
-            raise refuse(409, "The configuration file has changed since this page loaded it. Reload, then make the change again.")
+            raise refuse(409, plan.errors[0])  # the store's own words: the file, or the organizations in MongoDB
         if not plan.ok:
             raise refuse(422, "; ".join(plan.errors))
 
         try:
-            applied: Applied = await store().apply(plan)
+            applied: Applied = await store().apply(plan, label or "the admin API")
         except Conflict as exc:
             raise refuse(409, str(exc))
         except (NotWritable, ConfigError) as exc:
@@ -189,6 +211,7 @@ def create_admin_api(broker: Any) -> APIRouter:
             raise HTTPException(status_code=409, detail=str(exc))
 
         broker.use_organizations(applied.runtime["organizations"])
+        broker.organizations_revision = applied.revision  # this instance has them; the poller need not fetch them again
         dropped = await broker.drop_connections(set(body.drop_connections)) if body.drop_connections else 0
         summary = _flatten(result.changes)
         if dropped:
@@ -208,6 +231,19 @@ def create_admin_api(broker: Any) -> APIRouter:
         """What was changed through the admin API, newest first: when, from where, with which key label, and what."""
         guard()
         log = audit()
+        service = getattr(broker, "mongodb_service", None)
+        if in_mongodb() and service is not None:
+            try:
+                rows = await service.list_admin_audit(limit)
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail=f"MongoDB did not answer: {exc}")
+            entries = []
+            for row in rows:
+                try:
+                    entries.append(AuditEntry.model_validate(row))
+                except ValueError:
+                    continue  # not an entry of ours
+            return AuditLogPage(entries=entries, persisted_to=f"MongoDB: collection {service.ADMIN_AUDIT} in database {service.database_name}")
         return AuditLogPage(entries=log.recent(limit), persisted_to=log.path)
 
     return router

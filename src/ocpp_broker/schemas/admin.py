@@ -53,6 +53,7 @@ class AdminOrg(BaseModel):
 
 
 class AdminConfig(BaseModel):
+    store: Literal["file", "mongodb"] = Field(description="Where the organizations live: the configuration file, or MongoDB (admin.store)")
     path: str
     revision: str = Field(description="Names the file as it is; changes must say which revision they were made from")
     modified: datetime

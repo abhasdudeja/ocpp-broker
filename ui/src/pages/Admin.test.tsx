@@ -55,6 +55,13 @@ describe('the admin page', () => {
     expect(screen.getByText(/the latest 10/)).toBeInTheDocument()
   })
 
+  it('says the organizations are in MongoDB, and not that a file is rewritten', async () => {
+    open({ '/api/admin/config': adminConfig({ store: 'mongodb', path: 'MongoDB: collection config_organizations in database ocpp' }) })
+    expect(await screen.findByText(/kept in MongoDB/)).toHaveTextContent('shared by every broker instance')
+    expect(screen.getByText('MongoDB: collection config_organizations in database ocpp')).toBeInTheDocument()
+    expect(screen.queryByText(/comments are not kept/)).not.toBeInTheDocument()
+  })
+
   it('says why nothing can be changed when the file cannot be written, and offers no Add', async () => {
     open({ '/api/admin/config': adminConfig({ writable: false, writable_reason: 'The configuration file or its folder is read-only for the broker' }) })
     expect(await screen.findByRole('alert')).toHaveTextContent('read-only for the broker')

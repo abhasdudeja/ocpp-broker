@@ -249,6 +249,82 @@ class MongoDBService:
             counts[name] = await self._get_collection(name).estimated_document_count()
         return counts
 
+    # ------------------------------------------------------------------
+    # Organizations kept in MongoDB (admin.store: mongodb, see mongo_config_store.py) and the shared admin audit log.
+    # The organizations are one document, so a change is one atomic compare-and-set on its revision. They are stored
+    # as JSON text: charger ids are keys inside them and MongoDB is particular about dots and dollars in key names.
+    # These raise on failure: the caller must know a change was not stored.
+    # ------------------------------------------------------------------
+    ORGANIZATIONS = "config_organizations"
+    ORGANIZATIONS_HISTORY = "config_organizations_history"
+    ORGANIZATIONS_ID = "organizations"
+    ADMIN_AUDIT = "admin_audit"
+
+    async def get_organizations(self) -> Optional[Dict[str, Any]]:
+        """``{"revision", "organizations_json", "updated_at", "updated_by"}``, or None if none has been stored."""
+        return await self._get_collection(self.ORGANIZATIONS).find_one({"_id": self.ORGANIZATIONS_ID})
+
+    async def seed_organizations(self, organizations_json: str, revision: str) -> bool:
+        """Store the first version, unless one exists already (another instance may have been first). True if this call stored it."""
+        from pymongo.errors import DuplicateKeyError
+
+        try:
+            await self._get_collection(self.ORGANIZATIONS).insert_one(
+                {
+                    "_id": self.ORGANIZATIONS_ID,
+                    "revision": revision,
+                    "organizations_json": organizations_json,
+                    "updated_at": datetime.now(timezone.utc),
+                    "updated_by": "seed from the configuration file",
+                }
+            )
+        except DuplicateKeyError:
+            return False
+        return True
+
+    async def replace_organizations(
+        self, base_revision: str, organizations_json: str, new_revision: str, updated_by: str, keep: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Store a new version if the stored one is still ``base_revision``. Returns the version it replaced (also kept in
+        the history, the latest ``keep``), or None if the stored version is not ``base_revision``.
+        """
+        previous = await self._get_collection(self.ORGANIZATIONS).find_one_and_update(
+            {"_id": self.ORGANIZATIONS_ID, "revision": base_revision},
+            {
+                "$set": {
+                    "revision": new_revision,
+                    "organizations_json": organizations_json,
+                    "updated_at": datetime.now(timezone.utc),
+                    "updated_by": updated_by,
+                }
+            },
+            return_document=ReturnDocument.BEFORE,
+        )
+        if previous is None:
+            return None
+        history = self._get_collection(self.ORGANIZATIONS_HISTORY)
+        await history.insert_one(
+            {
+                "revision": previous["revision"],
+                "organizations_json": previous["organizations_json"],
+                "was_current_until": datetime.now(timezone.utc),
+                "replaced_by_revision": new_revision,
+            }
+        )
+        old = await history.find({}, {"_id": 1}).sort([("was_current_until", -1), ("_id", -1)]).skip(keep).to_list(length=None)
+        if old:
+            await history.delete_many({"_id": {"$in": [row["_id"] for row in old]}})
+        return previous
+
+    async def save_admin_audit(self, entry: Dict[str, Any]) -> None:
+        await self._get_collection(self.ADMIN_AUDIT).insert_one(dict(entry))
+
+    async def list_admin_audit(self, limit: int) -> List[Dict[str, Any]]:
+        """Newest first, without the MongoDB ids."""
+        rows = await self._get_collection(self.ADMIN_AUDIT).find({}, {"_id": 0}).sort([("time", -1), ("_id", -1)]).limit(limit).to_list(length=limit)
+        return rows
+
     def _get_collection_name_for_action(self, action: str) -> str:
         """
         Get the collection name for a specific OCPP action.

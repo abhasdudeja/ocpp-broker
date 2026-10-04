@@ -13,6 +13,7 @@ All notable changes. The version number is in `pyproject.toml` (the only place);
 - **Fail-back** (`leader_failback`, `leader_failback_delay`) and a way to **change the leader by hand** (`POST /api/chargers/{org}/{id}/leader`, and a button in the console).
 - **History**: `commands`, an opt-in `ocpp_messages` log, indexes and retention in MongoDB, `GET /api/history/...` and the History pages. Records are written by the broker only.
 - **Admin API** (`/api/admin`, off unless `admin.enabled`) and Admin pages: add, change and remove organizations, backends and charger credentials while the broker runs, with a check before applying, a kept copy of the file, an audit log, and write-only hashed passwords ([docs](docs/admin.md)).
+- **Organizations in MongoDB** (`admin.store: mongodb`): several broker instances share the organizations, a change made through one reaches the others, and the audit log is shared ([docs](docs/admin.md#keeping-the-organizations-in-mongodb)).
 - **API keys with labels** (`security.api_keys`) and **throttling of wrong keys** (`security.api_key_throttle`).
 - **Charger authentication** (OCPP security profile 1, HTTP Basic) per organization, hashed passwords (`ocpp-broker-hash-password`).
 - Followers and **leader failover**; buffering of charger frames during a backend outage; ping/pong watchdog on charger sockets.

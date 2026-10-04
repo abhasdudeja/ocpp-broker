@@ -53,7 +53,7 @@ If the charger is not connected to this instance the page says so and keeps chec
 
 ## Tags
 
-`/ui/tags`: the id tags the broker authorizes when it answers a charger itself. Pick an organization (only those where the broker answers: broker mode, with or without followers); the list is the organization's tag list ([Tag Management](tag-management.md)).
+`/ui/tags`: the id tags the broker authorizes when it answers a charger itself. Pick an organization (only those where the broker answers or may take over: broker mode, a local leader, or a local standby); the list is the organization's tag list ([Tag Management](tag-management.md)).
 
 - **Search and filters** by id tag, status and type, and paging (25 per page); all are kept in the address.
 - **Counts:** tags, active, expired and blocked.

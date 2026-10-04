@@ -168,6 +168,21 @@ describe('the tags page', () => {
     expect(within(screen.getByLabelText('Organization')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Hybrid', 'Home'])
   })
 
+  it('offers an organization whose local standby would take over, but not a plain relay', async () => {
+    const standby = org({
+      name: 'Standby',
+      mode: 'relay',
+      backends: [
+        { key: 'primary', url: 'ws://p/ocpp', local: false, leader: true, ocpp_subprotocol: 'ocpp1.6' },
+        { key: 'broker', url: null, local: true, leader: false, ocpp_subprotocol: 'ocpp1.6' },
+      ],
+    })
+    fakeTags([], { orgs: [standby, org({ name: 'Fleet' })] })
+    await open()
+    await screen.findByLabelText('Organization')
+    expect(within(screen.getByLabelText('Organization')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Standby'])
+  })
+
   it('says so when the organization has no tags', async () => {
     fakeTags([])
     await open()

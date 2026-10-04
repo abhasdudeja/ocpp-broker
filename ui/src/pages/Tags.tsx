@@ -72,8 +72,8 @@ export function Tags() {
   const { key, keyRejected } = useAuth()
   const [params, setParams] = useSearchParams()
   const orgs = usePolling((signal) => apiGet<OrgSummary[]>('/api/orgs', key ?? '', signal), 60_000)
-  // Tags matter where the broker itself answers the charger: broker mode, with or without followers
-  const tagOrgs = (Array.isArray(orgs.data) ? orgs.data : []).filter((o) => o.mode === 'broker')
+  // Tags matter where the broker itself answers the charger: broker mode, or a local standby that takes over
+  const tagOrgs = (Array.isArray(orgs.data) ? orgs.data : []).filter((o) => o.mode === 'broker' || o.backends.some((b) => b.local))
   const org = params.get('org') || tagOrgs[0]?.name || ''
   const q = params.get('q') ?? ''
   const status = params.get('status') ?? ''
@@ -188,7 +188,7 @@ export function Tags() {
     <section>
       <header className="page-head">
         <h1>Tags</h1>
-        <p className="muted small">The id tags the broker authorizes when it answers a charger itself (broker mode, or as a local leader)</p>
+        <p className="muted small">The id tags the broker authorizes when it answers a charger itself (broker mode, a local leader, or a local standby that takes over)</p>
       </header>
 
       {orgs.data && tagOrgs.length === 0 && <p className="empty">No organization lets the broker answer chargers itself, so there are no tags to manage here.</p>}

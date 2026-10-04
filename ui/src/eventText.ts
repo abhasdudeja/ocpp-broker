@@ -51,10 +51,11 @@ export function describeEvent(event: BrokerEvent): string {
     }
     case 'transaction.started': {
       const meter = count(d.meter_start)
-      return `transaction started on ${connector(d.connector_id)}${meter === null ? '' : ` (meter ${meter} Wh)`}`
+      const id = text(d.transaction_id) // known when the charger chose it (OCPP 2.x)
+      return `transaction${id === null ? '' : ` ${id}`} started on ${connector(d.connector_id)}${meter === null ? '' : ` (meter ${meter} Wh)`}`
     }
     case 'transaction.stopped': {
-      const id = count(d.transaction_id)
+      const id = count(d.transaction_id) ?? text(d.transaction_id) // a number in OCPP 1.6, text in 2.x
       const bits = [text(d.reason) && `reason ${text(d.reason)}`, count(d.meter_stop) !== null && `meter ${count(d.meter_stop)} Wh`].filter(Boolean)
       return `transaction${id === null ? '' : ` ${id}`} stopped${bits.length ? ` (${bits.join(', ')})` : ''}`
     }

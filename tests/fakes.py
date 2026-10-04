@@ -254,10 +254,10 @@ class ScriptedCharger:
         self._ids = 0
 
     @classmethod
-    async def connect(cls, port: int, org: str, charger_id: str, **kwargs):
+    async def connect(cls, port: int, org: str, charger_id: str, subprotocol: str = "ocpp1.6", **kwargs):
         ws = await websockets.connect(
             f"ws://127.0.0.1:{port}/{org}/{charger_id}",
-            subprotocols=["ocpp1.6"],
+            subprotocols=[subprotocol],
             ping_interval=None,
             **kwargs,
         )

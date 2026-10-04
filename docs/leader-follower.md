@@ -90,6 +90,8 @@ Every other backend is a follower. A relay-mode organization with an empty `back
 
 ## Transaction ids
 
+This section is about OCPP 1.6, where the backend chooses the id. In OCPP 2.x the charger does, and no table is used ([below](#ocpp-201-and-21-in-relay-mode)).
+
 *(This section also covers reservation and charging profile ids, [below](#reservations-and-charging-profiles).)*
 
 In OCPP 1.6 the **backend** chooses a transaction's id (in its `StartTransaction` reply) and the charger then quotes it in `MeterValues` and `StopTransaction`. With several backends there are several ids for one charging session, and a follower that is sent the leader's id would attach the reading to a different transaction of its own, or find none.
@@ -213,6 +215,16 @@ On promotion:
 - The old leader becomes a follower (unbuffered, observe-only).
 - The new leader gets the store-and-forward outbox settings.
 - Unless `leader_failback` is on, there is **no automatic fail-back**: when the old leader returns it stays a follower. Only a failure of the current leader triggers another promotion.
+
+### OCPP 2.0.1 and 2.1 in relay mode
+
+An organization with `ocpp_subprotocol: ocpp2.0.1` (or `ocpp2.1`) is relayed like any other: the charger must offer that subprotocol, each backend is reached with it, frames are forwarded untouched, followers get copies, and failover, fail-back, buffering and the manual change of leader work the same way. What is different:
+
+- **The charger and every backend must speak the same version.** The broker does not translate. A backend whose `ocpp_subprotocol` differs from the organization's stops the broker at startup.
+- **Relay only.** The broker answers OCPP 1.6 chargers itself; a 2.x organization needs `connect_to_backend: true` and external backends, and cannot have a `local: true` backend. Both are refused at startup.
+- **No transaction id table.** In OCPP 2.x the charger chooses the transaction id (text of up to 36 characters), so every backend already sees the same one. `transaction_ids.mapping: true` is ignored with a warning.
+- **The console** reads the facts it shows from 2.x frames: the boot details (`chargingStation`), each EVSE's status (`StatusNotification`) and transactions started and ended (`TransactionEvent` `Started` and `Ended`). The number the console calls a *connector* is the **EVSE** for 2.x; the connector within an EVSE is not told apart, and there is no error code. Statuses are recorded in the history as for 1.6; the transaction list and meter readings are not (a backend answers, so it stores them). The command panel offers 1.6 commands only: for a 2.x charger use the generic `POST /api/ocpp/organizations/{org}/chargers/{id}/commands`, which relays the action and payload without checking them.
+- Charger authentication (security profile 1, HTTP Basic) works the same way. TLS, client certificates (security profiles 2 and 3) and the 2.x message set beyond what is above are not handled by the broker; terminate TLS at a proxy.
 
 ### Fail-back
 

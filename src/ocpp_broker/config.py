@@ -147,6 +147,7 @@ def _apply_defaults(cfg):
         org.setdefault("tags", [])
         _normalize_charger_auth(org)
         _validate_failback(org)
+        _validate_subprotocol(org)
         _validate_transaction_ids(org)
 
         _validate_backends(org)
@@ -249,6 +250,35 @@ def _normalize_charger_auth(org):
             "HTTP Basic auth (OCPP security profile 1).",
             name,
         )
+
+
+SUBPROTOCOLS = ("ocpp1.6", "ocpp2.0.1", "ocpp2.1")
+
+
+def _validate_subprotocol(org):
+    """
+    The OCPP version of an organization. Frames are relayed untouched, so the charger and every backend must speak
+    the same version: the broker does not translate between them. OCPP 2.x is relayed only: answering a charger
+    itself (broker mode, or this broker as a backend) is OCPP 1.6 only.
+    """
+    name = org["name"]
+    version = org["ocpp_subprotocol"]
+    if version not in SUBPROTOCOLS:
+        raise ValueError(f"Organization {name}: ocpp_subprotocol must be one of {', '.join(SUBPROTOCOLS)}, not {version!r}")
+    for backend in org.get("backends") or []:
+        if not backend.get("local") and backend.get("ocpp_subprotocol", version) != version:
+            raise ValueError(
+                f"Organization {name}: backend {backend.get('id') or backend.get('url')} speaks {backend['ocpp_subprotocol']} but "
+                f"the organization's chargers speak {version}. The broker relays frames as they are and does not translate between versions."
+            )
+    if version == "ocpp1.6":
+        return
+    if not org.get("connect_to_backend") or not org.get("backends"):
+        raise ValueError(f"Organization {name}: {version} is relayed to backends only; the broker answers OCPP 1.6 chargers itself, not {version}")
+    if any(b.get("local") for b in org["backends"]):
+        raise ValueError(f"Organization {name}: this broker cannot be a backend for {version} (it answers OCPP 1.6 only); remove the local backend")
+    if (org.get("transaction_ids") or {}).get("mapping"):
+        logger.warning("Organization %s: transaction_ids.mapping is ignored for %s: the charger chooses the transaction id, so every backend sees the same one", name, version)
 
 
 def _validate_failback(org):

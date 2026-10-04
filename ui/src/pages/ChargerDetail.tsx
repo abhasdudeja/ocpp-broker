@@ -126,6 +126,21 @@ function IdTable({ title, rows, keys }: { title: string; rows: Detail['reservati
   )
 }
 
+/** The command forms are generated from the OCPP 1.6 schemas; for another version the API takes the command as it is. */
+function OtherVersionCommands({ version, org, chargerId }: { version: string; org: string; chargerId: string }) {
+  return (
+    <section aria-labelledby="commands-heading" className="card">
+      <h2 id="commands-heading">Commands</h2>
+      <p>
+        The command panel knows the OCPP 1.6 commands only. This charger speaks OCPP {version}: send it a command through the API, which relays the action and payload
+        as they are, without checking them:
+      </p>
+      <pre>{`POST /api/ocpp/organizations/${org}/chargers/${chargerId}/commands
+{"action": "Reset", "payload": {"type": "OnIdle"}}`}</pre>
+    </section>
+  )
+}
+
 function ChargerView({ org, chargerId }: { org: string; chargerId: string }) {
   const { key, keyRejected } = useAuth()
   const now = useNow()
@@ -235,7 +250,7 @@ function ChargerView({ org, chargerId }: { org: string; chargerId: string }) {
 
           <StatusHistory org={org} chargerId={chargerId} />
 
-          {!gone && <Commands org={org} chargerId={chargerId} />}
+          {!gone && (data.ocpp_version === '1.6' ? <Commands org={org} chargerId={chargerId} /> : <OtherVersionCommands version={data.ocpp_version} org={org} chargerId={chargerId} />)}
 
           <Transactions detail={data} />
           <IdTable title="Reservations" rows={data.reservations} keys={keys} />

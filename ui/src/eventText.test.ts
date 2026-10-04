@@ -55,6 +55,8 @@ describe('describeEvent', () => {
     expect(text('transaction.started', { connector_id: null, meter_start: null })).toBe('transaction started on a connector')
     expect(text('transaction.stopped', { transaction_id: 7, reason: 'Local', meter_stop: 4100 })).toBe('transaction 7 stopped (reason Local, meter 4100 Wh)')
     expect(text('transaction.stopped', { transaction_id: null, reason: null, meter_stop: null })).toBe('transaction stopped')
+    expect(text('transaction.stopped', { transaction_id: 'tx-abc-123', reason: 'EVDisconnected', meter_stop: null })).toBe('transaction tx-abc-123 stopped (reason EVDisconnected)')
+    expect(text('transaction.started', { transaction_id: 'tx-abc-123', connector_id: 2, meter_start: null })).toBe('transaction tx-abc-123 started on connector 2')
   })
 
   it('describes a command and how it ended', () => {

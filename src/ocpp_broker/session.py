@@ -71,7 +71,7 @@ class ChargerSession:
         self.websocket = websocket
         # What the console shows: when it connected, boot details, connector statuses, traffic counts.
         # Filled by watching the charger's frames; see charger_state.py.
-        self.state = ChargerState(remote_address=remote_address(websocket))
+        self.state = ChargerState(remote_address=remote_address(websocket), ocpp_version=str(org_entry.get("ocpp_subprotocol", "ocpp1.6"))[4:])
         # The commands sent to this charger through the API or the console (see commands.py)
         self.command_log: Deque[CommandEntry] = deque(maxlen=LOG_SIZE)
         # The broker answers the charger itself (BROKER) or a backend does (RELAY). A backend marked

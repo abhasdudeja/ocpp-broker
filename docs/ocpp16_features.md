@@ -94,7 +94,7 @@ The broker moves and stores OCPP data; it does not implement charging policy:
 - **Local authorization list:** the list you send is the list you build. It is not generated from the tag list automatically, and the broker does not track which version a charger holds.
 - **Firmware:** the broker does not host firmware or diagnostics files; `location` is whatever URL you supply.
 - **Transactions:** the broker issues ids and stores start/stop records. It does not keep a table of open transactions, enforce one transaction per connector, or compute energy.
-- **Other OCPP versions:** OCPP 2.0.1 is not implemented. The `ocpp_subprotocol` setting only controls which WebSocket subprotocol is negotiated; relay mode will carry other versions' frames as opaque text, but nothing else about them is supported or tested.
+- **Other OCPP versions:** the broker answers OCPP 1.6 chargers only. OCPP 2.0.1 and 2.1 chargers are **relayed** to backends that speak the same version ([OCPP 2.0.1 and 2.1 in relay mode](leader-follower.md#ocpp-201-and-21-in-relay-mode)); the broker does not answer them itself and does not translate between versions.
 
 ## Error responses a charger can receive
 

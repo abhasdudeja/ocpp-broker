@@ -10,6 +10,7 @@ All notable changes. The version number is in `pyproject.toml` (the only place);
 - **Live event stream** `GET /api/events` and **command catalog** `GET /api/ocpp/commands/catalog`; per-charger state model (`/api/orgs`, `/api/chargers`, `/api/chargers/{org}/{id}`, `/api/backends`, `/api/system/info`).
 - **The broker as a backend inside a relay** (`local: true` backend): as the leader, with the other backends receiving copies; or as a silent standby that takes over when the external leader fails ([docs](docs/leader-follower.md)).
 - **Transaction id mapping** between a charger and several backends, persisted in MongoDB, including reservation and charging-profile ids.
+- **OCPP 2.0.1 and 2.1 in relay mode**: `ocpp_subprotocol: ocpp2.0.1` (or `ocpp2.1`) per organization; the console reads boot details, EVSE status and transactions from the frames ([docs](docs/leader-follower.md#ocpp-201-and-21-in-relay-mode)). The broker does not answer 2.x chargers itself or translate between versions.
 - **Fail-back** (`leader_failback`, `leader_failback_delay`) and a way to **change the leader by hand** (`POST /api/chargers/{org}/{id}/leader`, and a button in the console).
 - **History**: `commands`, an opt-in `ocpp_messages` log, indexes and retention in MongoDB, `GET /api/history/...` and the History pages. Records are written by the broker only.
 - **Admin API** (`/api/admin`, off unless `admin.enabled`) and Admin pages: add, change and remove organizations, backends and charger credentials while the broker runs, with a check before applying, a kept copy of the file, an audit log, and write-only hashed passwords ([docs](docs/admin.md)).
@@ -35,6 +36,6 @@ All notable changes. The version number is in `pyproject.toml` (the only place);
 
 ### Known limits
 
-- Relay mode needs the charger and its backends to speak the same OCPP version; only OCPP 1.6 is supported (see [plans/roadmap.md](plans/roadmap.md)).
+- Relay mode needs the charger and its backends to speak the same OCPP version. The broker answers OCPP 1.6 chargers only; 2.0.1 and 2.1 are relayed (see [plans/roadmap.md](plans/roadmap.md)).
 - Each broker instance has its own sessions and its own configuration file.
 - Saving a change in the admin API rewrites `config.yaml` without its comments (a copy is kept).

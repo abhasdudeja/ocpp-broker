@@ -1,10 +1,10 @@
 # Roadmap
 
-Status: direction, nothing built. Written 2026-10-04. The web console plan is in [ui-plan.md](ui-plan.md).
+Status: written 2026-10-04. **R1 and R2 are built** (OCPP 2.0.1 and 2.1 in relay mode, see [leader-follower.md](../docs/leader-follower.md#ocpp-201-and-21-in-relay-mode)); R3 and R4 (the broker answering 2.x chargers itself) are not. The web console plan is in [ui-plan.md](ui-plan.md).
 
 ## Future: OCPP 2.0.1, then 2.1
 
-The broker speaks **OCPP 1.6 only** today. Support for **OCPP 2.0.1**, and later **2.1**, is planned. This is a direction, not a commitment to a date. Scope and order are open.
+The broker answers **OCPP 1.6 only**; **OCPP 2.0.1** and **2.1** are relayed (R2). Answering them itself (R3, R4) is planned. This is a direction, not a commitment to a date. Scope and order are open.
 
 ### What is true today
 
@@ -29,7 +29,7 @@ The broker speaks **OCPP 1.6 only** today. Support for **OCPP 2.0.1**, and later
 ### Suggested order
 
 1. **R1, groundwork (during the console phases, almost free).** Make what we are about to build version-aware, so it needs no rework later (rules below).
-2. **R2, 2.0.1 in relay mode.** Accept `ocpp2.0.1` per organization; the console shows the topology for these chargers. Needs no CSMS logic.
+2. **R2, 2.0.1 in relay mode. Built.** `ocpp2.0.1` and `ocpp2.1` per organization (the charger and its backends must agree; the configuration refuses a mismatch); the console reads boot details, EVSE status and transactions from the frames; the transaction id table is off because the charger chooses the id. The command panel offers 1.6 commands only.
 3. **R3, 2.0.1 as the local backend.** A 2.0.1 `ChargePoint`, tag/idToken handling, state model, command catalog; the same conformance-test approach as workstream B in the UI plan.
 4. **R4, 2.1.** Built on R3, as a superset where possible.
 

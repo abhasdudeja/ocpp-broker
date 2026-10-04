@@ -1083,6 +1083,8 @@ def table_for_org(org_entry: Dict[str, Any]) -> Optional[TransactionIdTable]:
     least one follower (more than one backend) and can be forced either way with
     ``transaction_ids.mapping``; with a single backend there is nothing to map.
     """
+    if org_entry.get("ocpp_subprotocol", "ocpp1.6") != "ocpp1.6":
+        return None  # in OCPP 2.x the charger chooses the transaction id, so every backend sees the same one
     settings = org_entry.get("transaction_ids") or {}
     mapping = settings.get("mapping")
     if mapping is None:

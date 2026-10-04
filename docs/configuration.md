@@ -65,7 +65,7 @@ data_transfer:                      # broker mode only; see "DataTransfer" below
 organizations:
   - name: "orgA"                    # required, unique; first path segment of the charger URL
     connect_to_backend: false       # false = broker mode, true = relay mode (DEFAULT IS TRUE)
-    ocpp_subprotocol: "ocpp1.6"     # WebSocket subprotocol the charger must request
+    ocpp_subprotocol: "ocpp1.6"     # the OCPP version: ocpp1.6, ocpp2.0.1 or ocpp2.1 (2.x is relayed only)
     tags: []                        # initial authorization tags (see tag-management.md)
     charger_auth: {}                # HTTP Basic credentials for chargers
     backends: []                    # relay mode only

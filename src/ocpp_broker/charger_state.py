@@ -25,6 +25,11 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _mapping(value: Any) -> Dict[str, Any]:
+    """``value`` if it is a mapping, else an empty one: a frame can hold anything."""
+    return value if isinstance(value, dict) else {}
+
+
 def _is_int(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -76,6 +81,9 @@ class ChargerState:
     frames_out: int = 0
     boot: Optional[BootInfo] = None
     connectors: Dict[int, ConnectorState] = field(default_factory=dict)
+    # "1.6", "2.0.1" or "2.1": decides how a frame is read. For 2.x ``connector_id`` is the EVSE number (what a
+    # driver sees as a charging point); the connector within it is not told apart.
+    ocpp_version: str = "1.6"
 
     def note_sent(self) -> None:
         self.frames_out += 1
@@ -96,6 +104,8 @@ class ChargerState:
         if not (isinstance(frame, list) and len(frame) >= 4 and frame[0] == 2 and isinstance(frame[3], dict)):
             return []  # an answer to something the broker or a backend asked, or something odd
         action, payload = frame[2], frame[3]
+        if self.ocpp_version != "1.6":
+            return self._observe_2x(action, payload, now)
         changes: List[Change] = []
         if action == "BootNotification":
             self.boot = BootInfo(
@@ -171,6 +181,49 @@ class ChargerState:
                     },
                 )
             )
+        return changes
+
+    def _observe_2x(self, action: str, payload: Dict[str, Any], now: datetime) -> List[Change]:
+        """The same facts from OCPP 2.0.1 / 2.1 frames: a boot, an EVSE's status, a transaction started or ended."""
+        changes: List[Change] = []
+        if action == "BootNotification":
+            station = _mapping(payload.get("chargingStation"))
+            modem = _mapping(station.get("modem"))
+            self.boot = BootInfo(
+                vendor=_text(station.get("vendorName")),
+                model=_text(station.get("model")),
+                serial_number=_text(station.get("serialNumber")),
+                firmware_version=_text(station.get("firmwareVersion")),
+                iccid=_text(modem.get("iccid")),
+                imsi=_text(modem.get("imsi")),
+                meter_type=None,
+                meter_serial_number=None,
+                received_at=now,
+            )
+            changes.append(("charger.boot", {"vendor": self.boot.vendor, "model": self.boot.model, "firmware_version": self.boot.firmware_version}))
+        elif action == "Heartbeat":
+            self.last_heartbeat_at = now
+        elif action == "StatusNotification":
+            evse = payload.get("evseId")
+            status = payload.get("connectorStatus")
+            if _is_int(evse) and isinstance(status, str):
+                before = self.connectors.get(evse)
+                current = ConnectorState(connector_id=evse, status=status, error_code=None, info=None, updated_at=_when(payload.get("timestamp"), now))
+                self.connectors[evse] = current
+                if before is None or before.status != current.status:
+                    changes.append(
+                        ("charger.status", {"connector_id": evse, "status": status, "previous": before.status if before else None, "error_code": None})
+                    )
+        elif action == "TransactionEvent":
+            info = _mapping(payload.get("transactionInfo"))
+            evse = _mapping(payload.get("evse"))
+            kind = payload.get("eventType")
+            if kind == "Started":
+                changes.append(
+                    ("transaction.started", {"connector_id": evse.get("id") if _is_int(evse.get("id")) else None, "meter_start": None, "transaction_id": _text(info.get("transactionId"))})
+                )
+            elif kind == "Ended":
+                changes.append(("transaction.stopped", {"transaction_id": _text(info.get("transactionId")), "meter_stop": None, "reason": _text(info.get("stoppedReason"))}))
         return changes
 
     def ordered_connectors(self) -> list[ConnectorState]:

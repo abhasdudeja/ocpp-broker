@@ -198,6 +198,25 @@ describe('charger detail', () => {
     expect(await screen.findByLabelText('API key')).toBeInTheDocument()
   })
 
+  describe('a charger that does not speak OCPP 1.6', () => {
+    it('shows its version and, instead of the 1.6 command forms, how to send it a command', async () => {
+      mockApi({ [PATH]: detail({ ocpp_version: '2.0.1', mode: 'relay' }) })
+      await open()
+      expect(await screen.findByText('Fleet · relay mode · OCPP 2.0.1')).toBeInTheDocument()
+      const commands = within(await screen.findByRole('region', { name: 'Commands' }))
+      expect(commands.getByText(/knows the OCPP 1.6 commands only/)).toHaveTextContent('OCPP 2.0.1')
+      expect(commands.getByText(/POST \/api\/ocpp\/organizations\/Fleet\/chargers\/CP-001\/commands/)).toBeInTheDocument()
+      expect(screen.queryByLabelText('Command')).not.toBeInTheDocument()
+    })
+
+    it('keeps the command forms for OCPP 1.6', async () => {
+      mockApi({ [PATH]: detail() })
+      await open()
+      await screen.findByRole('heading', { name: 'Connectors' })
+      expect(screen.queryByText(/knows the OCPP 1.6 commands only/)).not.toBeInTheDocument()
+    })
+  })
+
   describe('changing the leader', () => {
     it('offers a connected follower and reads the charger again once it leads', async () => {
       let leader = 'primary'

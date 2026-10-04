@@ -6,6 +6,7 @@ All notable changes. The version number is in `pyproject.toml` (the only place);
 
 ### Added
 
+- **LICENSE** file (MIT, V3 Enterprises); the README already said MIT.
 - **Web console** at `/ui` (React, served by the broker, no separate server): overview, chargers and a charger page with the connections diagram, live events (Server-Sent Events), a command panel generated from the OCPP schemas, backends, offline chargers, tags (add, edit, bulk, import, export, sync), history and admin pages. Sign in with the API key.
 - **Live event stream** `GET /api/events` and **command catalog** `GET /api/ocpp/commands/catalog`; per-charger state model (`/api/orgs`, `/api/chargers`, `/api/chargers/{org}/{id}`, `/api/backends`, `/api/system/info`).
 - **The broker as a backend inside a relay** (`local: true` backend): as the leader, with the other backends receiving copies; or as a silent standby that takes over when the external leader fails ([docs](docs/leader-follower.md)).

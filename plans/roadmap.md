@@ -31,7 +31,7 @@ The broker answers **OCPP 1.6 only**; **OCPP 2.0.1** and **2.1** are relayed (R2
 1. **R1, groundwork (during the console phases, almost free).** Make what we are about to build version-aware, so it needs no rework later (rules below).
 2. **R2, 2.0.1 in relay mode. Built.** `ocpp2.0.1` and `ocpp2.1` per organization (the charger and its backends must agree; the configuration refuses a mismatch); the console reads boot details, EVSE status and transactions from the frames; the transaction id table is off because the charger chooses the id. The command panel offers 1.6 commands only.
 3. **R3, 2.0.1 as the local backend.** A 2.0.1 `ChargePoint`, tag/idToken handling, state model, command catalog; the same conformance-test approach as workstream B in the UI plan.
-4. **R4, 2.1.** Built on R3, as a superset where possible.
+4. **R4, 2.1.** Built on R3, as a superset where possible. **Kept on the roadmap** (confirmed 2026-10-04); 2.1 is already relayed, as R2 covers it.
 
 ### Rules to follow now (so R1 costs nothing)
 

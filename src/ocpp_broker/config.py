@@ -83,52 +83,8 @@ def build_config(cfg, apply_env=True):
 
 
 def _get_default_config():
-    """Get default configuration with all features"""
-    return {
-        "broker": {
-            "host": "0.0.0.0", 
-            "port": 8765,
-            "ocpp_version": "1.6",
-            "enable_validation": True,
-            "enable_smart_charging": True,
-            "enable_firmware_management": True,
-            "enable_local_auth": True,
-            "enable_reservations": True,
-            "enable_tag_management": True
-        },
-        "api": {
-            "host": "0.0.0.0",
-            "port": 8080,
-            "enable_swagger": True
-        },
-        "organizations": [],
-        "tag_management": {
-            "global": {"enabled": False},
-            "validation": {"strict_mode": True},
-            "import_export": {"supported_formats": ["json", "csv", "xml"]},
-            "monitoring": {"enable_statistics": True}
-        },
-        "ocpp": {
-            "validation": {"strict_mode": True},
-            "commands": {
-                "core": {"heartbeat_interval": 300},
-                "smart_charging": {"max_charging_profiles": 10},
-                "firmware": {"max_retry_count": 3},
-                "local_auth": {"max_list_size": 1000},
-                "reservations": {"max_reservation_duration": 86400}
-            }
-        },
-        "logging": {
-            "level": "INFO",
-            "ocpp_commands": True,
-            "tag_management": True
-        },
-        "security": {
-            "websocket": {"ping_interval": 20, "ping_timeout": 20},
-            "ocpp": {"validate_message_ids": True},
-            "tags": {"audit_tag_changes": True}
-        }
-    }
+    """The configuration used when there is no file: no organizations, so every charger is refused."""
+    return {"organizations": []}
 
 
 def _apply_defaults(cfg):
@@ -137,20 +93,6 @@ def _apply_defaults(cfg):
     cfg.setdefault("broker", {})
     cfg["broker"].setdefault("host", "0.0.0.0")
     cfg["broker"].setdefault("port", 8765)
-    cfg["broker"].setdefault("ocpp_version", "1.6")
-    cfg["broker"].setdefault("enable_validation", True)
-    cfg["broker"].setdefault("enable_smart_charging", True)
-    cfg["broker"].setdefault("enable_firmware_management", True)
-    cfg["broker"].setdefault("enable_local_auth", True)
-    cfg["broker"].setdefault("enable_reservations", True)
-    cfg["broker"].setdefault("enable_tag_management", True)
-
-    # API defaults
-    cfg.setdefault("api", {})
-    cfg["api"].setdefault("host", "0.0.0.0")
-    cfg["api"].setdefault("port", 8080)
-    cfg["api"].setdefault("enable_swagger", True)
-
     # Web console (served at /ui)
     if not isinstance(cfg.get("ui"), dict):  # absent, or an empty `ui:` block
         cfg["ui"] = {}
@@ -159,36 +101,20 @@ def _apply_defaults(cfg):
     # Organizations defaults
     cfg.setdefault("organizations", [])
 
-    # Tag management defaults
-    cfg.setdefault("tag_management", {})
-    cfg["tag_management"].setdefault("global", {"enabled": False})
-    cfg["tag_management"].setdefault("validation", {"strict_mode": True})
-    cfg["tag_management"].setdefault("import_export", {"supported_formats": ["json", "csv", "xml"]})
-    cfg["tag_management"].setdefault("monitoring", {"enable_statistics": True})
-
     # OCPP defaults
     cfg.setdefault("ocpp", {})
-    cfg["ocpp"].setdefault("validation", {"strict_mode": True})
     cfg["ocpp"].setdefault("commands", {})
     cfg["ocpp"]["commands"].setdefault("core", {"heartbeat_interval": 300})
-    cfg["ocpp"]["commands"].setdefault("smart_charging", {"max_charging_profiles": 10})
-    cfg["ocpp"]["commands"].setdefault("firmware", {"max_retry_count": 3})
-    cfg["ocpp"]["commands"].setdefault("local_auth", {"max_list_size": 1000})
-    cfg["ocpp"]["commands"].setdefault("reservations", {"max_reservation_duration": 86400})
 
     # Logging defaults
     cfg.setdefault("logging", {})
     cfg["logging"].setdefault("level", "INFO")
-    cfg["logging"].setdefault("ocpp_commands", True)
-    cfg["logging"].setdefault("tag_management", True)
 
     # Security defaults
     cfg.setdefault("security", {})
     cfg["security"].setdefault("websocket", {})
     cfg["security"]["websocket"].setdefault("ping_interval", 20)
     cfg["security"]["websocket"].setdefault("ping_timeout", 20)
-    cfg["security"].setdefault("ocpp", {"validate_message_ids": True})
-    cfg["security"].setdefault("tags", {"audit_tag_changes": True})
     # REST API: needs security.api_key (or OCPP_BROKER_API_KEY) unless explicitly opened up
     cfg["security"].setdefault("allow_unauthenticated_api", False)
     cfg["security"].setdefault("cors", {})
@@ -204,8 +130,6 @@ def _apply_defaults(cfg):
         # Set organization defaults
         org.setdefault("connect_to_backend", True)
         org.setdefault("backends", [])
-        org.setdefault("chargers", [])
-        org.setdefault("ocpp_features", ["core_profile"])
         org.setdefault("ocpp_subprotocol", "ocpp1.6")  # Default OCPP subprotocol
         for removed in _REMOVED_ORG_KEYS:
             if removed in org:
@@ -218,7 +142,6 @@ def _apply_defaults(cfg):
         org.setdefault("backend_buffer_size", 200)  # frames held while the backend is down
         org.setdefault("backend_outage_timeout", 30)  # seconds before a held CALL is answered with a CallError
         org.setdefault("leader_failover_timeout", 15)  # seconds the leader may be down before a follower takes over (0 = never)
-        org.setdefault("tag_management", {"enabled": False})
         org.setdefault("tags", [])
         _normalize_charger_auth(org)
         _validate_transaction_ids(org)
@@ -435,13 +358,6 @@ def _validate_config(cfg):
     if len(org_names) != len(set(org_names)):
         raise ValueError("Organization names must be unique")
     
-    # Validate tag management
-    tag_mgmt = cfg.get("tag_management", {})
-    if tag_mgmt.get("global", {}).get("enabled") and not any(
-        org.get("tag_management", {}).get("enabled") for org in organizations
-    ):
-        logger.warning("Global tag management enabled but no organizations have tag management enabled")
-    
     validate_history_config(cfg.get("mongodb") or {})
     _validate_admin(cfg.get("admin") or {})
     _validate_security(cfg.get("security") or {})
@@ -466,15 +382,6 @@ def _apply_env_overrides(cfg):
             cfg.setdefault("broker", {})["port"] = int(os.environ["BROKER_PORT"])
         except ValueError:
             logger.warning(f"Invalid BROKER_PORT value: {os.environ['BROKER_PORT']}")
-    
-    # API settings
-    if "API_HOST" in os.environ:
-        cfg.setdefault("api", {})["host"] = os.environ["API_HOST"]
-    if "API_PORT" in os.environ:
-        try:
-            cfg.setdefault("api", {})["port"] = int(os.environ["API_PORT"])
-        except ValueError:
-            logger.warning(f"Invalid API_PORT value: {os.environ['API_PORT']}")
     
     # MongoDB settings
     if "MONGODB_ENABLED" in os.environ:

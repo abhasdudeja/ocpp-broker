@@ -33,7 +33,6 @@ class TestChargerToBrokerProtocol:
             ]
         }
         broker.sessions = {}
-        broker.org_registries = {}
         broker.tag_manager = None
         broker.data_transfer_handler = None
         broker.handle_charger = AsyncMock()

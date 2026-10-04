@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from .backend_manager import BackendConnection
-from .registry import ChargerRegistry
 from .config import load_config
 from .events import EventBus
 from .history import HistoryConfig, history_config
@@ -37,8 +36,7 @@ class OcppBroker:
         self.started_at = datetime.now(timezone.utc)
         # Live events for the web console (GET /api/events); see events.py
         self.events = EventBus()
-        self.org_backends: Dict[str, Dict[str, BackendConnection]] = {}
-        self.org_registries: Dict[str, ChargerRegistry] = {}
+        self.org_backends: Dict[str, Dict[str, Dict[str, Any]]] = {}  # org -> charger id -> {"leader": link, "followers": [links]}
         # Keyed by (org_name, charger_id): the same charger id may exist in several orgs.
         self.sessions: Dict[Tuple[str, str], ChargerSession] = {}
         # Transaction id tables outlive sessions: a charger's socket drops and
@@ -87,8 +85,6 @@ class OcppBroker:
         self._ensure_tag_manager()
 
     async def ensure_org_initialized(self, org_name: str):
-        if org_name not in self.org_registries:
-            self.org_registries[org_name] = ChargerRegistry()
         self._ensure_tag_manager()
 
     def _ensure_tag_manager(self):
@@ -198,9 +194,6 @@ class OcppBroker:
     # ------------------------------------------------------------------
     # Helpers + backend callbacks
     # ------------------------------------------------------------------
-    def get_registry(self, org_name: str) -> ChargerRegistry:
-        return self.org_registries[org_name]
-
     def _transaction_store(self) -> Optional[TransactionStore]:
         """The store that keeps id tables in MongoDB, or None when MongoDB is not in use."""
         mongodb = getattr(self, "mongodb_service", None)

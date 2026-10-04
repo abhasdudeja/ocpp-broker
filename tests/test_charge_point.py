@@ -16,14 +16,6 @@ class DummyConnection:
         self.closed_with = (code, reason)
 
 
-class DummyRegistry:
-    def __init__(self):
-        self.calls = []
-
-    async def update_from_backend(self, backend_id: str, charger_ids):
-        self.calls.append((backend_id, list(charger_ids)))
-
-
 class DummyTagManager:
     def __init__(self, responses=None):
         self.responses = responses or {}
@@ -52,12 +44,8 @@ class DummyBroker:
                 }
             }
         }
-        self.registry = DummyRegistry()
         self.tag_manager = DummyTagManager()
         self._next_transaction = 1000
-
-    def get_registry(self, org_name: str):
-        return self.registry
 
     async def next_transaction_id(self, org_name):
         self._next_transaction += 1
@@ -65,7 +53,7 @@ class DummyBroker:
 
 
 @pytest.mark.asyncio
-async def test_boot_notification_registers_charger():
+async def test_boot_notification_is_answered_with_the_configured_interval():
     broker = DummyBroker()
     cp = BrokerChargePoint("CP_1", DummyConnection(), broker, "org-1")
 
@@ -75,7 +63,6 @@ async def test_boot_notification_registers_charger():
 
     assert isinstance(result, call_result.BootNotification)
     assert result.interval == 123
-    assert broker.registry.calls == [("org-1-local", ["CP_1"])]
 
 
 @pytest.mark.asyncio

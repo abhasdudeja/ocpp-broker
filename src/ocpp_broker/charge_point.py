@@ -91,7 +91,6 @@ class BrokerChargePoint(OcppChargePoint):
     # ------------------------------------------------------------------
     @on("BootNotification")
     async def on_boot_notification(self, charge_point_model: str, charge_point_vendor: str, **payload):
-        await self._register_charger()
         interval = (
             self.broker.config_data.get("ocpp", {})
             .get("commands", {})
@@ -462,13 +461,6 @@ class BrokerChargePoint(OcppChargePoint):
         """What this broker knows of the charger's transactions (None where the broker keeps no such thing)."""
         lookup = getattr(self.broker, "local_transactions_for", None)
         return lookup(self.org_name, self.id) if callable(lookup) else None
-
-    async def _register_charger(self):
-        try:
-            registry = self.broker.get_registry(self.org_name)
-            await registry.update_from_backend(f"{self.org_name}-local", [self.id])
-        except Exception as exc:
-            self.logger.warning("Unable to register charger in registry: %s", exc)
 
     async def _authorize_tag(self, id_tag: Optional[str]) -> datatypes.IdTagInfo:
         """

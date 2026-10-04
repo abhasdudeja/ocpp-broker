@@ -20,7 +20,11 @@ from pydantic import BaseModel, Field
 
 from ._version import __version__
 from .auth import make_api_key_dependency
+from .commands import catalog as command_catalog_data
+from .commands import new_entry
 from .console_api import create_console_api
+from .events_api import create_events_api
+from .schemas.console import CommandCatalog
 from .session import CommandRejected
 from .system_api import create_system_api
 from .tag_manager import TagSyncUnavailable
@@ -544,23 +548,44 @@ def create_ocpp_command_api(broker) -> APIRouter:
             payload=payload, direction="broker_to_charger", message_id=message_id,
         )
 
+        # What the console shows as this charger's command history (kept while it stays connected)
+        entry = new_entry(message_id, action, payload)
+        session.command_log.append(entry)
+
+        def _finished(status: str, response: Any = None, error: Optional[str] = None) -> None:
+            entry.finish(status, response, error)
+            events = getattr(broker, "events", None)
+            if events is not None:
+                events.publish(
+                    "command.result", org_name, charger_id,
+                    message_id=message_id, action=action, status=status, error=error,
+                )
+
         try:
             result = await session.send_command(action, payload, timeout, message_id)
         except CommandRejected as e:
             pending_responses.pop(message_id, None)
+            try:
+                session.command_log.remove(entry)  # nothing was sent
+            except ValueError:
+                pass
             raise HTTPException(status_code=422, detail=str(e))
         except ConnectionError as e:
             record.update(status="error", error=str(e))
+            _finished("error", error=str(e))
             raise HTTPException(status_code=503, detail=str(e))
         except asyncio.CancelledError:
             record.update(status="cancelled", error="Request was cancelled before the charger replied")
+            _finished("cancelled", error=record["error"])
             raise
         except Exception as e:
             ocpp_logger.error(f"Error sending OCPP command to {org_name}/{charger_id}: {e}")
             record.update(status="error", error=f"Failed to send command: {e}")
+            _finished("error", error=record["error"])
             raise HTTPException(status_code=500, detail=f"Failed to send command: {str(e)}")
 
         record.update(status=result.status, response=result.response, error=result.error)
+        _finished(result.status, result.response, result.error)
         ocpp_logger.info(
             f"OCPP command {action} to {org_name}/{charger_id} finished: {result.status} (message_id: {message_id})"
         )
@@ -623,7 +648,15 @@ def create_ocpp_command_api(broker) -> APIRouter:
         if not response:
             raise HTTPException(status_code=404, detail="Command not found or expired")
         return response
-    
+
+    @router.get("/commands/catalog", response_model=CommandCatalog)
+    async def command_catalog() -> CommandCatalog:
+        """
+        The commands that can be sent to a charger, each with the JSON Schema of its payload, a short
+        description and how disruptive it is. The web console builds its command forms from this.
+        """
+        return CommandCatalog(**command_catalog_data())
+
     # Core Profile Commands
     @router.post("/organizations/{org_name}/chargers/{charger_id}/commands/ChangeAvailability")
     async def change_availability(
@@ -1128,6 +1161,7 @@ def mount_api_routers(app: FastAPI, broker) -> None:
     app.include_router(create_management_api(broker), dependencies=protect)
     app.include_router(create_system_api(broker), dependencies=protect)
     app.include_router(create_console_api(broker), dependencies=protect)
+    app.include_router(create_events_api(broker), dependencies=protect)
 
 
 def create_api(broker):

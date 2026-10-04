@@ -1,0 +1,736 @@
+{
+  "commands": [
+    {
+      "action": "GetConfiguration",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "items": {
+              "maxLength": 50,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "title": "GetConfigurationRequest",
+        "type": "object"
+      },
+      "risk": "read",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/GetConfiguration",
+      "summary": "Read configuration keys"
+    },
+    {
+      "action": "GetCompositeSchedule",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "chargingRateUnit": {
+            "additionalProperties": false,
+            "enum": [
+              "A",
+              "W"
+            ],
+            "type": "string"
+          },
+          "connectorId": {
+            "type": "integer"
+          },
+          "duration": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connectorId",
+          "duration"
+        ],
+        "title": "GetCompositeScheduleRequest",
+        "type": "object"
+      },
+      "risk": "read",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/GetCompositeSchedule",
+      "summary": "Read the charging schedule in force"
+    },
+    {
+      "action": "GetLocalListVersion",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "GetLocalListVersionRequest",
+        "type": "object"
+      },
+      "risk": "read",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/GetLocalListVersion",
+      "summary": "Read the version of the local authorization list"
+    },
+    {
+      "action": "TriggerMessage",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "connectorId": {
+            "type": "integer"
+          },
+          "requestedMessage": {
+            "additionalProperties": false,
+            "enum": [
+              "BootNotification",
+              "DiagnosticsStatusNotification",
+              "FirmwareStatusNotification",
+              "Heartbeat",
+              "MeterValues",
+              "StatusNotification"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestedMessage"
+        ],
+        "title": "TriggerMessageRequest",
+        "type": "object"
+      },
+      "risk": "read",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/TriggerMessage",
+      "summary": "Ask the charger to send a message now"
+    },
+    {
+      "action": "ChangeConfiguration",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "ChangeConfigurationRequest",
+        "type": "object"
+      },
+      "risk": "change",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ChangeConfiguration",
+      "summary": "Set a configuration key"
+    },
+    {
+      "action": "ClearCache",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "ClearCacheRequest",
+        "type": "object"
+      },
+      "risk": "change",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ClearCache",
+      "summary": "Clear the authorization cache"
+    },
+    {
+      "action": "DataTransfer",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "type": "string"
+          },
+          "messageId": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "vendorId": {
+            "maxLength": 255,
+            "type": "string"
+          }
+        },
+        "required": [
+          "vendorId"
+        ],
+        "title": "DataTransferRequest",
+        "type": "object"
+      },
+      "risk": "change",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/DataTransfer",
+      "summary": "Send vendor-specific data"
+    },
+    {
+      "action": "GetDiagnostics",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "format": "uri",
+            "type": "string"
+          },
+          "retries": {
+            "type": "integer"
+          },
+          "retryInterval": {
+            "type": "integer"
+          },
+          "startTime": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "stopTime": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location"
+        ],
+        "title": "GetDiagnosticsRequest",
+        "type": "object"
+      },
+      "risk": "change",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/GetDiagnostics",
+      "summary": "Ask the charger to upload its diagnostics"
+    },
+    {
+      "action": "SendLocalList",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "listVersion": {
+            "type": "integer"
+          },
+          "localAuthorizationList": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "idTag": {
+                  "maxLength": 20,
+                  "type": "string"
+                },
+                "idTagInfo": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "expiryDate": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "parentIdTag": {
+                      "maxLength": 20,
+                      "type": "string"
+                    },
+                    "status": {
+                      "additionalProperties": false,
+                      "enum": [
+                        "Accepted",
+                        "Blocked",
+                        "Expired",
+                        "Invalid",
+                        "ConcurrentTx"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "idTag"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "updateType": {
+            "additionalProperties": false,
+            "enum": [
+              "Differential",
+              "Full"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "listVersion",
+          "updateType"
+        ],
+        "title": "SendLocalListRequest",
+        "type": "object"
+      },
+      "risk": "change",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/SendLocalList",
+      "summary": "Send or update the local authorization list"
+    },
+    {
+      "action": "SetChargingProfile",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "connectorId": {
+            "type": "integer"
+          },
+          "csChargingProfiles": {
+            "additionalProperties": false,
+            "properties": {
+              "chargingProfileId": {
+                "type": "integer"
+              },
+              "chargingProfileKind": {
+                "additionalProperties": false,
+                "enum": [
+                  "Absolute",
+                  "Recurring",
+                  "Relative"
+                ],
+                "type": "string"
+              },
+              "chargingProfilePurpose": {
+                "additionalProperties": false,
+                "enum": [
+                  "ChargePointMaxProfile",
+                  "TxDefaultProfile",
+                  "TxProfile"
+                ],
+                "type": "string"
+              },
+              "chargingSchedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "chargingRateUnit": {
+                    "additionalProperties": false,
+                    "enum": [
+                      "A",
+                      "W"
+                    ],
+                    "type": "string"
+                  },
+                  "chargingSchedulePeriod": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "multipleOf": 0.1,
+                          "type": "number"
+                        },
+                        "numberPhases": {
+                          "type": "integer"
+                        },
+                        "startPeriod": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startPeriod",
+                        "limit"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "duration": {
+                    "type": "integer"
+                  },
+                  "minChargingRate": {
+                    "multipleOf": 0.1,
+                    "type": "number"
+                  },
+                  "startSchedule": {
+                    "format": "date-time",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chargingRateUnit",
+                  "chargingSchedulePeriod"
+                ],
+                "type": "object"
+              },
+              "recurrencyKind": {
+                "additionalProperties": false,
+                "enum": [
+                  "Daily",
+                  "Weekly"
+                ],
+                "type": "string"
+              },
+              "stackLevel": {
+                "type": "integer"
+              },
+              "transactionId": {
+                "type": "integer"
+              },
+              "validFrom": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "validTo": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "chargingProfileId",
+              "stackLevel",
+              "chargingProfilePurpose",
+              "chargingProfileKind",
+              "chargingSchedule"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "connectorId",
+          "csChargingProfiles"
+        ],
+        "title": "SetChargingProfileRequest",
+        "type": "object"
+      },
+      "risk": "change",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/SetChargingProfile",
+      "summary": "Set a charging profile"
+    },
+    {
+      "action": "ClearChargingProfile",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "chargingProfilePurpose": {
+            "additionalProperties": false,
+            "enum": [
+              "ChargePointMaxProfile",
+              "TxDefaultProfile",
+              "TxProfile"
+            ],
+            "type": "string"
+          },
+          "connectorId": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "stackLevel": {
+            "type": "integer"
+          }
+        },
+        "title": "ClearChargingProfileRequest",
+        "type": "object"
+      },
+      "risk": "change",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ClearChargingProfile",
+      "summary": "Remove charging profiles"
+    },
+    {
+      "action": "ReserveNow",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "connectorId": {
+            "type": "integer"
+          },
+          "expiryDate": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "idTag": {
+            "maxLength": 20,
+            "type": "string"
+          },
+          "parentIdTag": {
+            "maxLength": 20,
+            "type": "string"
+          },
+          "reservationId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connectorId",
+          "expiryDate",
+          "idTag",
+          "reservationId"
+        ],
+        "title": "ReserveNowRequest",
+        "type": "object"
+      },
+      "risk": "change",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ReserveNow",
+      "summary": "Reserve a connector for an id tag"
+    },
+    {
+      "action": "CancelReservation",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "reservationId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reservationId"
+        ],
+        "title": "CancelReservationRequest",
+        "type": "object"
+      },
+      "risk": "change",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/CancelReservation",
+      "summary": "Cancel a reservation"
+    },
+    {
+      "action": "RemoteStartTransaction",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "chargingProfile": {
+            "additionalProperties": false,
+            "properties": {
+              "chargingProfileId": {
+                "type": "integer"
+              },
+              "chargingProfileKind": {
+                "additionalProperties": false,
+                "enum": [
+                  "Absolute",
+                  "Recurring",
+                  "Relative"
+                ],
+                "type": "string"
+              },
+              "chargingProfilePurpose": {
+                "additionalProperties": false,
+                "enum": [
+                  "ChargePointMaxProfile",
+                  "TxDefaultProfile",
+                  "TxProfile"
+                ],
+                "type": "string"
+              },
+              "chargingSchedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "chargingRateUnit": {
+                    "additionalProperties": false,
+                    "enum": [
+                      "A",
+                      "W"
+                    ],
+                    "type": "string"
+                  },
+                  "chargingSchedulePeriod": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "multipleOf": 0.1,
+                          "type": "number"
+                        },
+                        "numberPhases": {
+                          "type": "integer"
+                        },
+                        "startPeriod": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startPeriod",
+                        "limit"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "duration": {
+                    "type": "integer"
+                  },
+                  "minChargingRate": {
+                    "multipleOf": 0.1,
+                    "type": "number"
+                  },
+                  "startSchedule": {
+                    "format": "date-time",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chargingRateUnit",
+                  "chargingSchedulePeriod"
+                ],
+                "type": "object"
+              },
+              "recurrencyKind": {
+                "additionalProperties": false,
+                "enum": [
+                  "Daily",
+                  "Weekly"
+                ],
+                "type": "string"
+              },
+              "stackLevel": {
+                "type": "integer"
+              },
+              "transactionId": {
+                "type": "integer"
+              },
+              "validFrom": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "validTo": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "chargingProfileId",
+              "stackLevel",
+              "chargingProfilePurpose",
+              "chargingProfileKind",
+              "chargingSchedule"
+            ],
+            "type": "object"
+          },
+          "connectorId": {
+            "type": "integer"
+          },
+          "idTag": {
+            "maxLength": 20,
+            "type": "string"
+          }
+        },
+        "required": [
+          "idTag"
+        ],
+        "title": "RemoteStartTransactionRequest",
+        "type": "object"
+      },
+      "risk": "disruptive",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/RemoteStartTransaction",
+      "summary": "Start a charging session"
+    },
+    {
+      "action": "RemoteStopTransaction",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "transactionId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "transactionId"
+        ],
+        "title": "RemoteStopTransactionRequest",
+        "type": "object"
+      },
+      "risk": "disruptive",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/RemoteStopTransaction",
+      "summary": "Stop a charging session"
+    },
+    {
+      "action": "ChangeAvailability",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "connectorId": {
+            "type": "integer"
+          },
+          "type": {
+            "additionalProperties": false,
+            "enum": [
+              "Inoperative",
+              "Operative"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "connectorId",
+          "type"
+        ],
+        "title": "ChangeAvailabilityRequest",
+        "type": "object"
+      },
+      "risk": "disruptive",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ChangeAvailability",
+      "summary": "Make a connector or the charger operative or inoperative"
+    },
+    {
+      "action": "UnlockConnector",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "connectorId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connectorId"
+        ],
+        "title": "UnlockConnectorRequest",
+        "type": "object"
+      },
+      "risk": "disruptive",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/UnlockConnector",
+      "summary": "Unlock a connector"
+    },
+    {
+      "action": "Reset",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "additionalProperties": false,
+            "enum": [
+              "Hard",
+              "Soft"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "ResetRequest",
+        "type": "object"
+      },
+      "risk": "disruptive",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/Reset",
+      "summary": "Restart the charger"
+    },
+    {
+      "action": "UpdateFirmware",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "format": "uri",
+            "type": "string"
+          },
+          "retries": {
+            "type": "integer"
+          },
+          "retrieveDate": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "retryInterval": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location",
+          "retrieveDate"
+        ],
+        "title": "UpdateFirmwareRequest",
+        "type": "object"
+      },
+      "risk": "disruptive",
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/UpdateFirmware",
+      "summary": "Tell the charger to download and install firmware"
+    }
+  ],
+  "ocpp_version": "1.6"
+}

@@ -50,6 +50,7 @@ class BackendConnection:
         outage_timeout: float = DEFAULT_OUTAGE_TIMEOUT,
         on_undeliverable: Optional[Callable[[str], Awaitable[None]]] = None,
         on_disconnected: Optional[Callable[["BackendConnection"], None]] = None,
+        on_connected: Optional[Callable[["BackendConnection"], None]] = None,
         key: Optional[str] = None,
     ):
         self.broker = broker
@@ -71,6 +72,7 @@ class BackendConnection:
         self.outage_timeout = outage_timeout
         self.on_undeliverable = on_undeliverable
         self.on_disconnected = on_disconnected
+        self.on_connected = on_connected
         self.reconnect_delay = RECONNECT_DELAY
         # monotonic time the link was lost; None while connected (or never lost)
         self.disconnected_since: Optional[float] = None
@@ -213,6 +215,11 @@ class BackendConnection:
                     self.connected_event.set()  # signal broker that backend connection is ready
                     logger.info(f"✅ Connected to backend for charger {self.id} ({self.org}) via {self.subprotocol}")
                     self.broker._on_backend_connected(self)
+                    if self.on_connected is not None:
+                        try:
+                            self.on_connected(self)
+                        except Exception:
+                            logger.exception("on_connected callback failed for %s", self.id)
 
                     # Deliver anything that queued up while the backend was away
                     await self._flush_outbox()

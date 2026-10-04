@@ -145,6 +145,7 @@ server {
 - The REST API and the charger WebSocket are on the same port, so the proxy is the place to keep the API off the public internet. The regex above would also catch a charger URL such as `/api/CP1`, so do not name an organization `api`, `ui`, `orgs`, `docs` or `redoc`. (The broker itself has no such clash: the web console at `/ui` is plain HTTP and the charger endpoint only accepts WebSocket upgrades.)
 - The broker pings chargers every 20 s (`security.websocket.ping_interval`), so a proxy `proxy_read_timeout` comfortably above that will not cut idle chargers.
 - When the proxy runs on the same host, set `broker.host: 127.0.0.1` so the plain-text port is not reachable from outside.
+- The web console reads `GET /api/events`, a stream that stays open for as long as the page does. The proxy must not buffer it or time it out: the broker sends `X-Accel-Buffering: no` (which nginx honours) and a keepalive comment every 15 s, so nginx's default `proxy_read_timeout` of 60 s is already enough and the example above needs no change. With another proxy, turn response buffering off for `/api/events` and keep its read timeout above 15 s. If the stream cannot be kept open the console still works: it says "Reconnecting…" and refreshes its pages every few seconds.
 - Point load-balancer or uptime checks at `GET /health`.
 
 ## Docker example

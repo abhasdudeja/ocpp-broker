@@ -147,3 +147,60 @@ def test_the_connection_time_is_when_the_state_was_created():
 )
 def test_the_remote_address_is_host_and_port_when_known(websocket, expected):
     assert remote_address(websocket) == expected
+
+
+# ---------------------------------------------------------------------------
+# What a frame changed, for the live event stream
+# ---------------------------------------------------------------------------
+def status(connector, state, error="NoError"):
+    return call("StatusNotification", {"connectorId": connector, "status": state, "errorCode": error})
+
+
+def test_a_new_connector_status_is_reported_with_the_one_it_replaced():
+    state = ChargerState()
+    assert state.observe(status(1, "Available")) == [
+        ("charger.status", {"connector_id": 1, "status": "Available", "previous": None, "error_code": "NoError"})
+    ]
+    assert state.observe(status(1, "Charging")) == [
+        ("charger.status", {"connector_id": 1, "status": "Charging", "previous": "Available", "error_code": "NoError"})
+    ]
+
+
+def test_a_repeated_status_changes_nothing_and_so_reports_nothing():
+    state = ChargerState()
+    state.observe(status(1, "Charging"))
+    assert state.observe(status(1, "Charging")) == []
+    assert state.observe(status(2, "Charging"))[0][1]["connector_id"] == 2, "another connector is news"
+
+
+def test_a_new_error_code_on_the_same_status_is_news():
+    state = ChargerState()
+    state.observe(status(1, "Faulted", "NoError"))
+    [(kind, data)] = state.observe(status(1, "Faulted", "GroundFailure"))
+    assert kind == "charger.status" and data["error_code"] == "GroundFailure" and data["previous"] == "Faulted"
+
+
+def test_a_boot_is_reported_with_what_identifies_the_charger_and_not_its_serial_numbers():
+    [(kind, data)] = ChargerState().observe(call("BootNotification", BOOT))
+    assert kind == "charger.boot" and data == {"vendor": "Acme", "model": "Wallbox 7", "firmware_version": "2.1.0"}
+
+
+def test_transactions_are_reported_without_the_id_tag():
+    state = ChargerState()
+    [(kind, data)] = state.observe(call("StartTransaction", {"connectorId": 2, "idTag": "SECRET", "meterStart": 10, "timestamp": "2026-10-04T10:00:00Z"}))
+    assert (kind, data) == ("transaction.started", {"connector_id": 2, "meter_start": 10})
+    [(kind, data)] = state.observe(call("StopTransaction", {"transactionId": 5, "idTag": "SECRET", "meterStop": 90, "reason": "EVDisconnected", "timestamp": "2026-10-04T11:00:00Z"}))
+    assert (kind, data) == ("transaction.stopped", {"transaction_id": 5, "meter_stop": 90, "reason": "EVDisconnected"})
+
+
+def test_odd_values_are_reported_as_unknown_instead_of_failing():
+    state = ChargerState()
+    [(_, data)] = state.observe(call("StartTransaction", {"connectorId": True, "meterStart": "ten"}))
+    assert data == {"connector_id": None, "meter_start": None}
+    [(_, data)] = state.observe(call("StopTransaction", {"transactionId": "7"}))
+    assert data == {"transaction_id": None, "meter_stop": None, "reason": None}
+
+
+@pytest.mark.parametrize("frame", ["not json", json.dumps({"a": 1}), json.dumps([3, "m1", {"status": "Accepted"}]), call("Heartbeat", {}), call("Authorize", {"idTag": "X"}), status("one", "Available")])
+def test_frames_that_change_nothing_report_nothing(frame):
+    assert ChargerState().observe(frame) == []

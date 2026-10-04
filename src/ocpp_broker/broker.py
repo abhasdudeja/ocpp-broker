@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 from .backend_manager import BackendConnection
 from .registry import ChargerRegistry
 from .config import load_config
+from .events import EventBus
 from .tag_manager import TagManager
 from .session import ChargerSession
 from .transaction_ids import TransactionIdTable, backend_keys, table_for_org
@@ -27,6 +28,8 @@ class OcppBroker:
         # Shown by GET /api/system/info; lets an operator tell instances apart
         self.instance_id = uuid.uuid4().hex[:8]
         self.started_at = datetime.now(timezone.utc)
+        # Live events for the web console (GET /api/events); see events.py
+        self.events = EventBus()
         self.org_backends: Dict[str, Dict[str, BackendConnection]] = {}
         self.org_registries: Dict[str, ChargerRegistry] = {}
         # Keyed by (org_name, charger_id): the same charger id may exist in several orgs.
@@ -126,9 +129,16 @@ class OcppBroker:
         previous = self.sessions.get(key)
         self.sessions[key] = session
         session.handler_task = asyncio.current_task()
+        session.publish(
+            "charger.connected",
+            mode=session.mode.value,
+            ocpp_version=org_entry.get("ocpp_subprotocol", "ocpp1.6")[4:],
+            remote_address=session.state.remote_address,
+        )
 
         try:
             if previous is not None:
+                session.publish("charger.replaced")
                 logger.warning(
                     "Charger %s/%s reconnected while a session was still open; replacing it",
                     org_name,
@@ -143,6 +153,10 @@ class OcppBroker:
             # Only drop our own entry: a newer connection may have replaced us.
             if self.sessions.get(key) is session:
                 del self.sessions[key]
+                session.publish(
+                    "charger.disconnected",
+                    connected_for_seconds=round((datetime.now(timezone.utc) - session.state.connected_at).total_seconds(), 1),
+                )
             self.release_transaction_table(org_name, charger_id)
             session.finished.set()
             logger.info("🧹 Cleaned up charger %s session.", charger_id)

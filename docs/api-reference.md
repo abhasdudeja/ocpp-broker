@@ -162,6 +162,72 @@ The same fields plus the full picture of one charger: `boot` (vendor, model, ser
 
 `404` if the charger is not connected to this instance.
 
+```http
+GET /api/chargers/{org}/{charger_id}/commands
+```
+
+The commands sent to this charger through the API or the web console while it stayed connected, newest first, at most the last 50:
+
+```json
+{
+  "commands": [
+    {
+      "message_id": "6f1c0c7e-...", "action": "ChangeAvailability", "status": "success",
+      "payload": {"connectorId": 1, "type": "Inoperative"}, "response": {"status": "Accepted"}, "error": null,
+      "sent_at": "2026-10-04T09:01:07Z", "finished_at": "2026-10-04T09:01:07Z", "duration_ms": 120
+    }
+  ]
+}
+```
+
+`status` is `pending`, `success`, `error` (the charger refused it, or it could not be sent), `timeout` or `cancelled` (the HTTP caller went away). A command rejected as invalid (`422`) was never sent and is not listed. The history belongs to the connection: it is empty again after the charger reconnects, and it is kept in memory only. The value of a `ChangeConfiguration` for the `AuthorizationKey` key, and the same key in a `GetConfiguration` answer, is replaced by `***`. `404` if the charger is not connected to this instance.
+
+### Live events
+
+```http
+GET /api/events?org=Fleet&charger_id=CP001&replay=50
+```
+
+A [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) stream (`Content-Type: text/event-stream`) of what happens on **this instance**, used by the [web console](web-console.md#live-updates). It needs the API key like every other route, sent as the `X-API-Key` header. The browser's `EventSource` cannot send headers, so read it with `fetch` or any HTTP client that can:
+
+```bash
+curl -N -H "X-API-Key: $KEY" "http://localhost:8765/api/events?replay=5"
+```
+
+```text
+event: stream.open
+data: {"instance_id": "a1b2c3d4", "last_id": 41, "missed": false}
+
+id: 38
+event: charger.status
+data: {"id": 38, "type": "charger.status", "time": "2026-10-04T09:01:07+00:00", "org": "Fleet", "charger_id": "CP001", "data": {"connector_id": 1, "status": "Charging", "previous": "Preparing", "error_code": "NoError"}}
+
+: keepalive
+```
+
+- `org` and `charger_id` limit the stream to one organization or charger. `replay` (0 to 200, default 0) starts a first connection with that many of the latest matching events.
+- The first message is always `stream.open`. It is not a numbered event. It carries this run's `instance_id` and `missed`, which is true when the client asked to resume with `Last-Event-ID` but some of what it missed is no longer remembered, or the id comes from another run of the broker. A client that sees `missed` should reload whatever it shows.
+- Every other message is an event with an increasing `id` (per run of the broker), an `event:` name equal to its `type`, and one JSON `data:` line with `id`, `type`, `time`, `org`, `charger_id` and `data`.
+- To resume after a dropped connection send the last `id` seen as the `Last-Event-ID` header. The broker remembers the last 1000 events.
+- A comment line `: keepalive` is sent every 15 seconds when nothing else is, so proxies do not close an idle stream. A client that falls 256 events behind is disconnected (reconnect with `Last-Event-ID` to catch up), and at most 100 streams are served at once (`503` beyond that).
+- When the broker stops it ends open streams first (the server would otherwise wait for them forever), so a client sees its stream close and reconnects.
+- Events say *what happened*, never what was said: no OCPP payloads, no id tags and no command payloads.
+
+| `type` | `data` |
+|--------|--------|
+| `charger.connected` | `mode`, `ocpp_version`, `remote_address` |
+| `charger.disconnected` | `connected_for_seconds`. Not published when a newer connection had already replaced this one |
+| `charger.replaced` | none: the charger connected again while an old connection was still open, which was closed |
+| `charger.boot` | `vendor`, `model`, `firmware_version` from its `BootNotification` |
+| `charger.status` | `connector_id` (0 is the whole charger), `status`, `previous` (null the first time), `error_code`. Only sent when the status or error code changed |
+| `backend.link` | `backend` (its key), `role` (`leader` or `follower`), `connected`. Sent when a link comes up and once when it goes down, not on every failed retry |
+| `backend.failover` | `old_leader`, `new_leader` (backend keys) |
+| `transaction.started` | `connector_id`, `meter_start`: the charger asked to start one (ids are not yet known at this point) |
+| `transaction.stopped` | `transaction_id` (the id the charger holds), `meter_stop`, `reason` |
+| `command.result` | `message_id`, `action`, `status` (`success`, `error`, `timeout`, `cancelled`), `error` |
+
+Events are not stored: after a restart the numbering starts again, and a console opened later sees only what it asks `replay` for.
+
 ## Charger WebSocket
 
 ```
@@ -273,6 +339,27 @@ curl -X POST "$BROKER/api/ocpp/organizations/orgA/chargers/CP001/commands/Change
   -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
   -d '{"connector_id": 1, "type": "Inoperative"}'
 ```
+
+### Command catalog
+
+```http
+GET /api/ocpp/commands/catalog
+```
+
+The 19 commands a central system can send under OCPP 1.6, each with the JSON Schema (draft 4) of its payload as the `ocpp` library validates it, a one-line `summary`, a `risk` and the typed `route`. The [web console](web-console.md#sending-a-command) builds its command forms from this.
+
+```json
+{
+  "ocpp_version": "1.6",
+  "commands": [
+    {"action": "Reset", "summary": "Restart the charger", "risk": "disruptive",
+      "json_schema": {"type": "object", "properties": {"type": {"type": "string", "enum": ["Hard", "Soft"]}}, "required": ["type"]},
+      "route": "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/Reset"}
+  ]
+}
+```
+
+`risk` is `read` (only asks), `change` (alters settings or data on the charger) or `disruptive` (can interrupt a charging session, take a connector out of service or restart the charger). The generic route above accepts every command in the catalog.
 
 ### Command response
 

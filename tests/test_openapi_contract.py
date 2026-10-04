@@ -10,6 +10,7 @@ description differently does not fail it.
 import json
 import pathlib
 
+from ocpp_broker.commands import catalog
 from ocpp_broker.server import app
 
 SNAPSHOT = pathlib.Path(__file__).resolve().parents[1] / "ui" / "openapi.json"
@@ -56,6 +57,12 @@ def test_the_committed_schema_matches_the_api():
         f"ui/openapi.json is out of date. {HOW_TO_FIX}\n"
         f"routes added: {added}\nroutes removed: {removed}\nroutes changed: {changed}\nschemas changed: {schemas}"
     )
+
+
+def test_the_console_test_fixture_is_the_real_command_catalog():
+    """The console's form tests run against the real schemas of all 19 commands, so the copy must be current."""
+    fixture = pathlib.Path(__file__).resolve().parents[1] / "ui" / "src" / "test-fixtures" / "command-catalog.json"
+    assert json.loads(fixture.read_text(encoding="utf-8")) == json.loads(json.dumps(catalog())), HOW_TO_FIX
 
 
 def test_the_contract_check_notices_real_changes():

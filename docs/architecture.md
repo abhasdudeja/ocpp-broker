@@ -43,6 +43,10 @@ BROKER mode (connect_to_backend: false)        RELAY mode (connect_to_backend: t
 | `sockets.py` | `locked_send`: serialised, time-bounded socket writes. |
 | `middleware.py` | `process_charger_to_backend`: parses a relay frame as JSON for logging/routing and returns it unchanged. A pass-through, not a pipeline. |
 | `transaction_ids.py` | `TransactionIdTable`: relay mode with followers. One record per transaction, mapping the id the charger holds to each backend's own id, plus the per-follower copy queue. Pure logic with no I/O; `session.py` feeds it frames. The broker keeps one table per charger so it outlives a socket. |
+| `events.py` | `EventBus`: the in-process publish/subscribe behind the live event stream. `publish()` never waits or raises; each listener has a bounded queue and one that falls behind is cut off. Keeps the last 1000 events so a reconnecting client can catch up. |
+| `events_api.py` | `GET /api/events`: the event bus as Server-Sent Events. |
+| `commands.py` | The catalog of the 19 commands the console can send (schemas read from the `ocpp` library) and the per-charger command log with secret redaction. |
+| `charger_state.py` | `ChargerState`: what the console shows about a connected charger, learned by watching its frames; `observe` also returns what changed, which becomes events. |
 | `registry.py` | `ChargerRegistry`: a per-organization set of charger ids, written on BootNotification in broker mode. Nothing reads it. |
 
 ### server.py: the entry point

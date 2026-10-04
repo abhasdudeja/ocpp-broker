@@ -6,9 +6,10 @@ import json
 import logging
 import re
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Deque, Dict, Optional
 
 from starlette.websockets import WebSocketDisconnect
 
@@ -17,6 +18,7 @@ from .middleware import process_charger_to_backend
 from .sockets import locked_send
 from .charge_point import BrokerChargePoint, StarletteWebSocketAdapter
 from .charger_state import ChargerState, remote_address
+from .commands import LOG_SIZE, CommandEntry
 from .transaction_ids import TransactionIdTable, backend_keys
 
 logger = logging.getLogger("ocpp_broker.session")
@@ -59,6 +61,8 @@ class ChargerSession:
         # What the console shows: when it connected, boot details, connector statuses, traffic counts.
         # Filled by watching the charger's frames; see charger_state.py.
         self.state = ChargerState(remote_address=remote_address(websocket))
+        # The commands sent to this charger through the API or the console (see commands.py)
+        self.command_log: Deque[CommandEntry] = deque(maxlen=LOG_SIZE)
         self.mode: SessionMode = (
             SessionMode.RELAY if org_entry.get("connect_to_backend") else SessionMode.BROKER
         )
@@ -81,6 +85,17 @@ class ChargerSession:
         # Owned by the broker so it outlives this socket; see transaction_ids.py.
         self._ids: Optional[TransactionIdTable] = None
         self._hold_timer: Optional[asyncio.TimerHandle] = None
+
+    def publish(self, type: str, **data: Any) -> None:
+        """Tell the live event stream something happened to this charger (a no-op without an event bus)."""
+        events = getattr(self.broker, "events", None)
+        if events is not None:
+            events.publish(type, self.org_name, self.charger_id, **data)
+
+    def _observe(self, raw: str) -> None:
+        """Note a frame from the charger in its state, and publish what it changed."""
+        for kind, data in self.state.observe(raw):
+            self.publish(kind, **data)
 
     async def evict(self, grace: float = 5.0):
         """
@@ -343,6 +358,7 @@ class ChargerSession:
             outage_timeout=self.org_entry.get("backend_outage_timeout", DEFAULT_OUTAGE_TIMEOUT),
             on_undeliverable=self._reject_charger_call,
             on_disconnected=self._on_backend_link_lost,
+            on_connected=self._on_backend_link_up,
             key=keys[leader_index],
         )
         logger.info("🔗 Establishing leader backend for charger %s -> %s (subprotocol: %s)",
@@ -364,6 +380,7 @@ class ChargerSession:
                 subprotocol=follower_subprotocol,
                 max_buffered=0,  # followers are best-effort; never block on them
                 on_disconnected=self._on_backend_link_lost,
+                on_connected=self._on_backend_link_up,
                 key=follower_key,
             )
             self.follower_conns.append(follower_conn)
@@ -466,8 +483,12 @@ class ChargerSession:
             self._send_to_followers(released)
         self._arm_hold_timer()
 
+    def _on_backend_link_up(self, conn: BackendConnection) -> None:
+        self.publish("backend.link", backend=conn.key, role="leader" if conn is self.backend_conn else "follower", connected=True)
+
     def _on_backend_link_lost(self, conn: BackendConnection) -> None:
         """A backend link dropped. If it was the leader, start watching for failover."""
+        self.publish("backend.link", backend=conn.key, role="leader" if conn is self.backend_conn else "follower", connected=False)
         timeout = self.org_entry.get("leader_failover_timeout", 15)
         if conn is not self.backend_conn or not self.follower_conns or not timeout:
             return
@@ -504,6 +525,7 @@ class ChargerSession:
         # charger retries it, and the retry goes to the new leader). It is not
         # replayed: the new leader already saw those CALLs as observed copies.
         old_leader.reject_buffered()
+        self.publish("backend.failover", old_leader=old_leader.key, new_leader=new_leader.key)
 
         old_leader.is_leader = False
         old_leader.max_buffered = 0
@@ -552,7 +574,7 @@ class ChargerSession:
         adapter = StarletteWebSocketAdapter(
             self.websocket,
             send_lock=self._send_lock,
-            on_receive=self.state.observe,
+            on_receive=self._observe,
             on_send=self.state.note_sent,
         )
         self.charge_point = BrokerChargePoint(
@@ -592,7 +614,7 @@ class ChargerSession:
         while True:
             try:
                 msg = await self.websocket.receive_text()
-                self.state.observe(msg)
+                self._observe(msg)
                 msg_out, parsed = await process_charger_to_backend(self.charger_id, msg)
                 if self._resolve_pending_call(parsed):
                     continue  # reply to a broker-issued command; the backend never asked for it

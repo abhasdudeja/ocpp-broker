@@ -38,6 +38,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chargers/{org}/{charger_id}/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Charger Commands
+         * @description The commands sent to this charger through the API or the console, newest first (kept while it stays connected).
+         */
+        get: operations["charger_commands_api_chargers__org___charger_id__commands_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Live events (Server-Sent Events) */
+        get: operations["events_api_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/mongodb/authorization": {
         parameters: {
             query?: never;
@@ -192,6 +229,27 @@ export interface paths {
          * @description Save StartTransaction or StopTransaction to MongoDB.
          */
         post: operations["save_transaction_api_mongodb_transaction_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ocpp/commands/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Command Catalog
+         * @description The commands that can be sent to a charger, each with the JSON Schema of its payload, a short
+         *     description and how disruptive it is. The web console builds its command forms from this.
+         */
+        get: operations["command_catalog_api_ocpp_commands_catalog_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1331,6 +1389,82 @@ export interface components {
              */
             stack_level?: number | null;
         };
+        /** CommandCatalog */
+        CommandCatalog: {
+            /** Commands */
+            commands: components["schemas"]["CommandSpecInfo"][];
+            /** Ocpp Version */
+            ocpp_version: string;
+        };
+        /** CommandHistory */
+        CommandHistory: {
+            /**
+             * Commands
+             * @description Newest first; the last 50 commands sent to this charger while it stayed connected
+             */
+            commands: components["schemas"]["CommandLogEntry"][];
+        };
+        /** CommandLogEntry */
+        CommandLogEntry: {
+            /** Action */
+            action: string;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /**
+             * Error
+             * @description A CallError, a timeout or a local failure, as text
+             */
+            error: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Message Id */
+            message_id: string;
+            /**
+             * Payload
+             * @description What was sent; secret values (an AuthorizationKey) are replaced by ***
+             */
+            payload: unknown;
+            /**
+             * Response
+             * @description The charger's answer, if it gave one
+             */
+            response: unknown;
+            /**
+             * Sent At
+             * Format: date-time
+             */
+            sent_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "success" | "error" | "timeout" | "cancelled";
+        };
+        /** CommandSpecInfo */
+        CommandSpecInfo: {
+            /** Action */
+            action: string;
+            /**
+             * Json Schema
+             * @description JSON Schema (draft 4) of the command's payload, as the ocpp library validates it
+             */
+            json_schema: {
+                [key: string]: unknown;
+            };
+            /**
+             * Risk
+             * @description read: only asks; change: alters settings or data; disruptive: can interrupt charging or restart the charger
+             * @enum {string}
+             */
+            risk: "read" | "change" | "disruptive";
+            /**
+             * Route
+             * @description The typed route for this command; the generic commands route accepts any of them too
+             */
+            route: string;
+            /** Summary */
+            summary: string;
+        };
         /** ConnectorInfo */
         ConnectorInfo: {
             /**
@@ -1349,6 +1483,35 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * ConsoleEvent
+         * @description One event of ``GET /api/events``. ``data`` depends on ``type``; see the web console and events documentation.
+         */
+        ConsoleEvent: {
+            /** Charger Id */
+            charger_id: string | null;
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+            /**
+             * Id
+             * @description Increases by one per event within one run of the broker
+             */
+            id: number;
+            /** Org */
+            org: string | null;
+            /**
+             * Time
+             * Format: date-time
+             */
+            time: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "charger.connected" | "charger.disconnected" | "charger.replaced" | "charger.boot" | "charger.status" | "backend.link" | "backend.failover" | "transaction.started" | "transaction.stopped" | "command.result";
         };
         /** GetCompositeScheduleRequest */
         GetCompositeScheduleRequest: {
@@ -2138,6 +2301,76 @@ export interface operations {
             };
         };
     };
+    charger_commands_api_chargers__org___charger_id__commands_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Organization name */
+                org: string;
+                /** @description Charger id */
+                charger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandHistory"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    events_api_events_get: {
+        parameters: {
+            query?: {
+                /** @description Only events of this organization */
+                org?: string | null;
+                /** @description Only events of this charger */
+                charger_id?: string | null;
+                /** @description On a first connection, start with this many of the latest matching events */
+                replay?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A text/event-stream. Each `data:` line is one event as JSON. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ConsoleEvent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     save_authorization_api_mongodb_authorization_post: {
         parameters: {
             query?: never;
@@ -2385,6 +2618,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    command_catalog_api_ocpp_commands_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandCatalog"];
                 };
             };
         };

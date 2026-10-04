@@ -881,6 +881,170 @@
         "title": "ClearChargingProfileRequest",
         "type": "object"
       },
+      "CommandCatalog": {
+        "properties": {
+          "commands": {
+            "items": {
+              "$ref": "#/components/schemas/CommandSpecInfo"
+            },
+            "title": "Commands",
+            "type": "array"
+          },
+          "ocpp_version": {
+            "title": "Ocpp Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ocpp_version",
+          "commands"
+        ],
+        "title": "CommandCatalog",
+        "type": "object"
+      },
+      "CommandHistory": {
+        "properties": {
+          "commands": {
+            "description": "Newest first; the last 50 commands sent to this charger while it stayed connected",
+            "items": {
+              "$ref": "#/components/schemas/CommandLogEntry"
+            },
+            "title": "Commands",
+            "type": "array"
+          }
+        },
+        "required": [
+          "commands"
+        ],
+        "title": "CommandHistory",
+        "type": "object"
+      },
+      "CommandLogEntry": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A CallError, a timeout or a local failure, as text",
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "payload": {
+            "description": "What was sent; secret values (an AuthorizationKey) are replaced by ***",
+            "title": "Payload"
+          },
+          "response": {
+            "description": "The charger's answer, if it gave one",
+            "title": "Response"
+          },
+          "sent_at": {
+            "format": "date-time",
+            "title": "Sent At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "success",
+              "error",
+              "timeout",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "action",
+          "status",
+          "payload",
+          "response",
+          "error",
+          "sent_at",
+          "finished_at",
+          "duration_ms"
+        ],
+        "title": "CommandLogEntry",
+        "type": "object"
+      },
+      "CommandSpecInfo": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "json_schema": {
+            "additionalProperties": true,
+            "description": "JSON Schema (draft 4) of the command's payload, as the ocpp library validates it",
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "risk": {
+            "description": "read: only asks; change: alters settings or data; disruptive: can interrupt charging or restart the charger",
+            "enum": [
+              "read",
+              "change",
+              "disruptive"
+            ],
+            "title": "Risk",
+            "type": "string"
+          },
+          "route": {
+            "description": "The typed route for this command; the generic commands route accepts any of them too",
+            "title": "Route",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "summary",
+          "risk",
+          "json_schema",
+          "route"
+        ],
+        "title": "CommandSpecInfo",
+        "type": "object"
+      },
       "ConnectorInfo": {
         "properties": {
           "connector_id": {
@@ -928,6 +1092,74 @@
           "updated_at"
         ],
         "title": "ConnectorInfo",
+        "type": "object"
+      },
+      "ConsoleEvent": {
+        "description": "One event of ``GET /api/events``. ``data`` depends on ``type``; see the web console and events documentation.",
+        "properties": {
+          "charger_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charger Id"
+          },
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "id": {
+            "description": "Increases by one per event within one run of the broker",
+            "title": "Id",
+            "type": "integer"
+          },
+          "org": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org"
+          },
+          "time": {
+            "format": "date-time",
+            "title": "Time",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "charger.connected",
+              "charger.disconnected",
+              "charger.replaced",
+              "charger.boot",
+              "charger.status",
+              "backend.link",
+              "backend.failover",
+              "transaction.started",
+              "transaction.stopped",
+              "command.result"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "time",
+          "org",
+          "charger_id",
+          "data"
+        ],
+        "title": "ConsoleEvent",
         "type": "object"
       },
       "GetCompositeScheduleRequest": {
@@ -2417,6 +2649,156 @@
         ]
       }
     },
+    "/api/chargers/{org}/{charger_id}/commands": {
+      "get": {
+        "description": "The commands sent to this charger through the API or the console, newest first (kept while it stays connected).",
+        "operationId": "charger_commands_api_chargers__org___charger_id__commands_get",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger id",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger id",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Charger Commands",
+        "tags": [
+          "Console"
+        ]
+      }
+    },
+    "/api/events": {
+      "get": {
+        "operationId": "events_api_events_get",
+        "parameters": [
+          {
+            "description": "Only events of this organization",
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events of this organization",
+              "title": "Org"
+            }
+          },
+          {
+            "description": "Only events of this charger",
+            "in": "query",
+            "name": "charger_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events of this charger",
+              "title": "Charger Id"
+            }
+          },
+          {
+            "description": "On a first connection, start with this many of the latest matching events",
+            "in": "query",
+            "name": "replay",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "On a first connection, start with this many of the latest matching events",
+              "maximum": 200,
+              "minimum": 0,
+              "title": "Replay",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleEvent",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A text/event-stream. Each `data:` line is one event as JSON."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Live events (Server-Sent Events)",
+        "tags": [
+          "Console"
+        ]
+      }
+    },
     "/api/mongodb/authorization": {
       "post": {
         "description": "Save Authorization to MongoDB.",
@@ -2754,6 +3136,33 @@
         "summary": "Save Transaction to MongoDB",
         "tags": [
           "MongoDB OCPP Data"
+        ]
+      }
+    },
+    "/api/ocpp/commands/catalog": {
+      "get": {
+        "description": "The commands that can be sent to a charger, each with the JSON Schema of its payload, a short\ndescription and how disruptive it is. The web console builds its command forms from this.",
+        "operationId": "command_catalog_api_ocpp_commands_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Command Catalog",
+        "tags": [
+          "OCPP Commands"
         ]
       }
     },

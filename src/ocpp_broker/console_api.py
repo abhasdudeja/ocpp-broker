@@ -20,6 +20,8 @@ from .schemas.console import (
     ChargerDetail,
     ChargerList,
     ChargerSummary,
+    CommandHistory,
+    CommandLogEntry,
     ConnectorInfo,
     IdObject,
     OrgBackend,
@@ -173,6 +175,32 @@ def create_console_api(broker: Any) -> APIRouter:
             frames_in=state.frames_in,
             frames_out=state.frames_out,
             id_table_stats=dict(table.stats) if table is not None else {},
+        )
+
+    @router.get("/chargers/{org}/{charger_id}/commands", response_model=CommandHistory)
+    async def charger_commands(
+        org: str = Path(..., description="Organization name"),
+        charger_id: str = Path(..., description="Charger id"),
+    ) -> CommandHistory:
+        """The commands sent to this charger through the API or the console, newest first (kept while it stays connected)."""
+        session = broker.sessions.get((org, charger_id))
+        if session is None:
+            raise HTTPException(status_code=404, detail=f"Charger {org}/{charger_id} is not connected to this instance")
+        return CommandHistory(
+            commands=[
+                CommandLogEntry(
+                    message_id=e.message_id,
+                    action=e.action,
+                    status=e.status,
+                    payload=e.payload,
+                    response=e.response,
+                    error=e.error,
+                    sent_at=e.sent_at,
+                    finished_at=e.finished_at,
+                    duration_ms=e.duration_ms,
+                )
+                for e in reversed(list(session.command_log))
+            ]
         )
 
     return router

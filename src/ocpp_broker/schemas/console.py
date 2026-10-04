@@ -9,7 +9,7 @@ connector can later gain an EVSE id.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -117,3 +117,56 @@ class ChargerDetail(ChargerSummary):
     frames_in: int
     frames_out: int
     id_table_stats: Dict[str, int] = Field(description="Counters of what the transaction id table did: rewritten, remapped, skipped, ...")
+
+
+class ConsoleEvent(BaseModel):
+    """One event of ``GET /api/events``. ``data`` depends on ``type``; see the web console and events documentation."""
+
+    id: int = Field(description="Increases by one per event within one run of the broker")
+    type: Literal[
+        "charger.connected",
+        "charger.disconnected",
+        "charger.replaced",
+        "charger.boot",
+        "charger.status",
+        "backend.link",
+        "backend.failover",
+        "transaction.started",
+        "transaction.stopped",
+        "command.result",
+    ]
+    time: datetime
+    org: Optional[str]
+    charger_id: Optional[str]
+    data: Dict[str, Any]
+
+
+class CommandSpecInfo(BaseModel):
+    action: str
+    summary: str
+    risk: Literal["read", "change", "disruptive"] = Field(
+        description="read: only asks; change: alters settings or data; disruptive: can interrupt charging or restart the charger"
+    )
+    json_schema: Dict[str, Any] = Field(description="JSON Schema (draft 4) of the command's payload, as the ocpp library validates it")
+    route: str = Field(description="The typed route for this command; the generic commands route accepts any of them too")
+
+
+class CommandCatalog(BaseModel):
+    ocpp_version: str
+    commands: List[CommandSpecInfo]
+
+
+class CommandLogEntry(BaseModel):
+    message_id: str
+    action: str
+    status: Literal["pending", "success", "error", "timeout", "cancelled"]
+    payload: Any = Field(description="What was sent; secret values (an AuthorizationKey) are replaced by ***")
+    response: Any = Field(description="The charger's answer, if it gave one")
+    error: Optional[str] = Field(description="A CallError, a timeout or a local failure, as text")
+    sent_at: datetime
+    finished_at: Optional[datetime]
+    duration_ms: Optional[int]
+
+
+class CommandHistory(BaseModel):
+    commands: List[CommandLogEntry] = Field(description="Newest first; the last 50 commands sent to this charger while it stayed connected")

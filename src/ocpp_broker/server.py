@@ -245,6 +245,18 @@ def load_broker_config(config_path: str | None) -> dict:
 # ---------------------------------------------------------------------------
 # Server configuration
 # ---------------------------------------------------------------------------
+class BrokerServer(uvicorn.Server):
+    """
+    uvicorn waits for open HTTP responses before it finishes shutting down, and the web console's event
+    stream (``GET /api/events``) never ends by itself, so one open console tab would keep the broker from
+    stopping. End the streams first.
+    """
+
+    async def shutdown(self, *args, **kwargs) -> None:
+        broker.events.close()
+        await super().shutdown(*args, **kwargs)
+
+
 def build_uvicorn_config(application: FastAPI, cfg: dict) -> uvicorn.Config:
     """
     Build the uvicorn config from the broker configuration.
@@ -289,7 +301,7 @@ async def main_async(cfg: dict):
     _log_api_security(broker.config_data)
     logger.info("OCPP Broker ready — waiting for chargers...")
 
-    server = uvicorn.Server(build_uvicorn_config(app, cfg))
+    server = BrokerServer(build_uvicorn_config(app, cfg))
     await server.serve()
 
 

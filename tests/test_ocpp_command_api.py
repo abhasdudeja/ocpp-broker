@@ -2,6 +2,8 @@
 Tests for the OCPP command API endpoints.
 """
 
+from collections import deque
+
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock
@@ -31,6 +33,7 @@ def mock_session():
     session.org_name = "TestOrg"
     session.mode = SessionMode.BROKER
     session.backend_conn = None
+    session.command_log = deque(maxlen=50)
     session.send_command = AsyncMock(
         return_value=CommandResult("m", "success", response={"status": "Accepted"})
     )

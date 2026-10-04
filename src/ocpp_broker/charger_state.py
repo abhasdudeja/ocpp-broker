@@ -15,11 +15,18 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple, TypeGuard
+
+# One thing a frame changed: (event type, data), see events.EVENT_TYPES.
+Change = Tuple[str, Dict[str, Any]]
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _is_int(value: Any) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _text(value: Any) -> Optional[str]:
@@ -73,18 +80,23 @@ class ChargerState:
     def note_sent(self) -> None:
         self.frames_out += 1
 
-    def observe(self, raw: str) -> None:
-        """Take note of one frame received from the charger."""
+    def observe(self, raw: str) -> List[Change]:
+        """
+        Take note of one frame received from the charger. Returns what it changed, as ``(event type,
+        data)`` pairs for the live event stream: a new connector status, a boot, a transaction asked
+        for or ended. Nothing is returned for a frame that changed nothing worth telling.
+        """
         now = _now()
         self.frames_in += 1
         self.last_seen = now
         try:
             frame = json.loads(raw)
         except (TypeError, ValueError):
-            return
+            return []
         if not (isinstance(frame, list) and len(frame) >= 4 and frame[0] == 2 and isinstance(frame[3], dict)):
-            return  # an answer to something the broker or a backend asked, or something odd
+            return []  # an answer to something the broker or a backend asked, or something odd
         action, payload = frame[2], frame[3]
+        changes: List[Change] = []
         if action == "BootNotification":
             self.boot = BootInfo(
                 vendor=_text(payload.get("chargePointVendor")),
@@ -97,19 +109,69 @@ class ChargerState:
                 meter_serial_number=_text(payload.get("meterSerialNumber")),
                 received_at=now,
             )
+            changes.append(
+                (
+                    "charger.boot",
+                    {
+                        "vendor": self.boot.vendor,
+                        "model": self.boot.model,
+                        "firmware_version": self.boot.firmware_version,
+                    },
+                )
+            )
         elif action == "Heartbeat":
             self.last_heartbeat_at = now
         elif action == "StatusNotification":
             connector = payload.get("connectorId")
             status = payload.get("status")
-            if isinstance(connector, int) and not isinstance(connector, bool) and isinstance(status, str):
-                self.connectors[connector] = ConnectorState(
+            if _is_int(connector) and isinstance(status, str):
+                before = self.connectors.get(connector)
+                current = ConnectorState(
                     connector_id=connector,
                     status=status,
                     error_code=_text(payload.get("errorCode")),
                     info=_text(payload.get("info")),
                     updated_at=_when(payload.get("timestamp"), now),
                 )
+                self.connectors[connector] = current
+                if before is None or (before.status, before.error_code) != (current.status, current.error_code):
+                    changes.append(
+                        (
+                            "charger.status",
+                            {
+                                "connector_id": connector,
+                                "status": status,
+                                "previous": before.status if before else None,
+                                "error_code": current.error_code,
+                            },
+                        )
+                    )
+        elif action == "StartTransaction":
+            connector = payload.get("connectorId")
+            meter = payload.get("meterStart")
+            changes.append(
+                (
+                    "transaction.started",
+                    {
+                        "connector_id": connector if _is_int(connector) else None,
+                        "meter_start": meter if _is_int(meter) else None,
+                    },
+                )
+            )
+        elif action == "StopTransaction":
+            transaction = payload.get("transactionId")
+            meter = payload.get("meterStop")
+            changes.append(
+                (
+                    "transaction.stopped",
+                    {
+                        "transaction_id": transaction if _is_int(transaction) else None,
+                        "meter_stop": meter if _is_int(meter) else None,
+                        "reason": _text(payload.get("reason")),
+                    },
+                )
+            )
+        return changes
 
     def ordered_connectors(self) -> list[ConnectorState]:
         return [self.connectors[k] for k in sorted(self.connectors)]

@@ -1,6 +1,6 @@
 # Plan: transaction id mapping in relay mode
 
-Status: **T1 to T3 built** (2026-10-04); T4 to T6 not started. Written 2026-10-04. See "Build log" at the end.
+Status: **T1 to T5 built** (2026-10-04); T6 (API and console view) not started. Written 2026-10-04. See "Build log" below.
 Related: [ui-plan.md](ui-plan.md) (the console shows this table), [roadmap.md](roadmap.md) (OCPP 2.x changes the problem).
 
 ## Summary
@@ -220,6 +220,8 @@ Mutation checks as before: skipping the follower rewrite, the collision check, t
 | T1 | done | `TransactionIdTable` and 41 unit tests; mutation-checked. The scripted test backend moved into T2 where it is used. |
 | T2 | done | Wired into the relay path; `transaction_ids` settings; docs; 21 socket tests including a characterisation test that shows the bug with mapping off. |
 | T3 | done | Failover, reconnect, collision remapping, late answers; randomised simulation (S9) over 400 seeds in the suite and a one-off sweep of 30,000 seeds x 150 steps with no violations. |
+| T4 | done | Persistence in MongoDB (`transaction_id_map`, TTL and lookup indexes), a non-blocking coalescing writer, restore on a charger's first session, `transaction_ids.retain_open`, backend id warnings, a CI job against a real MongoDB. Verified against MongoDB 7 in Docker, including TTL deletion. |
+| T5 | done | Reservation ids and charging profile ids with the same rule (the backend's own number unless taken, else a fresh one), cancel/clear mapped back, the charger's answer settles each change, StartTransaction's `reservationId` per backend, REST-issued ids recorded, storage. Simulation: 20,000 seeds x 120 steps with no violations. |
 
 Deviations from the design above, and what the build found:
 
@@ -230,7 +232,16 @@ Deviations from the design above, and what the build found:
 5. **A start copy waiting in a follower's queue** was not counted when records were cleaned up, so a promotion could delete the record, the copy was sent anyway, and the answer matched nothing; the retry then started over and the follower got the start twice. Records with a queued copy are now kept. Found by the simulation.
 6. **Not guaranteed, and now documented:** a backend that processed a start whose answer never reached the broker may be sent the start again; a leader the table has no id for gets the charger's id unchanged. The simulation's invariants are written accordingly (it checks "never resend a start to a backend whose answer the broker holds").
 
-Tooling lesson: the mutation-check scripts rewrote files with CRLF line endings on Windows; three files were committed that way and fixed in a follow-up commit.
+What T4 and T5 changed or decided:
+
+7. **Open records expire.** A transaction nobody stops would otherwise live forever in memory and in MongoDB, so `transaction_ids.retain_open` (30 days without a frame for it) was added; it also sets the stored `expires_at`. The stored expiry of a record is refreshed at most once an hour, not per meter reading.
+8. **The store never blocks and never mistakes an outage for a bad record.** Unreachable MongoDB (including driver connection errors) is waited out; a record MongoDB rejects is dropped after 5 tries so it cannot block the queue.
+9. **Backend keys stay `id`, else URL** (open question 5), with a warning at load when a backend has no id or two share one, because stored records are matched by that key.
+10. **A backend that does not own a reservation is not told its number.** `StartTransaction.reservationId` is rewritten to the backend's own id, and removed for backends that did not make the reservation (an unresolvable number could mean one of their own). A reservation the table never heard of still goes to the leader unchanged.
+11. **Charging profile ids** need no per-backend rewrite on the charger-to-backend side (the charger never quotes them); only the collision rule and the cancel/clear mapping matter.
+12. **Still not covered:** the local authorization list version and configuration values, and anything an old leader set that a promoted leader does not know about. After a failover the broker can read the charger's state through its own command path, but how to tell the new leader is an open design question.
+
+Tooling lessons: the mutation-check scripts rewrote files with CRLF line endings on Windows; three files were committed that way and fixed in a follow-up commit.
 
 ## 7. Priority
 
@@ -242,8 +253,8 @@ These are also chosen by a backend and stored by the charger, so they conflict i
 
 | Space | Messages | Risk |
 |-------|----------|------|
-| Reservation ids | `ReserveNow`, `CancelReservation`, `StartTransaction.reservationId` | Same pattern as transactions; mapped in T5 |
-| Charging profile ids | `SetChargingProfile`, `ClearChargingProfile` | A new leader that reuses an id with the same purpose and stack level silently **replaces** a profile the old leader installed |
+| Reservation ids | `ReserveNow`, `CancelReservation`, `StartTransaction.reservationId` | **Done in T5.** |
+| Charging profile ids | `SetChargingProfile`, `ClearChargingProfile` | **Id collisions done in T5.** Not solved: as the specification describes it (verify against the text), a profile with the same stack level and purpose as an existing one replaces it whatever its id, so a new leader's profile can still displace an old leader's. Renumbering cannot prevent that; changing stack levels would change what the profile means. |
 | Local authorization list version | `SendLocalList`, `GetLocalListVersion` | The charger holds one list; each backend counts versions separately |
 | Configuration | `ChangeConfiguration` | The charger holds one set of values the new leader has not seen |
 

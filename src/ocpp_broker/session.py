@@ -253,6 +253,8 @@ class ChargerSession:
         self._pending_calls[message_id] = future
         try:
             await self._send_text(json.dumps([2, message_id, action, payload]))
+            if self._ids is not None:
+                self._ids.note_command(action, payload)  # ids the broker itself gave the charger are taken
             frame = await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
             return CommandResult(message_id, "timeout", error=f"No response within {timeout}s")

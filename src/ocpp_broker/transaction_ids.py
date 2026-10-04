@@ -26,6 +26,7 @@ import time
 import uuid
 from collections import Counter, OrderedDict, deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeGuard
 
 logger = logging.getLogger("ocpp_broker.transaction_ids")
@@ -43,6 +44,18 @@ _BACKEND_ID_FIELDS: Dict[str, Tuple[str, ...]] = {
 }
 
 CALL, CALLRESULT, CALLERROR = 2, 3, 4
+
+# Other ids a backend chooses and the charger stores. Both flow backend -> charger only (a reservation
+# id is also echoed back in StartTransaction). Per action: (id space, where the id sits, what the
+# message does with it): "assign" creates or replaces the object, "release" removes it.
+RESERVATION, PROFILE = "reservation", "profile"
+_SPACE_FIELDS: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
+    "ReserveNow": (RESERVATION, ("reservationId",), "assign"),
+    "CancelReservation": (RESERVATION, ("reservationId",), "release"),
+    "SetChargingProfile": (PROFILE, ("csChargingProfiles", "chargingProfileId"), "assign"),
+    "RemoteStartTransaction": (PROFILE, ("chargingProfile", "chargingProfileId"), "assign"),
+    "ClearChargingProfile": (PROFILE, ("id",), "release"),
+}
 
 
 def _is_int(value: Any) -> TypeGuard[int]:
@@ -67,6 +80,17 @@ def _write(parsed: list, path: Tuple[str, ...], value: int, payload_index: int) 
     for part in path[:-1]:
         node = node[part]
     node[path[-1]] = value
+    return _dump(clone)
+
+
+def _write_many(parsed: list, edits: List[Tuple[Tuple[str, ...], int]], payload_index: int) -> str:
+    """The frame with several ids replaced at once."""
+    clone = copy.deepcopy(parsed)
+    for path, value in edits:
+        node = clone[payload_index]
+        for part in path[:-1]:
+            node = node[part]
+        node[path[-1]] = value
     return _dump(clone)
 
 
@@ -104,6 +128,20 @@ class TxRecord:
     closed_at: Optional[float] = None
     touched: float = 0.0  # last time a frame used it
     saved_at: float = 0.0  # last time it was handed to ``on_change``
+
+
+@dataclass
+class IdRecord:
+    """A reservation or charging profile the charger holds, and what each backend calls it."""
+
+    space: str  # RESERVATION or PROFILE
+    cid: int  # the id the charger holds
+    uid: str = field(default_factory=lambda: uuid.uuid4().hex)
+    backend_ids: Dict[str, int] = field(default_factory=dict)  # backend key -> its id (empty: made via the REST API)
+    expires: Optional[float] = None  # wall-clock seconds; a reservation ends at its expiryDate
+    created: float = 0.0
+    touched: float = 0.0
+    saved_at: float = 0.0
 
 
 @dataclass
@@ -165,6 +203,12 @@ class TransactionIdTable:
         # follower is promoted its late answer arrives as a "leader" frame; the charger never
         # asked that backend, so it must not see it.
         self._copied: "OrderedDict[Tuple[str, str], None]" = OrderedDict()
+        # reservations and charging profiles: space -> charger id -> record, and (space, backend, its id) -> record
+        self._spaces: Dict[str, Dict[int, IdRecord]] = {}
+        self._space_index: Dict[Tuple[str, str, int], IdRecord] = {}
+        # message id of a backend CALL we translated -> (record, "assign" | "release", record was created by it);
+        # the charger's answer decides whether the change took effect
+        self._assigned: "OrderedDict[str, Tuple[IdRecord, str, bool]]" = OrderedDict()
         self.stats: Counter = Counter()
 
     # ------------------------------------------------------------------
@@ -187,6 +231,8 @@ class TransactionIdTable:
             and isinstance(parsed[3], dict)
         ):
             plan.to_leader = raw  # CALLRESULT / CALLERROR / anything odd: leader only, untouched
+            if isinstance(parsed, list) and len(parsed) >= 3 and parsed[0] in (CALLRESULT, CALLERROR):
+                self._settle_reply(parsed)
             return plan
 
         action, payload = parsed[2], parsed[3]
@@ -255,7 +301,7 @@ class TransactionIdTable:
         rec.sent_at = now
         rec.msgs.add(msg_id)
         self._start_msgs[msg_id] = rec
-        plan.to_leader = raw
+        plan.to_leader = self._start_frame(leader, parsed, raw, is_leader=True)
 
         for follower, ready in followers.items():
             if not is_new and (follower in rec.backend_ids or follower in rec.awaiting or follower in rec.degraded):
@@ -309,13 +355,43 @@ class TransactionIdTable:
                 return LeaderPlan(None)  # a late answer to an observer copy, not to the charger
             return LeaderPlan(raw)
 
-        if kind == CALL and len(parsed) >= 4 and isinstance(parsed[2], str):
-            path = _BACKEND_ID_FIELDS.get(parsed[2])
-            if path is not None and isinstance(parsed[3], dict):
-                value = _read(parsed[3], path)
-                if value is not None:
-                    return LeaderPlan(self._reverse(leader, parsed, raw, path, value))
+        if kind == CALL and len(parsed) >= 4 and isinstance(parsed[2], str) and isinstance(parsed[3], dict):
+            return LeaderPlan(self._leader_call(leader, parsed, raw))
         return LeaderPlan(raw)
+
+    def _leader_call(self, leader: str, parsed: list, raw: str) -> str:
+        """A backend command that quotes ids the charger stores: put the charger's own ids in it."""
+        action, payload = parsed[2], parsed[3]
+        edits: List[Tuple[Tuple[str, ...], int]] = []
+
+        path = _BACKEND_ID_FIELDS.get(action)
+        if path is not None:
+            issued = _read(payload, path)
+            if issued is not None:
+                held = self._reverse_id(leader, issued)
+                if held is not None and held != issued:
+                    edits.append((path, held))
+
+        spec = _SPACE_FIELDS.get(action)
+        if spec is not None:
+            space, id_path, mode = spec
+            value = _read(payload, id_path)
+            if value is not None:
+                rec: Optional[IdRecord]
+                if mode == "assign":
+                    rec, created = self._space_assign(space, leader, value, self._expiry_of(action, payload))
+                    self._expect_reply(parsed[1], rec, "assign", created)
+                else:
+                    rec = self._space_find(space, leader, value)
+                    if rec is None:
+                        self.stats["unmapped"] += 1  # not made through this broker: pass it on as it is
+                    else:
+                        self._expect_reply(parsed[1], rec, "release", False)
+                if rec is not None and rec.cid != value:
+                    edits.append((id_path, rec.cid))
+                    self.stats["rewritten"] += 1
+
+        return _write_many(parsed, edits, payload_index=3) if edits else raw
 
     def _leader_started(self, rec: TxRecord, leader: str, parsed: list, raw: str) -> LeaderPlan:
         payload = parsed[2] if len(parsed) > 2 and isinstance(parsed[2], dict) else None
@@ -386,16 +462,16 @@ class TransactionIdTable:
         rec.aliases.clear()
         self._collect(rec)
 
-    def _reverse(self, leader: str, parsed: list, raw: str, path: Tuple[str, ...], issued: int) -> str:
+    def _reverse_id(self, leader: str, issued: int) -> Optional[int]:
+        """The id the charger holds for the transaction ``leader`` calls ``issued`` (None: not known to the table)."""
         rec = self._by_backend.get((leader, issued))
         if rec is None or rec.tx_id is None:
             self.stats["unmapped"] += 1
             logger.warning("Leader quoted transaction id %s that the id table does not know; passed through", issued)
-            return raw
-        if rec.tx_id == issued:
-            return raw
-        self.stats["rewritten"] += 1
-        return _write(parsed, path, rec.tx_id, payload_index=3)
+            return None
+        if rec.tx_id != issued:
+            self.stats["rewritten"] += 1
+        return rec.tx_id
 
     def start_failed(self, msg_id: str) -> List[str]:
         """
@@ -479,7 +555,7 @@ class TransactionIdTable:
                 item.rec.awaiting_since[follower] = now
                 item.rec.copy_msgs[follower] = item.parsed[1]
                 item.rec.queued.discard(follower)
-            out.append(item.raw)
+            out.append(self._start_frame(follower, item.parsed, item.raw, is_leader=False) if item.kind == "start" else item.raw)
             self._note_copy(follower, item.parsed)
             queue.popleft()
         return out
@@ -616,6 +692,15 @@ class TransactionIdTable:
         for rec in list(self._by_start.values()):
             if rec.state == "pending" and now - rec.created > stale_pending:
                 self._forget(rec)
+        wall = self._wall()
+        for space, records in list(self._spaces.items()):
+            for idr in list(records.values()):
+                if space == RESERVATION and idr.expires is not None:
+                    gone = wall > idr.expires + self.retain_closed
+                else:
+                    gone = now - idr.touched > (self.retain_closed if space == RESERVATION else self.retain_open)
+                if gone:
+                    self._space_release(idr)
 
     def _forget(self, rec: TxRecord) -> None:
         if rec.tx_id is not None and self._by_tx.get(rec.tx_id) is rec:
@@ -628,6 +713,222 @@ class TransactionIdTable:
             if self._start_msgs.get(msg) is rec:
                 del self._start_msgs[msg]
         self._unpersist(rec)
+
+    # ------------------------------------------------------------------
+    # Reservations and charging profiles
+    #
+    # Same rule as for transactions: the charger holds the backend's own number whenever no other
+    # object of that kind already has it, and a fresh one otherwise. The same backend sending its
+    # number again still replaces its own object (that is what the protocol means by it); another
+    # backend's object with the same number is never overwritten.
+    # ------------------------------------------------------------------
+    def _space_find(self, space: str, backend: str, bid: int) -> Optional[IdRecord]:
+        return self._space_index.get((space, backend, bid))
+
+    def _space_assign(self, space: str, backend: str, bid: int, expires: Optional[float]) -> Tuple[IdRecord, bool]:
+        """The record for ``backend``'s object numbered ``bid`` and whether this call created it."""
+        now = self._clock()
+        rec = self._space_index.get((space, backend, bid))
+        if rec is not None:
+            rec.touched = now
+            if expires is not None:
+                rec.expires = expires
+            self._persist_space(rec)
+            return rec, False
+        records = self._spaces.setdefault(space, {})
+        cid = bid
+        if cid in records:
+            cid = self._space_fresh(space)
+            self.stats["remapped"] += 1
+            logger.warning(
+                "%s id %s from %s is already held by the charger for another %s; the charger will see %s instead",
+                space.capitalize(),
+                bid,
+                backend,
+                space,
+                cid,
+            )
+        rec = IdRecord(space=space, cid=cid, expires=expires, created=now, touched=now)
+        rec.backend_ids[backend] = bid
+        records[cid] = rec
+        self._space_index[(space, backend, bid)] = rec
+        self._persist_space(rec)
+        return rec, True
+
+    def _space_occupy(self, space: str, cid: int, expires: Optional[float]) -> None:
+        """The broker itself (REST API) gave the charger an object with this id: no backend's number may land on it."""
+        records = self._spaces.setdefault(space, {})
+        rec = records.get(cid)
+        now = self._clock()
+        if rec is None:
+            rec = IdRecord(space=space, cid=cid, expires=expires, created=now, touched=now)
+            records[cid] = rec
+        else:
+            rec.touched = now
+            if expires is not None:
+                rec.expires = expires
+        self._persist_space(rec)
+
+    def _space_fresh(self, space: str) -> int:
+        taken = set(self._spaces.get(space, {}))
+        known = taken | {bid for (s, _, bid) in self._space_index if s == space}
+        candidate = max(known, default=0) + 1
+        if candidate > MAX_INT32:
+            candidate = next(i for i in itertools.count(1) if i not in taken)
+        return candidate
+
+    def _space_release(self, rec: IdRecord) -> None:
+        records = self._spaces.get(rec.space, {})
+        if records.get(rec.cid) is rec:
+            records.pop(rec.cid)
+        for backend, bid in rec.backend_ids.items():
+            if self._space_index.get((rec.space, backend, bid)) is rec:
+                self._space_index.pop((rec.space, backend, bid))
+        self._unpersist_space(rec)
+
+    def _expect_reply(self, msg_id: str, rec: IdRecord, mode: str, created: bool) -> None:
+        self._assigned[msg_id] = (rec, mode, created)
+        while len(self._assigned) > 1024:
+            self._assigned.popitem(last=False)
+
+    def _settle_reply(self, parsed: list) -> None:
+        """The charger answered a reservation or profile command we translated: did it take effect?"""
+        entry = self._assigned.pop(parsed[1], None)
+        if entry is None:
+            return
+        rec, mode, created = entry
+        status = parsed[2].get("status") if parsed[0] == CALLRESULT and isinstance(parsed[2], dict) else None
+        accepted = status == "Accepted"
+        if mode == "assign" and created and not accepted:
+            self._space_release(rec)  # the charger refused it: nothing holds that id
+        elif mode == "release" and accepted:
+            self._space_release(rec)  # cancelled or cleared: the id is free again
+
+    @staticmethod
+    def _expiry_of(action: str, payload: Dict[str, Any]) -> Optional[float]:
+        """Wall-clock end of a reservation (its ``expiryDate``), or None."""
+        if action != "ReserveNow" or not isinstance(payload.get("expiryDate"), str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(payload["expiryDate"].replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+
+    def _start_frame(self, backend: str, parsed: list, raw: str, *, is_leader: bool) -> str:
+        """
+        A StartTransaction in ``backend``'s own reservation id. The charger quotes the id it holds.
+        A backend that did not make that reservation is not told about it: a number it cannot
+        resolve might mean one of its own. (A reservation the table never heard of may predate
+        the broker, so the leader still gets it as it is.)
+        """
+        payload = parsed[3]
+        held = payload.get("reservationId")
+        if not _is_int(held):
+            return raw
+        rec = self._spaces.get(RESERVATION, {}).get(held)
+        if rec is None:
+            return raw if is_leader else self._strip_reservation(parsed)
+        rec.touched = self._clock()
+        issued = rec.backend_ids.get(backend)
+        if issued is None:
+            return self._strip_reservation(parsed)
+        if issued == held:
+            return raw
+        self.stats["rewritten"] += 1
+        return _write(parsed, ("reservationId",), issued, payload_index=3)
+
+    def _strip_reservation(self, parsed: list) -> str:
+        self.stats["stripped"] += 1
+        clone = copy.deepcopy(parsed)
+        clone[3].pop("reservationId", None)
+        return _dump(clone)
+
+    def note_command(self, action: str, payload: Any) -> None:
+        """
+        The broker itself sent the charger a command (REST API). Its reservation and profile ids belong
+        to no backend, but they are taken on the charger, so they are recorded as such.
+        """
+        spec = _SPACE_FIELDS.get(action)
+        if spec is None or not isinstance(payload, dict):
+            return
+        space, path, mode = spec
+        value = _read(payload, path)
+        if value is None:
+            return
+        if mode == "assign":
+            self._space_occupy(space, value, self._expiry_of(action, payload))
+        else:
+            rec = self._spaces.get(space, {}).get(value)
+            if rec is not None:
+                self._space_release(rec)
+
+    def _persist_space(self, rec: IdRecord) -> None:
+        if self.on_change is None:
+            return
+        rec.saved_at = self._clock()
+        wall = self._wall()
+        if rec.space == RESERVATION:
+            expires = (rec.expires if rec.expires is not None else wall) + self.retain_closed
+        else:
+            expires = wall + self.retain_open
+        doc = {
+            "kind": rec.space,
+            "uid": rec.uid,
+            "cid": rec.cid,
+            "backend_ids": [[key, issued] for key, issued in rec.backend_ids.items()],
+            "expires": rec.expires,
+            "updated_at": wall,
+        }
+        self.on_change(rec.uid, doc, expires)
+
+    def _unpersist_space(self, rec: IdRecord) -> None:
+        if self.on_change is not None and rec.saved_at:
+            self.on_change(rec.uid, None, None)
+
+    def _import_space(self, doc: Dict[str, Any], known: Optional[Set[str]]) -> bool:
+        wall_now, mono_now = self._wall(), self._clock()
+        space, cid = doc["kind"], doc["cid"]
+        updated = float(doc.get("updated_at") or wall_now)
+        expires = doc.get("expires")
+        if space == RESERVATION:
+            if wall_now > (float(expires) if expires is not None else updated) + self.retain_closed:
+                return False
+        elif wall_now - updated > self.retain_open:
+            return False
+        records = self._spaces.setdefault(space, {})
+        if cid in records:
+            return False  # already known (a live record wins)
+        ids = {str(k): v for k, v in doc.get("backend_ids", [])}
+        if known is not None:
+            ids = {k: v for k, v in ids.items() if k in known}
+        rec = IdRecord(
+            space=space,
+            cid=cid,
+            uid=doc["uid"],
+            backend_ids=ids,
+            expires=None if expires is None else float(expires),
+            created=mono_now - (wall_now - updated),
+            touched=mono_now - (wall_now - updated),
+        )
+        rec.saved_at = rec.touched
+        records[cid] = rec
+        for backend, bid in ids.items():
+            self._space_index[(space, backend, bid)] = rec
+        return True
+
+    def spaces_snapshot(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Reservations and charging profiles for display: the charger's id and each backend's."""
+        return {
+            space: [
+                {"id": rec.cid, "backend_ids": dict(rec.backend_ids), "expires": rec.expires}
+                for _, rec in sorted(records.items())
+            ]
+            for space, records in self._spaces.items()
+            if records
+        }
 
     # ------------------------------------------------------------------
     # Persistence: export and restore (the I/O lives in transaction_store.py)
@@ -683,7 +984,11 @@ class TransactionIdTable:
         restored = 0
         for document in documents:
             try:
-                if self._import(document, known_backends):
+                if "kind" in document:  # a reservation or a charging profile
+                    imported = self._import_space(document, known_backends)
+                else:
+                    imported = self._import(document, known_backends)
+                if imported:
                     restored += 1
             except Exception as exc:
                 logger.warning("Skipped an unreadable transaction id record: %s", exc)
@@ -744,7 +1049,13 @@ class TransactionIdTable:
     def is_idle(self) -> bool:
         """Nothing worth keeping: safe to drop the table."""
         self._prune()
-        return not (self._by_tx or self._by_start or self._start_msgs or any(self._held.values()))
+        return not (
+            self._by_tx
+            or self._by_start
+            or self._start_msgs
+            or any(self._held.values())
+            or any(self._spaces.values())
+        )
 
     def snapshot(self) -> List[Dict[str, Any]]:
         """The table for display: one dict per transaction."""

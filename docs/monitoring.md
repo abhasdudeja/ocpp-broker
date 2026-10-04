@@ -107,6 +107,7 @@ Texts are quoted from the source; `X` is a charger id and `Y` an organization.
 | WARNING | `Organization Y: backend id(s) ... are used more than once; ...` | Two backends share an `id`. |
 | WARNING | `Leader X never issued an id for transaction N (it did not see the start); passed through unchanged` | The leader has no id for a running transaction; the charger's own id is sent, which may land on another transaction there. |
 | WARNING | `Leader issued transaction id N, which the charger already holds; the charger will see M instead` | An id collision after a failover was remapped. |
+| WARNING | `Reservation id N from X is already held by the charger for another reservation; the charger will see M instead` (and the same for `Profile id ...`) | A backend's reservation or charging profile number collided with another backend's and was remapped, so it does not overwrite it. |
 | WARNING | `Follower X never gave an id for a start; giving up on its copies` | A follower did not answer its copy of a start within `transaction_ids.follower_wait`; it is skipped for that transaction. |
 | WARNING | `Leader answered a repeated StartTransaction with a second transaction of its own; the charger keeps id N` | A retried start (after the 60 s stale limit) was started twice on that backend; the charger keeps the first id. |
 | WARNING | `Transaction N was never stopped and has been idle for D days; forgetting it` | No `StopTransaction` arrived within `transaction_ids.retain_open`. |

@@ -417,6 +417,81 @@ async def test_a_start_retried_after_a_failover_does_not_start_a_second_transact
 
 
 # --------------------------------------------------------------------------
+# Reservation ids and charging profile ids
+# --------------------------------------------------------------------------
+def reserve_payload(rid):
+    return {"connectorId": 1, "expiryDate": "2099-01-01T00:00:00Z", "idTag": "TAG", "reservationId": rid}
+
+
+def profile_payload(pid):
+    return {"connectorId": 1, "csChargingProfiles": {"chargingProfileId": pid, "stackLevel": 0, "chargingProfilePurpose": "TxDefaultProfile"}}
+
+
+async def command_and_accept(backend, charger, action, payload, mid):
+    """The backend sends a command, the charger receives it (returned) and answers Accepted."""
+    await backend.command(action, payload, mid)
+    frame = await charger.next_reply()
+    assert frame[1] == mid
+    charger.deliver([3, mid, {"status": "Accepted"}])
+    return frame
+
+
+@pytest.mark.asyncio
+async def test_reservation_and_profile_ids_survive_a_failover_without_overwriting_each_other():
+    leader, follower = await ScriptedBackend(first_id=2).start(), await ScriptedBackend(first_id=1).start()
+    broker, session, charger, task = await start_relay(leader, follower, leader_failover_timeout=0.3)
+    try:
+        # the old leader sets reservation 5 and profile 1; the charger holds them under the same numbers
+        assert (await command_and_accept(leader, charger, "ReserveNow", reserve_payload(5), "r1"))[3]["reservationId"] == 5
+        assert (await command_and_accept(leader, charger, "SetChargingProfile", profile_payload(1), "p1"))[3]["csChargingProfiles"]["chargingProfileId"] == 1
+
+        await leader.stop()
+        await wait_promoted(session)
+
+        # the new leader numbers its own reservation and profile the same way: they must not replace the old ones
+        reserved = (await command_and_accept(follower, charger, "ReserveNow", reserve_payload(5), "r2"))[3]["reservationId"]
+        profiled = (await command_and_accept(follower, charger, "SetChargingProfile", profile_payload(1), "p2"))[3]["csChargingProfiles"]["chargingProfileId"]
+        assert reserved != 5 and profiled != 1
+
+        # the charger starts on the new leader's reservation: the new leader is told its own number
+        charger.deliver([2, "s1", "StartTransaction", {"connectorId": 1, "idTag": "A", "meterStart": 1, "timestamp": "t", "reservationId": reserved}])
+        await wait_for(lambda: any(c[1] == "s1" for c in follower.calls))
+        assert next(c for c in follower.calls if c[1] == "s1")[3]["reservationId"] == 5
+        await charger.next_reply()
+
+        # a start on the OLD leader's reservation must not name a reservation number to the new leader
+        charger.deliver([2, "s2", "StartTransaction", {"connectorId": 1, "idTag": "B", "meterStart": 2, "timestamp": "t", "reservationId": 5}])
+        await wait_for(lambda: any(c[1] == "s2" for c in follower.calls))
+        assert "reservationId" not in next(c for c in follower.calls if c[1] == "s2")[3]
+        await charger.next_reply()
+
+        # clearing and cancelling use the charger's numbers
+        await follower.command("ClearChargingProfile", {"id": 1}, "c1")
+        assert (await charger.next_reply())[3]["id"] == profiled
+        await follower.command("CancelReservation", {"reservationId": 5}, "c2")
+        assert (await charger.next_reply())[3]["reservationId"] == reserved
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+@pytest.mark.asyncio
+async def test_a_reservation_made_through_the_rest_api_is_not_overwritten_by_a_backends():
+    leader, follower = await ScriptedBackend().start(), await ScriptedBackend().start()
+    broker, session, charger, task = await start_relay(leader, follower)
+    try:
+        sent = asyncio.create_task(session.send_command("ReserveNow", reserve_payload(5), timeout=3, message_id="rest-1"))
+        frame = await charger.next_reply()
+        assert frame[3]["reservationId"] == 5
+        charger.deliver([3, "rest-1", {"status": "Accepted"}])
+        assert (await sent).status == "success"
+
+        frame = await command_and_accept(leader, charger, "ReserveNow", reserve_payload(5), "r1")
+        assert frame[3]["reservationId"] != 5, "the REST API already holds reservation 5 on the charger"
+    finally:
+        await finish(charger, task, leader, follower)
+
+
+# --------------------------------------------------------------------------
 # Switching it on and off
 # --------------------------------------------------------------------------
 @pytest.mark.asyncio

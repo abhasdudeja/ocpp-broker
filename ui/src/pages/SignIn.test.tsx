@@ -78,7 +78,8 @@ describe('sign-in', () => {
     expect(screen.getByRole('button', { name: 'Checking…' })).toBeDisabled()
     release(respond(info()))
     await screen.findByRole('heading', { name: 'Overview' })
-    expect(fetch.mock.calls.filter(([url]) => url === '/api/system/info').length).toBe(2) // sign-in check, then the page's own load
+    // sign-in check, then the page's own load (which starts a moment after the page is shown)
+    await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url === '/api/system/info').length).toBe(2))
   })
 
   it('sends someone who is already signed in straight to the overview', async () => {

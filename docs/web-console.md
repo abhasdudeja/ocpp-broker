@@ -29,7 +29,9 @@ The chargers connected to this broker instance (`GET /api/chargers`, refreshed e
 
 Things that need attention are marked: a leader that is down, charger messages **waiting** for it, followers that are not all connected, a **Faulted** connector, and running transactions in which a backend is being **skipped** (the broker never learned that backend's transaction id).
 
-Search by charger id and filter by organization; both are kept in the address, so a filtered list can be bookmarked or shared. A charger that is not connected to this instance is not listed.
+Search by charger id and filter by organization; both are kept in the address, so a filtered list can be bookmarked or shared.
+
+Below the table, **Not connected now** lists chargers this broker has seen before that are not connected to this instance (last seen, last boot, vendor and model), most recent first. It needs MongoDB, which remembers each charger when it connects, boots and disconnects (one small document per charger, never per message); without MongoDB the page says so. A charger that is connected to a *different* broker instance also appears here, because sessions are per process.
 
 ## A charger
 
@@ -44,6 +46,10 @@ Search by charger id and filter by organization; both are kept in the address, s
 - **Recent events for this charger:** what has happened to it since the page was opened (and the last few events the broker remembers).
 
 If the charger is not connected to this instance the page says so and keeps checking; if it disconnects while open, the page keeps what it last showed and says that it is out of date. If a page fails to render something it was sent, the console shows a message and the navigation still works.
+
+## Backends
+
+`/ui/backends` (`GET /api/backends`, refreshed every 5 seconds and when a backend link or a charger changes): for each organization that has backends, one row per backend summed over the chargers connected to this instance: whether it is the configured leader, for how many chargers it leads and follows **now** (a failover moves chargers from one to another; the configuration does not change), how many links are up and down, the charger messages waiting for it, and which chargers lost it (linked, at most 20 named). A local backend is marked *this broker*. Below the table, the recent `backend.link` and `backend.failover` events.
 
 ## Tags
 

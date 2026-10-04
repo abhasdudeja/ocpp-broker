@@ -9,9 +9,22 @@ import { chargerPath } from '../pages/Chargers'
  * What has just happened, newest first, from the live event stream. ``org`` and ``chargerId`` narrow it to one
  * organization or charger (on a charger's page the charger's name is left out of each line).
  */
-export function EventFeed({ org, chargerId, limit = 15, title = 'Recent events' }: { org?: string; chargerId?: string; limit?: number; title?: string }) {
+export function EventFeed({
+  org,
+  chargerId,
+  types,
+  limit = 15,
+  title = 'Recent events',
+}: {
+  org?: string
+  chargerId?: string
+  /** Only events of these types (all if omitted) */
+  types?: string[]
+  limit?: number
+  title?: string
+}) {
   const { recent, status } = useEvents()
-  const shown = recent.filter((e) => (org === undefined || e.org === org) && (chargerId === undefined || e.charger_id === chargerId)).slice(0, limit)
+  const shown = recent.filter((e) => (org === undefined || e.org === org) && (chargerId === undefined || e.charger_id === chargerId) && (types === undefined || types.includes(e.type))).slice(0, limit)
   return (
     <section aria-labelledby="feed-heading">
       <h2 id="feed-heading">{title}</h2>

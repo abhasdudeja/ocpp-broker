@@ -120,6 +120,7 @@ export function mockApi(routes: Record<string, unknown | (() => unknown)>, event
   const defaults: Array<[RegExp, unknown]> = [
     [/^\/api\/chargers\/[^/]+\/[^/]+\/commands$/, { commands: [] }],
     [/^\/api\/ocpp\/commands\/catalog$/, catalog()],
+    [/^\/api\/chargers\/offline/, { available: false, reason: 'MongoDB is not configured', chargers: [], total: 0 }],
   ]
   return mockFetch((url, init) => {
     if (url.startsWith('/api/events')) return events ? events(init) : respond({ detail: 'no event stream' }, 404)

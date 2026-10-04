@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { useAuth } from './auth'
 import { Shell } from './layout/Shell'
+import { Backends } from './pages/Backends'
 import { ChargerDetail } from './pages/ChargerDetail'
 import { Chargers } from './pages/Chargers'
 import { Overview } from './pages/Overview'
@@ -30,6 +31,7 @@ export function AppRoutes() {
         <Route index element={<Overview />} />
         <Route path="chargers" element={<Chargers />} />
         <Route path="chargers/:org/:chargerId" element={<ChargerDetail />} />
+        <Route path="backends" element={<Backends />} />
         <Route path="tags" element={<Tags />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

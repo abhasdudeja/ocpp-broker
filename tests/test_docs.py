@@ -317,7 +317,7 @@ FICTION = [
     "OCPP_BROKER_LOG_LEVEL", "OCPP_BROKER_HOST", "OCPP_BROKER_PORT", "--dry-run", "--verbose",
     "message_validator", "validate_messages_when", "command_router", "ocpp_router", "enable_ocpp_router",
     "DynamicLeaderManager", "add_backend_dynamic", "promote_leader", "reload_from_config",
-    "/api/metrics", "/api/connections", "/api/organizations", "/api/backends",
+    "/api/metrics", "/api/connections", "/api/organizations",
     "/api/config", "/api/logs", "/api/ocpp/validate", "requirements-dev.txt", "FormationViolation",
     "docker pull your-org", "your-org/ocpp-broker", "support@your",
 ]

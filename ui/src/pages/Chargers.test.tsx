@@ -190,6 +190,66 @@ describe('chargers list', () => {
     expect(screen.queryByText('This page could not be shown.')).not.toBeInTheDocument()
   })
 
+  it('lists chargers that are known but not connected now, most recently seen first, when MongoDB remembers them', async () => {
+    mockApi({
+      '/api/orgs': [org()],
+      '/api/chargers': list(charger()),
+      '/api/chargers/offline': {
+        available: true,
+        reason: null,
+        total: 2,
+        chargers: [
+          { org: 'Fleet', charger_id: 'CP-OLD', mode: 'relay', vendor: 'Acme', model: 'Wallbox 7', firmware_version: null, remote_address: null, last_connected_at: ago(700), last_disconnected_at: ago(600), last_seen_at: ago(620), last_boot_at: ago(86_400) },
+          { org: 'Home', charger_id: 'WB-GONE', mode: 'broker', vendor: null, model: null, firmware_version: null, remote_address: null, last_connected_at: null, last_disconnected_at: null, last_seen_at: null, last_boot_at: null },
+        ],
+      },
+    })
+    await open()
+    const section = within(await screen.findByRole('region', { name: 'Not connected now' }))
+    const old = within(section.getByRole('row', { name: /CP-OLD/ }))
+    expect(old.getByText('Acme Wallbox 7')).toBeInTheDocument()
+    expect(old.getByText('relay')).toBeInTheDocument()
+    expect(old.getByText('10m ago')).toBeInTheDocument()
+    expect(old.getByText('1d ago')).toBeInTheDocument()
+    const gone = within(section.getByRole('row', { name: /WB-GONE/ }))
+    expect(gone.getByText('never')).toBeInTheDocument()
+    expect(section.getByText(/also appears here/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'CP-001' }), 'the connected charger is in the main list').toBeInTheDocument()
+  })
+
+  it('says how many known chargers are not shown when there are more than it lists', async () => {
+    const one = { org: 'Fleet', charger_id: 'CP-X', mode: null, vendor: null, model: null, firmware_version: null, remote_address: null, last_connected_at: null, last_disconnected_at: null, last_seen_at: ago(5), last_boot_at: null }
+    mockApi({ '/api/orgs': [org()], '/api/chargers': list(charger()), '/api/chargers/offline': { available: true, reason: null, total: 900, chargers: [one] } })
+    await open()
+    expect(await screen.findByText(/the 1 most recent of 900/)).toBeInTheDocument()
+  })
+
+  it('says why absent chargers are not listed when MongoDB does not remember them', async () => {
+    mockApi({ '/api/orgs': [org()], '/api/chargers': list(charger()) })
+    await open()
+    expect(await screen.findByText(/Chargers that have gone are not listed: MongoDB is not configured/)).toBeInTheDocument()
+  })
+
+  it('says no known charger is missing when every one is connected', async () => {
+    mockApi({ '/api/orgs': [org()], '/api/chargers': list(charger()), '/api/chargers/offline': { available: true, reason: null, total: 0, chargers: [] } })
+    await open()
+    expect(await screen.findByText('No known charger is missing.')).toBeInTheDocument()
+  })
+
+  it('asks for the absent chargers with the same filters', async () => {
+    const fetch = mockApi({ '/api/orgs': [org()], '/api/chargers': list(charger()) })
+    await open('/chargers?org=Fleet&q=cp')
+    await screen.findByRole('row', { name: /CP-001/ })
+    expect(fetch.mock.calls.map(([url]) => String(url))).toContain('/api/chargers/offline?org=Fleet&q=cp')
+  })
+
+  it('shows nothing about absent chargers from an answer it cannot read', async () => {
+    mockApi({ '/api/orgs': [org()], '/api/chargers': list(charger()), '/api/chargers/offline': { odd: true } })
+    await open()
+    await screen.findByRole('row', { name: /CP-001/ })
+    expect(screen.queryByRole('region', { name: 'Not connected now' })).not.toBeInTheDocument()
+  })
+
   it('signs out when the broker stops accepting the key', async () => {
     mockApi({ '/api/orgs': respond({ detail: 'no' }, 401), '/api/chargers': respond({ detail: 'no' }, 401) })
     signedIn()

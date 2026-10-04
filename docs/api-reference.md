@@ -155,6 +155,34 @@ The chargers connected to this instance, ordered by organization and id. `org` l
 - `degraded_transactions` counts running transactions in which some backend is being skipped because the broker never learned its transaction id ([details](leader-follower.md#transaction-ids)).
 
 ```http
+GET /api/chargers/offline?org=Fleet&q=cp
+```
+
+Chargers this broker has seen that are **not** connected to this instance now, most recently seen first (at most 500; `total` is the full count). MongoDB remembers them: one document per charger in `charger_presence`, written when the charger connects, boots and disconnects, in broker, relay and local-leader mode alike (never per message). Without MongoDB, or when it is not connected or not answering, the answer is `{"available": false, "reason": "...", "chargers": [], "total": 0}`. A charger connected to another broker instance is listed too.
+
+```json
+{"available": true, "reason": null, "total": 1, "chargers": [
+  {"org": "Fleet", "charger_id": "CP007", "mode": "relay", "vendor": "Acme", "model": "Wallbox 7",
+   "firmware_version": "2.1.0", "remote_address": "10.0.0.5:51234",
+   "last_connected_at": "2026-10-04T08:12:31Z", "last_disconnected_at": "2026-10-04T09:30:00Z",
+   "last_seen_at": "2026-10-04T09:29:58Z", "last_boot_at": "2026-10-04T08:12:33Z"}]}
+```
+
+```http
+GET /api/backends?org=Fleet
+```
+
+Each backend of each organization that has backends (relay mode, or a [local leader](leader-follower.md#the-broker-as-the-leader-local-backend)), summed over the chargers connected to this instance:
+
+```json
+[{"org": "Fleet", "mode": "relay", "chargers": 14, "backends": [
+  {"key": "lead", "url": "ws://primary.example.com/ocpp", "local": false, "configured_leader": true,
+   "leading": 14, "following": 0, "links_up": 13, "links_down": 1, "buffered_frames": 2, "down_chargers": ["CP007"]}]}]
+```
+
+`leading` and `following` count chargers for which the backend has that role now, so they change after a failover while `configured_leader` does not. `buffered_frames` is what is held for it as an unreachable leader; `down_chargers` names at most 20 chargers whose link to it is down.
+
+```http
 GET /api/chargers/{org}/{charger_id}
 ```
 

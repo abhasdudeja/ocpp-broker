@@ -6,6 +6,8 @@ import { brokerEvent, charger, detail, info, mockApi, mockEvents, org, renderApp
 const PATH = '/api/chargers/Fleet/CP-001'
 const list = (...chargers: ReturnType<typeof charger>[]) => ({ chargers, total: chargers.length })
 const count = (fetch: ReturnType<typeof mockApi>, prefix: string) => fetch.mock.calls.filter(([url]) => String(url).startsWith(prefix)).length
+/** Reads of the list of connected chargers (not the list of absent ones, which lives under the same path) */
+const listCalls = (fetch: ReturnType<typeof mockApi>) => fetch.mock.calls.filter(([url]) => /^\/api\/chargers(\?|$)/.test(String(url))).length
 const wait = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)))
 
 async function live(path: string, routes: Record<string, unknown>) {
@@ -53,45 +55,60 @@ describe('the chargers list on a live broker', () => {
     let chargers = [charger()]
     const { events, fetch } = await live('/chargers', { '/api/orgs': [org()], '/api/chargers': () => list(...chargers) })
     await screen.findByRole('link', { name: 'CP-001' })
-    const before = count(fetch, '/api/chargers')
+    const before = listCalls(fetch)
     chargers = [charger(), charger({ charger_id: 'CP-002' })]
     act(() => events.latest()?.emit(brokerEvent('charger.connected', {}, { charger_id: 'CP-002' })))
     expect(await screen.findByRole('link', { name: 'CP-002' })).toBeInTheDocument()
-    expect(count(fetch, '/api/chargers')).toBe(before + 1)
+    expect(listCalls(fetch)).toBe(before + 1)
   })
 
   it('reads the list once for a burst of events', async () => {
     const { events, fetch } = await live('/chargers', { '/api/orgs': [org()], '/api/chargers': () => list(charger()) })
     await screen.findByRole('link', { name: 'CP-001' })
-    const before = count(fetch, '/api/chargers')
+    const before = listCalls(fetch)
     act(() => {
       for (let n = 0; n < 20; n += 1) events.latest()?.emit(brokerEvent('charger.status', { connector_id: 1, status: 'Charging' }))
     })
-    await vi.waitFor(() => expect(count(fetch, '/api/chargers')).toBe(before + 1))
+    await vi.waitFor(() => expect(listCalls(fetch)).toBe(before + 1))
     await wait(500)
-    expect(count(fetch, '/api/chargers')).toBe(before + 1)
+    expect(listCalls(fetch)).toBe(before + 1)
   })
 
   it('ignores another organization when it is filtered, and a command result, which changes no row', async () => {
     const { events, fetch } = await live('/chargers?org=Fleet', { '/api/orgs': [org()], '/api/chargers': () => list(charger()) })
     await screen.findByRole('link', { name: 'CP-001' })
-    const before = count(fetch, '/api/chargers')
+    const before = listCalls(fetch)
     act(() => events.latest()?.emit(brokerEvent('charger.status', {}, { org: 'Home' })))
     act(() => events.latest()?.emit(brokerEvent('command.result', { action: 'Reset', status: 'success' })))
     await wait(500)
-    expect(count(fetch, '/api/chargers')).toBe(before)
+    expect(listCalls(fetch)).toBe(before)
     act(() => events.latest()?.emit(brokerEvent('charger.status', {}, { org: 'Fleet' })))
-    await vi.waitFor(() => expect(count(fetch, '/api/chargers')).toBe(before + 1))
+    await vi.waitFor(() => expect(listCalls(fetch)).toBe(before + 1))
+  })
+
+  it('reads the list of absent chargers again when a charger arrives or leaves', async () => {
+    let gone = 0
+    const absent = () => ({ available: true, reason: null, total: gone, chargers: [] })
+    const { events, fetch } = await live('/chargers', { '/api/orgs': [org()], '/api/chargers': () => list(charger()), '/api/chargers/offline': absent })
+    await screen.findByRole('link', { name: 'CP-001' })
+    const absentCalls = () => fetch.mock.calls.filter(([url]) => String(url).startsWith('/api/chargers/offline')).length
+    const before = absentCalls()
+    act(() => events.latest()?.emit(brokerEvent('charger.status', { connector_id: 1, status: 'Charging', previous: null })))
+    await wait(500)
+    expect(absentCalls(), 'a status change moves nobody between the lists').toBe(before)
+    gone = 1
+    act(() => events.latest()?.emit(brokerEvent('charger.disconnected', { connected_for_seconds: 5 }, { charger_id: 'CP-009' })))
+    await vi.waitFor(() => expect(absentCalls()).toBe(before + 1))
   })
 
   it('reloads after the broker was restarted', async () => {
     const { events, fetch } = await live('/chargers', { '/api/orgs': [org()], '/api/chargers': () => list(charger()) })
     await screen.findByRole('link', { name: 'CP-001' })
-    const before = count(fetch, '/api/chargers')
+    const before = listCalls(fetch)
     act(() => events.latest()?.end())
     await vi.waitFor(() => expect(events.streams.length).toBe(2), { timeout: 3000 })
     act(() => events.latest()?.open('a-different-run'))
-    await vi.waitFor(() => expect(count(fetch, '/api/chargers')).toBe(before + 1))
+    await vi.waitFor(() => expect(listCalls(fetch)).toBe(before + 1))
   })
 })
 

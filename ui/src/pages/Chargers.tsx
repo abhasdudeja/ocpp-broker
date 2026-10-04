@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { ApiError, apiGet, withQuery, type ChargerList, type ChargerSummary, type OrgSummary } from '../api/client'
+import { ApiError, apiGet, withQuery, type ChargerList, type ChargerSummary, type OfflineChargerList, type OrgSummary } from '../api/client'
 import { useAuth } from '../auth'
 import { Chip, ConnectorStatus } from '../components/Chip'
 import { useRefreshOnEvents } from '../events'
-import { formatRelative } from '../format'
+import { formatDateTime, formatRelative } from '../format'
 import { useNow } from '../useNow'
 import { usePolling } from '../usePolling'
 
@@ -104,6 +104,14 @@ export function Chargers() {
   // Anything that changes a row (a charger arriving, a status, a link) refreshes the list at once
   useRefreshOnEvents(list.reload, (e) => e.type !== 'command.result' && (org === '' || e.org === org))
 
+  const offline = usePolling(
+    (signal) => apiGet<OfflineChargerList>(withQuery('/api/chargers/offline', { org, q }), key ?? '', signal),
+    30_000,
+    `${org}\n${q}`,
+  )
+  // A charger arriving or leaving moves it between the two lists
+  useRefreshOnEvents(offline.reload, (e) => e.type === 'charger.connected' || e.type === 'charger.disconnected')
+
   const error = list.error
   useEffect(() => {
     if (error instanceof ApiError && error.status === 401) keyRejected()
@@ -189,6 +197,57 @@ export function Chargers() {
               <tbody>
                 {data.chargers.map((charger) => (
                   <Row key={`${charger.org}/${charger.charger_id}`} charger={charger} now={now} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <Offline result={offline.data} now={now} />
+    </section>
+  )
+}
+
+/** Chargers the broker has seen before (kept in MongoDB) that are not connected now. */
+function Offline({ result, now }: { result: OfflineChargerList | null; now: number }) {
+  if (!result || typeof result.available !== 'boolean') return null
+  return (
+    <section aria-labelledby="offline-heading">
+      <h2 id="offline-heading">Not connected now</h2>
+      {!result.available ? (
+        <p className="muted small">Chargers that have gone are not listed: {result.reason ?? 'they are not remembered'}.</p>
+      ) : result.chargers.length === 0 ? (
+        <p className="empty">No known charger is missing.</p>
+      ) : (
+        <>
+          <p className="muted small">
+            Seen by this broker before and not connected to this instance now
+            {result.total > result.chargers.length && `, the ${result.chargers.length} most recent of ${result.total}`}. A charger connected to another instance also appears here.
+          </p>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th scope="col">Charger</th>
+                  <th scope="col">Organization</th>
+                  <th scope="col">Mode</th>
+                  <th scope="col">Last seen</th>
+                  <th scope="col">Last booted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.chargers.map((c) => (
+                  <tr key={`${c.org}/${c.charger_id}`}>
+                    <th scope="row">
+                      {c.charger_id}
+                      {(c.vendor || c.model) && <div className="muted small">{[c.vendor, c.model].filter(Boolean).join(' ')}</div>}
+                    </th>
+                    <td>{c.org}</td>
+                    <td>{c.mode ?? <span className="muted">—</span>}</td>
+                    <td title={c.last_seen_at ? formatDateTime(c.last_seen_at) : undefined}>{formatRelative(c.last_seen_at, now)}</td>
+                    <td title={c.last_boot_at ? formatDateTime(c.last_boot_at) : undefined}>{c.last_boot_at ? formatRelative(c.last_boot_at, now) : <span className="muted">—</span>}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>

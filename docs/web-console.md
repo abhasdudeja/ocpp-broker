@@ -42,6 +42,7 @@ Below the table, **Not connected now** lists chargers this broker has seen befor
 - **Connectors:** each connector's status, error code and text, and how long ago it changed.
 - **Transactions:** one row per transaction with the id the **charger holds**, its state, and **each backend's own id** in its own column, so a backend's dashboard can be matched with the charger's log. A backend marked *skipped* never learned its id and is not sent that transaction's messages; *waiting for its id* means a follower has not yet answered. When transaction ids are not translated for this charger the page says so.
 - **Commands:** send a command to the charger and see what was sent before, see [Sending a command](#sending-a-command).
+- **Change the leader:** when a follower is connected, **Make … the leader** hands the charger to it after a confirmation (nothing is saved in the configuration; see [Changing the leader by hand](leader-follower.md#changing-the-leader-by-hand)). The connections diagram marks a leader that is not the configured one, and the configured leader while it follows.
 - **Reservations** and **charging profiles** the charger holds, with each backend's own number, and a collapsed list of what the transaction id table has done (ids rewritten, remapped, skipped).
 - **Recent events for this charger:** what has happened to it since the page was opened (and the last few events the broker remembers).
 

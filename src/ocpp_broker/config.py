@@ -142,8 +142,11 @@ def _apply_defaults(cfg):
         org.setdefault("backend_buffer_size", 200)  # frames held while the backend is down
         org.setdefault("backend_outage_timeout", 30)  # seconds before a held CALL is answered with a CallError
         org.setdefault("leader_failover_timeout", 15)  # seconds the leader may be down before a follower takes over (0 = never)
+        org.setdefault("leader_failback", False)  # give the charger back to the configured leader after a failover
+        org.setdefault("leader_failback_delay", 60)  # seconds the configured leader must stay connected first
         org.setdefault("tags", [])
         _normalize_charger_auth(org)
+        _validate_failback(org)
         _validate_transaction_ids(org)
 
         _validate_backends(org)
@@ -246,6 +249,16 @@ def _normalize_charger_auth(org):
             "HTTP Basic auth (OCPP security profile 1).",
             name,
         )
+
+
+def _validate_failback(org):
+    """``leader_failback`` (true or false) and ``leader_failback_delay`` (seconds, above 0)."""
+    name = org["name"]
+    if not isinstance(org["leader_failback"], bool):
+        raise ValueError(f"Organization {name}: leader_failback must be true or false")
+    delay = org["leader_failback_delay"]
+    if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay <= 0:
+        raise ValueError(f"Organization {name}: leader_failback_delay must be a number of seconds above 0")
 
 
 def _validate_transaction_ids(org):

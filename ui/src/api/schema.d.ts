@@ -182,6 +182,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chargers/{org}/{charger_id}/leader": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Leader
+         * @description Make a connected follower this charger's leader now. Messages the old leader has not answered yet may time
+         *     out at the charger, which then retries them with the new leader. Nothing is written to the configuration:
+         *     the charger goes back to the configured leader when it reconnects (or by `leader_failback`, only after a failover).
+         */
+        post: operations["change_leader_api_chargers__org___charger_id__leader_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/events": {
         parameters: {
             query?: never;
@@ -1307,6 +1329,16 @@ export interface components {
             connect_to_backend: boolean;
             /** Credentials */
             credentials: components["schemas"]["AdminCredential"][];
+            /**
+             * Leader Failback
+             * @description Give the charger back to the configured leader after a failover
+             */
+            leader_failback: boolean;
+            /**
+             * Leader Failback Delay
+             * @description Seconds the configured leader must stay connected before that
+             */
+            leader_failback_delay: number;
             /** Leader Failover Timeout */
             leader_failover_timeout: number;
             /** Name */
@@ -1343,6 +1375,13 @@ export interface components {
              * @description Every charger that may connect. One left out is removed.
              */
             credentials?: components["schemas"]["AdminCredentialInput"][];
+            /** Leader Failback */
+            leader_failback?: boolean | null;
+            /**
+             * Leader Failback Delay
+             * @description Seconds
+             */
+            leader_failback_delay?: number | null;
             /** Leader Failover Timeout */
             leader_failover_timeout?: number | null;
             /** Name */
@@ -1470,6 +1509,11 @@ export interface components {
              * @description Charger frames waiting for this backend (leader only)
              */
             buffered_frames: number;
+            /**
+             * Configured Leader
+             * @description The configuration makes this the leader; after a failover it may not be leading now
+             */
+            configured_leader: boolean;
             /** Connected */
             connected: boolean;
             /**
@@ -2138,6 +2182,21 @@ export interface components {
              * @description The id the charger holds
              */
             id: number;
+        };
+        /** LeaderChanged */
+        LeaderChanged: {
+            /** New Leader */
+            new_leader: string;
+            /** Old Leader */
+            old_leader: string;
+        };
+        /** LeaderRequest */
+        LeaderRequest: {
+            /**
+             * Backend
+             * @description The key of a connected follower of this charger
+             */
+            backend: string;
         };
         /** MessageError */
         MessageError: {
@@ -3217,6 +3276,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CommandHistory"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_leader_api_chargers__org___charger_id__leader_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Organization name */
+                org: string;
+                /** @description Charger id */
+                charger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaderChanged"];
                 };
             };
             /** @description Validation Error */

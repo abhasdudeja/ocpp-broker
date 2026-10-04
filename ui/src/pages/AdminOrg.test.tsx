@@ -428,10 +428,12 @@ describe('the relay tuning', () => {
     await userEvent.type(screen.getByLabelText('Outage timeout'), '45')
     await userEvent.type(screen.getByLabelText('Failover timeout'), '0')
     await userEvent.selectOptions(screen.getByLabelText('Transaction id mapping'), 'false')
+    await userEvent.selectOptions(screen.getByLabelText('Give the charger back to the configured leader'), 'true')
+    await userEvent.type(screen.getByLabelText('Fail-back delay'), '20')
     await userEvent.type(screen.getByLabelText('Keep open transactions'), '600')
     await userEvent.click(screen.getByRole('button', { name: 'Check changes' }))
     await screen.findByRole('region', { name: 'What will change' })
     const org = (sent('/api/admin/config/validate')[0]!.body as { changes: Array<{ org: Record<string, unknown> }> }).changes[0]!.org
-    expect(org).toMatchObject({ backend_outage_timeout: 45, leader_failover_timeout: 0, transaction_ids: { mapping: false, retain_open: 600 } })
+    expect(org).toMatchObject({ backend_outage_timeout: 45, leader_failover_timeout: 0, leader_failback: true, leader_failback_delay: 20, transaction_ids: { mapping: false, retain_open: 600 } })
   })
 })

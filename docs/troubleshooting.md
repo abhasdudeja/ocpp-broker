@@ -125,7 +125,7 @@ By design. Followers receive a copy of each charger-initiated CALL, but their re
 
 ### Failover did not happen
 
-Failover needs a connected follower, and the leader must stay unreachable for `leader_failover_timeout` (default 15 s; `0` disables it). Log: `FAILOVER: leader ... unreachable, promoting follower ...`. If no follower is healthy you get `leader backend ... is down and no follower is healthy; still waiting`. A recovered old leader comes back as a follower; there is no automatic fail-back.
+Failover needs a connected follower, and the leader must stay unreachable for `leader_failover_timeout` (default 15 s; `0` disables it). Log: `FAILOVER: leader ... unreachable, promoting follower ...`. If no follower is healthy you get `leader backend ... is down and no follower is healthy; still waiting`. A recovered old leader comes back as a follower; it gets the charger back only with `leader_failback: true`, after `leader_failback_delay` seconds of an unbroken connection, and not when an operator chose the current leader.
 
 ### Messages are not validated
 

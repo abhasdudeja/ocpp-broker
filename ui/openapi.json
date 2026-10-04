@@ -354,6 +354,16 @@
             "title": "Credentials",
             "type": "array"
           },
+          "leader_failback": {
+            "description": "Give the charger back to the configured leader after a failover",
+            "title": "Leader Failback",
+            "type": "boolean"
+          },
+          "leader_failback_delay": {
+            "description": "Seconds the configured leader must stay connected before that",
+            "title": "Leader Failback Delay",
+            "type": "number"
+          },
           "leader_failover_timeout": {
             "title": "Leader Failover Timeout",
             "type": "integer"
@@ -383,6 +393,8 @@
           "backend_buffer_size",
           "backend_outage_timeout",
           "leader_failover_timeout",
+          "leader_failback",
+          "leader_failback_delay",
           "transaction_ids",
           "charger_auth_required",
           "credentials",
@@ -448,6 +460,30 @@
             },
             "title": "Credentials",
             "type": "array"
+          },
+          "leader_failback": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leader Failback"
+          },
+          "leader_failback_delay": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds",
+            "title": "Leader Failback Delay"
           },
           "leader_failover_timeout": {
             "anyOf": [
@@ -769,6 +805,11 @@
             "title": "Buffered Frames",
             "type": "integer"
           },
+          "configured_leader": {
+            "description": "The configuration makes this the leader; after a failover it may not be leading now",
+            "title": "Configured Leader",
+            "type": "boolean"
+          },
           "connected": {
             "title": "Connected",
             "type": "boolean"
@@ -822,7 +863,8 @@
           "local",
           "connected",
           "buffered_frames",
-          "down_for_seconds"
+          "down_for_seconds",
+          "configured_leader"
         ],
         "title": "BackendLink",
         "type": "object"
@@ -2438,6 +2480,38 @@
           "expires"
         ],
         "title": "IdObject",
+        "type": "object"
+      },
+      "LeaderChanged": {
+        "properties": {
+          "new_leader": {
+            "title": "New Leader",
+            "type": "string"
+          },
+          "old_leader": {
+            "title": "Old Leader",
+            "type": "string"
+          }
+        },
+        "required": [
+          "old_leader",
+          "new_leader"
+        ],
+        "title": "LeaderChanged",
+        "type": "object"
+      },
+      "LeaderRequest": {
+        "properties": {
+          "backend": {
+            "description": "The key of a connected follower of this charger",
+            "title": "Backend",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backend"
+        ],
+        "title": "LeaderRequest",
         "type": "object"
       },
       "MessageError": {
@@ -4838,6 +4912,77 @@
           }
         ],
         "summary": "Charger Commands",
+        "tags": [
+          "Console"
+        ]
+      }
+    },
+    "/api/chargers/{org}/{charger_id}/leader": {
+      "post": {
+        "description": "Make a connected follower this charger's leader now. Messages the old leader has not answered yet may time\nout at the charger, which then retries them with the new leader. Nothing is written to the configuration:\nthe charger goes back to the configured leader when it reconnects (or by `leader_failback`, only after a failover).",
+        "operationId": "change_leader_api_chargers__org___charger_id__leader_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger id",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger id",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaderChanged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Change Leader",
         "tags": [
           "Console"
         ]

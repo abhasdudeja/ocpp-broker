@@ -9,6 +9,20 @@ function Link({ link }: { link: BackendLink }) {
         <Chip tone={link.role === 'leader' ? 'info' : 'neutral'}>{link.role}</Chip>
         <strong>{link.key}</strong>
       </div>
+      {link.role === 'leader' && !link.configured_leader && (
+        <div>
+          <Chip tone="warn" title="The configuration names another backend as the leader; this one took over, or was chosen">
+            not the configured leader
+          </Chip>
+        </div>
+      )}
+      {link.role === 'follower' && link.configured_leader && (
+        <div>
+          <Chip tone="neutral" title="The configuration names this backend as the leader; it is following now">
+            configured leader
+          </Chip>
+        </div>
+      )}
       {label && <div className="muted small node-url">{label}</div>}
       <div className="node-state">
         <span className={`dot ${link.connected ? 'dot-ok' : 'dot-bad'}`} aria-hidden="true" />

@@ -183,7 +183,7 @@ async def test_the_failover_is_an_event(run_server):
         await primary.stop()
         await leader_is(port, "broker")
         events = [e for e in server.broker.events.replay(0).events if e.type == "backend.failover"]
-        assert [e.data for e in events] == [{"old_leader": "primary", "new_leader": "broker"}]
+        assert [e.data for e in events] == [{"old_leader": "primary", "new_leader": "broker", "reason": "failover"}]
     finally:
         await charger.close()
         await primary.stop()

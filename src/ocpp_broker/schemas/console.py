@@ -44,6 +44,16 @@ class BackendLink(BaseModel):
     connected: bool
     buffered_frames: int = Field(description="Charger frames waiting for this backend (leader only)")
     down_for_seconds: Optional[float] = Field(description="How long the link has been down, if it is")
+    configured_leader: bool = Field(description="The configuration makes this the leader; after a failover it may not be leading now")
+
+
+class LeaderRequest(BaseModel):
+    backend: str = Field(description="The key of a connected follower of this charger")
+
+
+class LeaderChanged(BaseModel):
+    old_leader: str
+    new_leader: str
 
 
 class ConnectorInfo(BaseModel):

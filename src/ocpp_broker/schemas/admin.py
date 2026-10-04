@@ -44,6 +44,8 @@ class AdminOrg(BaseModel):
     backend_buffer_size: int
     backend_outage_timeout: int
     leader_failover_timeout: int
+    leader_failback: bool = Field(description="Give the charger back to the configured leader after a failover")
+    leader_failback_delay: float = Field(description="Seconds the configured leader must stay connected before that")
     transaction_ids: AdminTransactionIds
     charger_auth_required: bool
     credentials: List[AdminCredential]
@@ -73,6 +75,8 @@ class AdminOrgInput(BaseModel):
     backend_buffer_size: Optional[int] = Field(default=None, ge=0)
     backend_outage_timeout: Optional[int] = Field(default=None, ge=0)
     leader_failover_timeout: Optional[int] = Field(default=None, ge=0)
+    leader_failback: Optional[bool] = None
+    leader_failback_delay: Optional[float] = Field(default=None, gt=0, description="Seconds")
     transaction_ids: AdminTransactionIds = Field(default_factory=lambda: AdminTransactionIds(mapping=None, follower_wait=None, dedupe_start=None, retain_closed=None, retain_open=None))
     charger_auth_required: Optional[bool] = Field(None, description="Chargers must send credentials; by default they must when any are listed")
     credentials: List[AdminCredentialInput] = Field(default_factory=list, description="Every charger that may connect. One left out is removed.")

@@ -27,6 +27,7 @@ MIN_PASSWORD = 8
 RECOMMENDED_PASSWORD = 16
 
 DEFAULTS = {"backend_buffer_size": 200, "backend_outage_timeout": 30, "leader_failover_timeout": 15}
+FAILBACK_DELAY = 60
 BACKEND_KEYS = ("id", "url", "leader", "local", "ocpp_subprotocol")
 TX_KEYS = ("mapping", "follower_wait", "dedupe_start", "retain_closed", "retain_open")
 
@@ -78,6 +79,8 @@ def view(org: Dict[str, Any], runtime: Optional[Dict[str, Any]] = None) -> Admin
         backend_buffer_size=int(source.get("backend_buffer_size", DEFAULTS["backend_buffer_size"])),
         backend_outage_timeout=int(source.get("backend_outage_timeout", DEFAULTS["backend_outage_timeout"])),
         leader_failover_timeout=int(source.get("leader_failover_timeout", DEFAULTS["leader_failover_timeout"])),
+        leader_failback=bool(source.get("leader_failback", False)),
+        leader_failback_delay=float(source.get("leader_failback_delay", FAILBACK_DELAY)),
         transaction_ids={k: (source.get("transaction_ids") or {}).get(k) for k in TX_KEYS},  # type: ignore[arg-type]
         charger_auth_required=bool(auth.get("required", bool(credentials))),
         credentials=[
@@ -175,6 +178,13 @@ def build_org(inp: AdminOrgInput, existing: Optional[Dict[str, Any]], errors: Li
         else:
             org[key] = value
 
+    for key in ("leader_failback", "leader_failback_delay"):
+        value = getattr(inp, key)
+        if value is None:
+            org.pop(key, None)
+        else:
+            org[key] = value
+
     tx = {k: getattr(inp.transaction_ids, k) for k in TX_KEYS if getattr(inp.transaction_ids, k) is not None}
     kept_tx = {k: v for k, v in ((existing or {}).get("transaction_ids") or {}).items() if k not in TX_KEYS}  # unknown ones, kept
     tx.update(kept_tx)
@@ -240,6 +250,8 @@ def describe(before: Optional[AdminOrg], after: Optional[AdminOrg], before_raw: 
         ("backend_buffer_size", before.backend_buffer_size, after.backend_buffer_size),
         ("backend_outage_timeout", before.backend_outage_timeout, after.backend_outage_timeout),
         ("leader_failover_timeout", before.leader_failover_timeout, after.leader_failover_timeout),
+        ("leader_failback", before.leader_failback, after.leader_failback),
+        ("leader_failback_delay", before.leader_failback_delay, after.leader_failback_delay),
         ("charger_auth_required", before.charger_auth_required, after.charger_auth_required),
     ):
         if old != new:

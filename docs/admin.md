@@ -18,7 +18,7 @@ Turn it on only where the API key is as private as the configuration file itself
 It changes the **`organizations`** of the configuration file the broker was started with (`-c`, or `OCPP_BROKER_CONFIG`, or `config.yaml`), and nothing else in it. Ports, MongoDB, security and the other sections are written back as they were read, and a value that came from an environment variable is not written into the file. For each organization it edits:
 
 - whether it connects to backends, its OCPP subprotocol and its **backends** (id, address, leader, or `local` for this broker; see [Leader/Follower](leader-follower.md));
-- the relay tuning: `backend_buffer_size`, `backend_outage_timeout`, `leader_failover_timeout`, and the `transaction_ids` settings;
+- the relay tuning: `backend_buffer_size`, `backend_outage_timeout`, `leader_failover_timeout`, `leader_failback`, `leader_failback_delay`, and the `transaction_ids` settings;
 - the **charger credentials**: which chargers may connect, whether they must authenticate, and their passwords.
 
 Anything else the organization holds (its `tags`, `tag_management`, settings written by hand) is kept exactly as it is. Tags are edited on the Tags page. An organization's name cannot be changed (it is part of the address chargers connect to); add the new name and remove the old. A new name is 1 to 64 letters, digits, dots, dashes or underscores.

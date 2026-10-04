@@ -100,6 +100,10 @@ class ChargerSession:
         # Observe-only fan-out sends and the leader-failover watcher
         self._background: set[asyncio.Task] = set()
         self._failover_task: Optional[asyncio.Task] = None
+        # The backend that leads according to the configuration. After a failover it is the one to give the
+        # charger back to (``leader_failback``), and the console says when the charger is not with it.
+        self.preferred: Optional[Any] = None
+        self._failback_task: Optional[asyncio.Task] = None
         # Relay mode with followers: translates transaction ids per backend (None = off).
         # Owned by the broker so it outlives this socket; see transaction_ids.py.
         self._ids: Optional[TransactionIdTable] = None
@@ -199,7 +203,7 @@ class ChargerSession:
             if not future.done():
                 future.set_exception(ConnectionError(f"Charger {self.charger_id} disconnected"))
         self._pending_calls.clear()
-        for task in [*self._background, self._failover_task]:
+        for task in [*self._background, self._failover_task, self._failback_task]:
             if task is not None:
                 task.cancel()
         if self._hold_timer is not None:
@@ -403,6 +407,7 @@ class ChargerSession:
 
         # The leader first. Do not block the charger on a backend: frames buffer until it is reachable.
         self.backend_conn = self._member(backends[lead], keys[lead], True, org_subprotocol)
+        self.preferred = self.backend_conn
         await self.backend_conn.connect(wait=False)
         links["leader"] = self.backend_conn
         if isinstance(self.backend_conn, LocalBackend):
@@ -593,21 +598,46 @@ class ChargerSession:
                     leader.url,
                 )
 
-    def _promote(self, new_leader: Any) -> None:
+    def promote_to(self, key: str) -> None:
+        """
+        Make the follower ``key`` the leader now (an operator's choice). Raises ValueError, with a reason that
+        can be shown, if that cannot be done: no such follower, or it is not connected.
+        """
+        if self._closed.is_set():
+            raise ValueError("The charger is disconnected")
+        if self.backend_conn is not None and self.backend_conn.key == key:
+            raise ValueError(f"{key} already leads")
+        target = next((f for f in self.follower_conns if f.key == key), None)
+        if target is None:
+            raise ValueError(f"{key} is not a backend of this charger")
+        if not target.is_ready():
+            raise ValueError(f"{key} is not connected, so it cannot take over")
+        self._promote(target, "manual")
+
+    def _promote(self, new_leader: Any, reason: str = "failover") -> None:
         """Swap roles: ``new_leader`` becomes the leader, the old leader a follower."""
         old_leader = self.backend_conn
         assert old_leader is not None and new_leader in self.follower_conns
-        logger.warning(
-            "🔁 [%s] FAILOVER: leader %s unreachable, promoting follower %s",
-            self.charger_id,
-            old_leader.url,
-            new_leader.url,
-        )
+        if reason == "failover":
+            logger.warning(
+                "🔁 [%s] FAILOVER: leader %s unreachable, promoting follower %s",
+                self.charger_id,
+                old_leader.url,
+                new_leader.url,
+            )
+        else:
+            logger.warning(
+                "🔁 [%s] %s: %s takes over from %s",
+                self.charger_id,
+                "FAIL-BACK" if reason == "failback" else "LEADER CHANGED BY AN OPERATOR",
+                new_leader.url,
+                old_leader.url,
+            )
         # Whatever was waiting for the old leader is answered with CALLERROR (the
         # charger retries it, and the retry goes to the new leader). It is not
         # replayed: the new leader already saw those CALLs as observed copies.
         old_leader.reject_buffered()
-        self.publish("backend.failover", old_leader=old_leader.key, new_leader=new_leader.key)
+        self.publish("backend.failover", old_leader=old_leader.key, new_leader=new_leader.key, reason=reason)
 
         old_leader.is_leader = False
         old_leader.max_buffered = 0
@@ -624,6 +654,10 @@ class ChargerSession:
             # The standby takes over: from now on the broker answers the charger (and commands use its library)
             self.mode = SessionMode.BROKER
             self.charge_point = new_leader.charge_point
+        elif isinstance(old_leader, LocalBackend):
+            # The broker hands the charger back to an external backend and goes on as a silent standby
+            self.mode = SessionMode.RELAY
+            self.charge_point = None
         if self._ids is not None:
             self._ids.leader_changed(new_leader.key)
             self._arm_hold_timer()
@@ -631,6 +665,31 @@ class ChargerSession:
         if links is not None:
             links["leader"] = new_leader
             links["followers"] = self.follower_conns
+        if reason == "failover" and new_leader is not self.preferred and self.org_entry.get("leader_failback"):
+            if self._failback_task is None or self._failback_task.done():
+                self._failback_task = asyncio.ensure_future(self._watch_preferred(float(self.org_entry.get("leader_failback_delay", 60))))
+
+    async def _watch_preferred(self, delay: float) -> None:
+        """
+        Give the charger back to the configured leader once it has been connected for ``delay`` seconds without a
+        break (a leader that flaps would otherwise be handed the charger just to lose it again). Only after a
+        failover: a leader an operator chose stays until an operator says otherwise.
+        """
+        loop = asyncio.get_running_loop()
+        healthy_since: Optional[float] = None
+        while not self._closed.is_set():
+            await asyncio.sleep(min(1.0, max(delay / 4, 0.05)))
+            preferred = self.preferred
+            if preferred is None or preferred is self.backend_conn or preferred not in self.follower_conns:
+                return  # it leads again (by an operator's hand, say), or it is gone
+            if not preferred.is_ready():
+                healthy_since = None
+                continue
+            if healthy_since is None:
+                healthy_since = loop.time()
+            if loop.time() - healthy_since >= delay:
+                self._promote(preferred, "failback")
+                return
 
     async def _reject_charger_call(self, message: str):
         """

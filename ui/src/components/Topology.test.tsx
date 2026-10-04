@@ -82,3 +82,19 @@ describe('Topology', () => {
     expect(broker.querySelector('figcaption')).toHaveTextContent('WB-01 is connected to the broker, which answers it itself.')
   })
 })
+
+describe('the configured leader', () => {
+  it('is marked on a follower when a failover has moved the charger away from it', () => {
+    const configured = backendLink({ key: 'primary', role: 'follower', configured_leader: true, connected: true })
+    const now = backendLink({ key: 'standby', role: 'leader', configured_leader: false })
+    render(<Topology chargerId="C" mode="relay" backends={[now, configured]} />)
+    expect(screen.getByText('not the configured leader')).toBeInTheDocument()
+    expect(screen.getByText('configured leader')).toBeInTheDocument()
+  })
+
+  it('is not mentioned while the configured leader leads', () => {
+    render(<Topology chargerId="C" mode="relay" backends={[backendLink(), follower]} />)
+    expect(screen.queryByText('not the configured leader')).not.toBeInTheDocument()
+    expect(screen.queryByText('configured leader')).not.toBeInTheDocument()
+  })
+})

@@ -8,11 +8,12 @@ Everything is read from this process's live sessions; nothing here changes broke
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from .schemas.console import (
     BackendLink,
@@ -24,6 +25,8 @@ from .schemas.console import (
     CommandLogEntry,
     ConnectorInfo,
     IdObject,
+    LeaderChanged,
+    LeaderRequest,
     BackendStat,
     OfflineCharger,
     OfflineChargerList,
@@ -35,6 +38,8 @@ from .schemas.console import (
 from .session import ChargerSession, SessionMode
 from .local_backend import LocalBackend
 from .transaction_ids import backend_keys, leader_index, local_index, table_for_org
+
+logger = logging.getLogger("ocpp_broker.console_api")
 
 BROKER_KEY = "broker"
 OFFLINE_LIMIT = 500
@@ -85,9 +90,12 @@ def _mode(entry: Dict[str, Any]) -> str:
     return "relay" if entry.get("connect_to_backend", True) and not local_leads else "broker"
 
 
-def _link(conn: Any, role: Literal["leader", "follower"]) -> BackendLink:
+def _link(conn: Any, role: Literal["leader", "follower"], configured: bool) -> BackendLink:
     if isinstance(conn, LocalBackend):  # this broker itself
-        return BackendLink(key=conn.key, url=None, role=role, local=True, connected=conn.is_ready(), buffered_frames=0, down_for_seconds=None)
+        return BackendLink(
+            key=conn.key, url=None, role=role, local=True, connected=conn.is_ready(), buffered_frames=0, down_for_seconds=None,
+            configured_leader=configured,
+        )
     down = conn.disconnected_since
     ready = conn.is_ready()
     return BackendLink(
@@ -98,6 +106,7 @@ def _link(conn: Any, role: Literal["leader", "follower"]) -> BackendLink:
         connected=ready,
         buffered_frames=conn.buffered_count if role == "leader" else 0,
         down_for_seconds=None if ready or down is None else round(max(0.0, time.monotonic() - down), 1),
+        configured_leader=configured,
     )
 
 
@@ -105,10 +114,12 @@ def _backends(session: ChargerSession) -> List[BackendLink]:
     """The leader first, then the followers. In plain broker mode the leader is the broker itself."""
     if session.backend_conn is None:
         local = BackendLink(
-            key=session.local_key or BROKER_KEY, url=None, role="leader", local=True, connected=True, buffered_frames=0, down_for_seconds=None
+            key=session.local_key or BROKER_KEY, url=None, role="leader", local=True, connected=True, buffered_frames=0, down_for_seconds=None,
+            configured_leader=True,
         )
-        return [local, *(_link(f, "follower") for f in session.follower_conns)]
-    return [_link(session.backend_conn, "leader"), *(_link(f, "follower") for f in session.follower_conns)]
+        return [local, *(_link(f, "follower", False) for f in session.follower_conns)]
+    preferred = session.preferred
+    return [_link(session.backend_conn, "leader", session.backend_conn is preferred), *(_link(f, "follower", f is preferred) for f in session.follower_conns)]
 
 
 def _transaction_rows(broker: Any, org: str, charger_id: str, session: ChargerSession) -> List[Dict[str, Any]]:
@@ -307,6 +318,29 @@ def create_console_api(broker: Any) -> APIRouter:
             frames_out=state.frames_out,
             id_table_stats=dict(table.stats) if table is not None else {},
         )
+
+    @router.post("/chargers/{org}/{charger_id}/leader", response_model=LeaderChanged)
+    async def change_leader(
+        request: Request,
+        body: LeaderRequest,
+        org: str = Path(..., description="Organization name"),
+        charger_id: str = Path(..., description="Charger id"),
+    ) -> LeaderChanged:
+        """
+        Make a connected follower this charger's leader now. Messages the old leader has not answered yet may time
+        out at the charger, which then retries them with the new leader. Nothing is written to the configuration:
+        the charger goes back to the configured leader when it reconnects (or by `leader_failback`, only after a failover).
+        """
+        session = broker.sessions.get((org, charger_id))
+        if session is None or session.backend_conn is None:
+            raise HTTPException(status_code=404, detail=f"Charger {org}/{charger_id} is not connected to this instance with backends")
+        old = session.backend_conn.key
+        try:
+            session.promote_to(body.backend)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        logger.warning("Leader of %s/%s changed from %s to %s by %s", org, charger_id, old, body.backend, getattr(request.state, "api_key_label", None))
+        return LeaderChanged(old_leader=old, new_leader=body.backend)
 
     @router.get("/chargers/{org}/{charger_id}/commands", response_model=CommandHistory)
     async def charger_commands(

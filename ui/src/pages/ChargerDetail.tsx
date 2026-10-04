@@ -5,6 +5,7 @@ import { ApiError, apiGet, type ChargerDetail as Detail, type TransactionRow } f
 import { useAuth } from '../auth'
 import { Chip, ConnectorStatus } from '../components/Chip'
 import { Commands } from '../components/Commands'
+import { LeaderControl } from '../components/LeaderControl'
 import { StatusHistory } from '../components/StatusHistory'
 import { EventFeed } from '../components/EventFeed'
 import { useRefreshOnEvents } from '../events'
@@ -174,6 +175,8 @@ function ChargerView({ org, chargerId }: { org: string; chargerId: string }) {
             <h2 id="topology-heading">Connections</h2>
             <Topology chargerId={data.charger_id} mode={data.mode} backends={data.backends} />
           </section>
+
+          {!gone && <LeaderControl org={org} chargerId={chargerId} backends={data.backends} onChanged={reload} />}
 
           <div className="two-up">
             <section aria-labelledby="conn-heading" className="card">

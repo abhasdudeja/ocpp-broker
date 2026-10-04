@@ -41,8 +41,14 @@ export function describeEvent(event: BrokerEvent): string {
       const role = text(d.role)
       return `${name}${role ? ` (${role})` : ''} ${d.connected === true ? 'is connected' : 'was lost'}`
     }
-    case 'backend.failover':
-      return `failover: ${text(d.new_leader) ?? 'a follower'} took over from ${text(d.old_leader) ?? 'the leader'}`
+    case 'backend.failover': {
+      const reason = text(d.reason)
+      const to = text(d.new_leader) ?? 'a follower'
+      const from = text(d.old_leader) ?? 'the leader'
+      if (reason === 'failback') return `fail-back: ${to} has the charger again, from ${from}`
+      if (reason === 'manual') return `leader changed by an operator: ${to} took over from ${from}`
+      return `failover: ${to} took over from ${from}`
+    }
     case 'transaction.started': {
       const meter = count(d.meter_start)
       return `transaction started on ${connector(d.connector_id)}${meter === null ? '' : ` (meter ${meter} Wh)`}`
@@ -68,7 +74,7 @@ export function eventTone(event: BrokerEvent): Tone {
     case 'charger.connected':
       return 'ok'
     case 'backend.failover':
-      return 'bad'
+      return d.reason === 'failover' || d.reason === undefined ? 'bad' : 'info'
     case 'charger.status':
       return d.status === 'Faulted' ? 'bad' : d.status === 'Unavailable' ? 'warn' : 'neutral'
     case 'backend.link':

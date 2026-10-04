@@ -116,6 +116,8 @@ organizations:
 | `backend_buffer_size` | `200` | Frames held per charger while the leader is unreachable. A full buffer refuses new frames. |
 | `backend_outage_timeout` | `30` | Seconds a held request may wait. Then the charger gets a `CALLERROR` (`InternalError`). |
 | `leader_failover_timeout` | `15` | Seconds the leader may be unreachable before the first healthy follower is promoted. `0` disables failover. |
+| `leader_failback` | `false` | After a failover, give the charger back to the configured leader once it has been connected for `leader_failback_delay`. |
+| `leader_failback_delay` | `60` | Seconds, above 0. |
 
 #### Transaction ids: `transaction_ids`
 

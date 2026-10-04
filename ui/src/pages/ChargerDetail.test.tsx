@@ -1,4 +1,5 @@
 import { act, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ago, backendLink, brokerEvent, detail, mockApi, mockEvents, renderApp, respond, signedIn } from '../test-utils'
@@ -195,6 +196,38 @@ describe('charger detail', () => {
     signedIn()
     renderApp('/chargers/Fleet/CP-001')
     expect(await screen.findByLabelText('API key')).toBeInTheDocument()
+  })
+
+  describe('changing the leader', () => {
+    it('offers a connected follower and reads the charger again once it leads', async () => {
+      let leader = 'primary'
+      const fetch = mockApi({
+        [PATH]: () =>
+          detail({
+            backends:
+              leader === 'primary'
+                ? [backendLink(), backendLink({ key: 'standby', url: 'ws://standby.example.com/ocpp', role: 'follower' })]
+                : [backendLink({ key: 'standby', url: 'ws://standby.example.com/ocpp', configured_leader: false }), backendLink({ key: 'primary', role: 'follower', configured_leader: true })],
+          }),
+        [PATH + '/leader']: () => {
+          leader = 'standby'
+          return { old_leader: 'primary', new_leader: 'standby' }
+        },
+      })
+      await open()
+      await userEvent.click(await screen.findByRole('button', { name: 'Make standby the leader' }))
+      await userEvent.click(within(screen.getByRole('group', { name: 'Confirm standby' })).getByRole('button', { name: 'Make standby the leader' }))
+      expect(await screen.findByText('standby leads now.')).toBeInTheDocument()
+      expect(await screen.findByText('not the configured leader')).toBeInTheDocument()
+      expect(fetch.mock.calls.some(([url, init]) => String(url) === PATH + '/leader' && init?.method === 'POST')).toBe(true)
+    })
+
+    it('offers nothing when no follower is connected', async () => {
+      mockApi({ [PATH]: detail({ backends: [backendLink()] }) })
+      await open()
+      await screen.findByRole('region', { name: 'Connectors' })
+      expect(screen.queryByRole('heading', { name: 'Change the leader' })).not.toBeInTheDocument()
+    })
   })
 
   describe('status history', () => {

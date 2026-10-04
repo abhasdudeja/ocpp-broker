@@ -51,6 +51,7 @@ export function backendLink(overrides: Partial<BackendLink> = {}): BackendLink {
     connected: true,
     buffered_frames: 0,
     down_for_seconds: null,
+    configured_leader: overrides.role === undefined || overrides.role === 'leader',
     ...overrides,
   }
 }
@@ -69,6 +70,8 @@ export const adminOrg = (overrides: Partial<AdminOrg> = {}): AdminOrg => ({
   backend_buffer_size: 200,
   backend_outage_timeout: 30,
   leader_failover_timeout: 15,
+  leader_failback: false,
+  leader_failback_delay: 60,
   transaction_ids: noTx,
   charger_auth_required: true,
   credentials: [{ charger_id: 'CP1', storage: 'hash' }],

@@ -85,6 +85,21 @@ def test_settings_given_are_written_as_numbers():
     assert org["ocpp_subprotocol"] == "ocpp1.6"
 
 
+def test_leader_failback_is_written_when_given_and_removed_when_emptied():
+    org, _, _ = built(org_input(leader_failback=True, leader_failback_delay=30))
+    assert org["leader_failback"] is True and org["leader_failback_delay"] == 30
+    org, _, _ = built(org_input(), {**EXISTING, "leader_failback": True, "leader_failback_delay": 5})
+    assert "leader_failback" not in org and "leader_failback_delay" not in org
+
+
+def test_leader_failback_is_shown_with_its_defaults_and_described_when_it_changes():
+    plain = {"name": "A", "connect_to_backend": False}
+    assert (view(plain, normalized(plain)).leader_failback, view(plain, normalized(plain)).leader_failback_delay) == (False, 60.0)
+    on = {**plain, "leader_failback": True, "leader_failback_delay": 20}
+    lines = lines_of(plain, on)
+    assert "leader_failback: false → true" in lines and "leader_failback_delay: 60.0 → 20.0" in lines
+
+
 def test_transaction_id_settings_are_written_when_given():
     org, _, _ = built(org_input(transaction_ids={"mapping": False, "retain_open": 600}))
     assert org["transaction_ids"] == {"mapping": False, "retain_open": 600}

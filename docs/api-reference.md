@@ -190,9 +190,19 @@ Each backend of each organization that has backends (relay mode, or a [local lea
 GET /api/chargers/{org}/{charger_id}
 ```
 
-The same fields plus the full picture of one charger: `boot` (vendor, model, serial number, firmware, ICCID, IMSI, meter details, when it arrived), `last_heartbeat_at`, `connectors` (status, error code, info, time), `backends` (the leader first, then the followers, each with `key`, `url`, `role`, `local`, `connected`, `buffered_frames`, `down_for_seconds`), `transaction_id_mapping` (whether ids are translated for this charger), `transactions` (one row per transaction: the id the charger holds, its state `pending`/`open`/`closed`, each backend's own id by key, which backends are skipped, which have not yet answered), `reservations` and `charging_profiles` (the ids the charger holds with each backend's own id), `frames_in` / `frames_out` (messages received from and sent to the charger on this connection) and `id_table_stats` (what the id table has done: `rewritten`, `remapped`, `skipped`, ...).
+The same fields plus the full picture of one charger: `boot` (vendor, model, serial number, firmware, ICCID, IMSI, meter details, when it arrived), `last_heartbeat_at`, `connectors` (status, error code, info, time), `backends` (the leader first, then the followers, each with `key`, `url`, `role`, `local`, `connected`, `buffered_frames`, `down_for_seconds`, `configured_leader` (the configuration makes this one the leader, whether or not it leads now)), `transaction_id_mapping` (whether ids are translated for this charger), `transactions` (one row per transaction: the id the charger holds, its state `pending`/`open`/`closed`, each backend's own id by key, which backends are skipped, which have not yet answered), `reservations` and `charging_profiles` (the ids the charger holds with each backend's own id), `frames_in` / `frames_out` (messages received from and sent to the charger on this connection) and `id_table_stats` (what the id table has done: `rewritten`, `remapped`, `skipped`, ...).
 
 `404` if the charger is not connected to this instance.
+
+```http
+POST /api/chargers/{org}/{charger_id}/leader
+```
+
+```json
+{"backend": "standby"}
+```
+
+Makes a connected follower the charger's leader now; answers `{"old_leader": "primary", "new_leader": "standby"}`. `409` with the reason if that backend already leads, is not a backend of this charger or is not connected; `404` if the charger is not connected to this instance with backends. Nothing is written to the configuration. See [Changing the leader by hand](leader-follower.md#changing-the-leader-by-hand).
 
 ```http
 GET /api/chargers/{org}/{charger_id}/commands
@@ -253,7 +263,7 @@ data: {"id": 38, "type": "charger.status", "time": "2026-10-04T09:01:07+00:00", 
 | `charger.boot` | `vendor`, `model`, `firmware_version` from its `BootNotification` |
 | `charger.status` | `connector_id` (0 is the whole charger), `status`, `previous` (null the first time), `error_code`. Only sent when the status or error code changed |
 | `backend.link` | `backend` (its key), `role` (`leader` or `follower`), `connected`. Sent when a link comes up and once when it goes down, not on every failed retry |
-| `backend.failover` | `old_leader`, `new_leader` (backend keys) |
+| `backend.failover` | `old_leader`, `new_leader` (backend keys), `reason`: `failover` (the leader was unreachable), `failback` (the configured leader was handed the charger back) or `manual` (an operator changed it) |
 | `transaction.started` | `connector_id`, `meter_start`: the charger asked to start one (ids are not yet known at this point) |
 | `transaction.stopped` | `transaction_id` (the id the charger holds), `meter_stop`, `reason` |
 | `command.result` | `message_id`, `action`, `status` (`success`, `error`, `timeout`, `cancelled`), `error` |
@@ -577,6 +587,8 @@ A change is `{"op": "upsert", "org": {...}}` or `{"op": "delete", "name": "..."}
   "backend_buffer_size": 200,
   "backend_outage_timeout": 30,
   "leader_failover_timeout": 15,
+  "leader_failback": false,
+  "leader_failback_delay": 60,
   "transaction_ids": {"mapping": true, "follower_wait": 5},
   "charger_auth_required": true,
   "credentials": [{"charger_id": "CP001", "password": "set-or-replace-it"}, {"charger_id": "CP002"}]

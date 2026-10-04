@@ -119,7 +119,7 @@ While the leader is unreachable the broker keeps the charger connected:
 
 - Frames from the charger wait in an outbox of up to `backend_buffer_size` (default 200) and are flushed in order when the leader reconnects. The broker retries with a delay that starts at 1 s and doubles up to 30 s.
 - A CALL that waits longer than `backend_outage_timeout` (default 30 s), or does not fit in a full outbox, is answered to the charger with `[4, "<id>", "InternalError", "Backend unavailable, please retry", {}]`. An undeliverable CALLRESULT is dropped with a warning.
-- If the leader stays down for `leader_failover_timeout` (default 15 s, `0` disables) and a follower is connected, the first healthy follower in config order becomes the leader. The old leader becomes a follower when it returns; there is no automatic fail-back. Frames held for the old leader are answered with a CALLERROR, not replayed.
+- If the leader stays down for `leader_failover_timeout` (default 15 s, `0` disables) and a follower is connected, the first healthy follower in config order becomes the leader. The old leader becomes a follower when it returns; with `leader_failback: true` the charger is handed back to it after `leader_failback_delay` seconds (default 60) of stable connection. Frames held for the old leader are answered with a CALLERROR, not replayed.
 
 With the setup from section 1, stop the `primary` mock and watch the links:
 

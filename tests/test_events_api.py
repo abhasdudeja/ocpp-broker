@@ -310,7 +310,7 @@ async def test_backend_links_and_a_failover_are_events(run_server):
             assert down["data"] == {"backend": "lead", "role": "leader", "connected": False}
             assert (down["org"], down["charger_id"]) == ("Fleet", "CP1")
             failover = await stream.event("backend.failover")
-            assert failover["data"] == {"old_leader": "lead", "new_leader": "follow"}
+            assert failover["data"] == {"old_leader": "lead", "new_leader": "follow", "reason": "failover"}
         finally:
             await charger.close()
             await leader.stop()

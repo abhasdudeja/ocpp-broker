@@ -129,7 +129,8 @@ async def test_a_broker_mode_charger_shows_what_it_reported(run_server):
             assert row["connector_statuses"] == {"1": "Charging", "2": "Faulted"}
             assert row["remote_address"].startswith("127.0.0.1")
             assert row["leader"] == {
-                "key": "broker", "url": None, "role": "leader", "local": True, "connected": True, "buffered_frames": 0, "down_for_seconds": None
+                "key": "broker", "url": None, "role": "leader", "local": True, "connected": True, "buffered_frames": 0, "down_for_seconds": None,
+                "configured_leader": True,
             }
             assert (row["followers_total"], row["followers_connected"], row["open_transactions"]) == (0, 0, 0)
 

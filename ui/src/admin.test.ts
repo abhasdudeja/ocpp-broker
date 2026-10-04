@@ -16,6 +16,8 @@ const org = (overrides: Partial<AdminOrg> = {}): AdminOrg => ({
   backend_buffer_size: 200,
   backend_outage_timeout: 30,
   leader_failover_timeout: 15,
+  leader_failback: false,
+  leader_failback_delay: 60,
   transaction_ids: tx,
   charger_auth_required: true,
   credentials: [{ charger_id: 'CP1', storage: 'hash' }],
@@ -45,6 +47,13 @@ describe('the form for an organization', () => {
     expect(draft.ocpp_subprotocol).toBe('ocpp2.0.1')
     expect([draft.backend_buffer_size, draft.backend_outage_timeout, draft.leader_failover_timeout]).toEqual(['50', '0', '0'])
     expect([draft.mapping, draft.follower_wait, draft.dedupe_start, draft.retain_closed, draft.retain_open]).toEqual(['false', '2.5', 'true', '60', '600'])
+  })
+
+  it('shows fail-back only when it is on or its delay is not the default', () => {
+    const plain = draftFromOrg(org())
+    expect([plain.leader_failback, plain.leader_failback_delay]).toEqual(['', ''])
+    const on = draftFromOrg(org({ leader_failback: true, leader_failback_delay: 20 }))
+    expect([on.leader_failback, on.leader_failback_delay]).toEqual(['true', '20'])
   })
 
   it('shows a backend subprotocol only when it differs from the organization’s', () => {
@@ -100,6 +109,11 @@ describe('the request for a form', () => {
     })
   })
 
+  it('sends the fail-back settings, or nothing for the defaults', () => {
+    expect(toInput(draftFromOrg(org()))).toMatchObject({ leader_failback: null, leader_failback_delay: null })
+    expect(toInput(draftFromOrg(org({ leader_failback: true, leader_failback_delay: 20 })))).toMatchObject({ leader_failback: true, leader_failback_delay: 20 })
+  })
+
   it('sends a local backend without an address, and a password only when one was typed', () => {
     const draft = draftFromOrg(org({ backends: [{ id: 'me', url: null, leader: true, local: true, ocpp_subprotocol: null }] }))
     draft.backends[0]!.url = 'ws://left-over'
@@ -147,6 +161,7 @@ describe('what is wrong with a form before it is sent', () => {
   })
 
   it.each([
+    ['leader_failback_delay', '0'],
     ['follower_wait', '0'],
     ['retain_closed', '-5'],
     ['retain_open', 'x'],

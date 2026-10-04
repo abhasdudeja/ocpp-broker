@@ -31,6 +31,8 @@ organizations:
     backend_buffer_size: 200          # frames held while the leader is unreachable
     backend_outage_timeout: 30        # seconds a held frame may wait
     leader_failover_timeout: 15       # seconds the leader may be down before a follower takes over (0 = never)
+    leader_failback: false            # true: give the charger back to the configured leader after a failover
+    leader_failback_delay: 60         # seconds the configured leader must stay connected before that
     backends:
       - id: primary
         url: ws://primary.example.com/ocpp
@@ -54,6 +56,8 @@ Keys the code reads for this feature:
 | `backend_buffer_size` | `200` | Maximum frames held for the leader while it is unreachable. |
 | `backend_outage_timeout` | `30` | Seconds a held frame may wait before it is given up on. |
 | `leader_failover_timeout` | `15` | Seconds the leader may stay unreachable before a follower is promoted. `0` disables failover. |
+| `leader_failback` | `false` | After a failover, hand the charger back to the configured leader once it is back ([Fail-back](#fail-back)). |
+| `leader_failback_delay` | `60` | Seconds the configured leader must stay connected, without a break, before the charger is handed back. Above 0. |
 | `transaction_ids.mapping` | on when there is more than one backend | Translate transaction ids per backend; see [Transaction ids](#transaction-ids). `true` or `false` forces it. |
 | `transaction_ids.follower_wait` | `5` | Seconds the broker holds copies for a follower that has not yet said which id it issued. |
 | `transaction_ids.dedupe_start` | `true` | Answer a retried `StartTransaction` from the stored result instead of starting a second transaction. |
@@ -178,7 +182,7 @@ backends:
 - **While the external leader is healthy** the standby gets a copy of every charger request, as any follower does, and processes it with the same code as broker mode: it numbers the transactions it sees (in its own ids, which the [id table](#transaction-ids) knows), records them, and stores what it would store. Its answers are read by the id table and thrown away. **The charger never hears from it**: with `primary` saying `Accepted` and the broker's own tags saying `Invalid`, the charger is told `Accepted`.
 - **When the external leader stays down for `leader_failover_timeout`** the first healthy follower in the configured order is promoted, as in relay mode. List the local backend before other followers if it should be preferred. From then on the broker answers the charger with its own rules, already knowing the transactions that were running: a running transaction is stopped under the id the charger holds, translated to the broker's own, without a warning about an unknown transaction; a start the old leader never answered is answered once, with the standby's own answer. The old leader becomes an ordinary follower (and receives copies again when it reconnects).
 - **Commands** follow whoever answers: while the external leader leads they are sent to the charger as they are (unchecked, as in relay mode); after the standby is promoted the broker validates them first (`422` if invalid) and sends them itself.
-- **There is no automatic fail-back**: when the external leader returns, the broker keeps answering and the external backend follows. To give the charger back, restart the charger's session (it reconnects and the configured leader leads again).
+- **Fail-back is off by default**: when the external leader returns, the broker keeps answering and the external backend follows. With `leader_failback: true` the charger is handed back after `leader_failback_delay` ([Fail-back](#fail-back)): the broker goes back to being a silent standby and the organization is a relay for that charger again. An operator can also change the leader by hand.
 - **The console and the API** show the standby as a follower marked *this broker* (connected while its library runs), and after a promotion as the leader. The organization is `relay` mode as long as the *configured* leader is external.
 - If the standby's library fails, the standby is shown as not connected and the charger and the external leader are not affected. If the **local leader's** library fails, the broker closes the charger's connection (code 1011) so the charger reconnects to a fresh session.
 - **Cost:** every charger message is handled twice (by the leader and by the standby), and the standby writes to MongoDB what a leader would, so the database holds the standby's view as well.
@@ -208,7 +212,19 @@ On promotion:
 - Frames held for the old leader are **not replayed**. Each held CALL is answered to the charger with the `InternalError` CallError above (held CALLRESULTs are dropped). The charger's retry goes to the new leader. The new leader has already seen an observed copy of those CALLs, so it may see the same CALL twice; for a `StartTransaction` the broker prevents that (see [Transaction ids](#transaction-ids)).
 - The old leader becomes a follower (unbuffered, observe-only).
 - The new leader gets the store-and-forward outbox settings.
-- There is **no automatic fail-back**: when the old leader returns it stays a follower. Only a failure of the current leader triggers another promotion.
+- Unless `leader_failback` is on, there is **no automatic fail-back**: when the old leader returns it stays a follower. Only a failure of the current leader triggers another promotion.
+
+### Fail-back
+
+With `leader_failback: true`, after a failover the charger goes back to the **configured leader** (the one marked `leader: true`, or the local backend that leads) once it has been connected for `leader_failback_delay` seconds **without a break**: a leader that keeps dropping is not handed the charger just to lose it again, and its timer starts over each time it drops. The same machinery as a failover does it (`reason: failback` in the `backend.failover` event): the current leader becomes a follower, the frames held for it are answered with a CALLERROR, and the [transaction id table](#transaction-ids) follows the change. If the broker itself was the standby that took over, it hands the charger back and returns to being a silent standby.
+
+- It only follows a **failover**. A leader an operator chose by hand stays until an operator says otherwise.
+- A message the current leader has received but not yet answered when the charger is handed back is never answered by it (its late answer is discarded), so the charger may time out and send it again, to the new leader.
+- The setting is per organization; each charger session decides for itself.
+
+### Changing the leader by hand
+
+`POST /api/chargers/{org}/{charger_id}/leader` with `{"backend": "<key>"}` (or **Make … the leader** on the charger's page in the console) makes a **connected follower** the leader now. It answers `{"old_leader", "new_leader"}`, or `409` with the reason if that backend already leads, is not a backend of this charger or is not connected, and `404` if the charger is not connected to this instance with backends. The change is not written to the configuration: the charger goes back to the configured leader when it reconnects. The same remark about unanswered messages applies.
 
 `leader_failover_timeout` and `backend_outage_timeout` interact: held CALLs are answered with a CallError after `backend_outage_timeout` (default 30s) even if failover has not happened yet (default 15s). With the defaults, failover occurs first and held frames are rejected at promotion. Failover is per charger session: each charger decides independently, and it applies to that session only.
 
@@ -237,7 +253,7 @@ Failover and outage events are in the log (`FAILOVER: leader ... unreachable, pr
 
 ## What does not exist
 
-There is no automatic fail-back, no way to add or remove backends at runtime, no manual promotion endpoint, no configuration reload (restart to change the config), no health-check-driven election beyond the connection state described above, no weights or priorities, no comparison or voting between backend responses, and no metrics endpoint. Changing the leader means editing `config.yaml` and restarting, or letting failover choose.
+There is no health-check-driven election beyond the connection state described above, no weights or priorities, no comparison or voting between backend responses, and no metrics endpoint. Backends are added and removed with the [admin API](admin.md) (or by editing `config.yaml` and restarting); a charger that is already connected keeps the backends it connected with until it reconnects.
 
 ## Related Documentation
 

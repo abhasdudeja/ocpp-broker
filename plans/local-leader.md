@@ -13,7 +13,7 @@ A charger can be served by the broker itself (broker mode) or by external backen
 | How is it configured? | One `backends` entry with `local: true` (no `url`, optional `id`, default key `broker`). | Reuses the existing list, ids and the transaction id table's backend keys; no second switch to keep consistent. |
 | Who may the local backend be? | The leader unless another entry is marked `leader: true`, then a standby. A second local backend, a `url` on it, two entries marked leader, or a lone non-leading local backend are refused at load time with a reason. | One rule that also covers the standby of B4. |
 | Which mode is it? | `mode: broker` with followers. | "Mode" says who answers the charger. The console already shows a local leader and followers. |
-| Does the broker fail over? | A local *leader* cannot be unreachable, so nothing triggers it. A local *standby* (a local backend that is not the leader) takes over when the external leader fails (B4, below). | Same failover machinery as relay mode; no automatic fail-back, as there is none for external followers either. |
+| Does the broker fail over? | A local *leader* cannot be unreachable, so nothing triggers it. A local *standby* (a local backend that is not the leader) takes over when the external leader fails (B4, below). | Same failover machinery as relay mode. Fail-back (`leader_failback`) hands the charger back to the configured leader once it has stayed connected for a while; it is off by default. |
 
 ## How it works
 
@@ -68,5 +68,5 @@ A local backend that is not the leader (another entry is marked `leader: true`) 
 
 ## Still open
 
-- **Fail-back / hand-back** to the configured external leader when it returns. None exists for external followers either; add it for both together if it is wanted, with the same hold-down rules as the id table needs after a leader change.
+- **Fail-back / hand-back** to the configured external leader when it returns: built for external followers and the local standby together (`leader_failback`, `leader_failback_delay`), with a hold-down so a leader that keeps dropping is not handed the charger. A manual change of leader exists too (`POST /api/chargers/{org}/{id}/leader`).
 - **OCPP 2.0.1 / 2.1** local leader and standby: a second `ChargePoint` per version ([roadmap.md](roadmap.md)); `LocalBackend` and the table's per-backend idea carry over, the id problem mostly disappears because the charger chooses transaction ids in 2.x.

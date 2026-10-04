@@ -1,7 +1,7 @@
 import type { AdminChange, AdminOrg, AdminOrgInput } from './api/client'
 
 /** What the broker uses when a setting is left out; a field showing the default is left empty, so it stays unset in the file. */
-export const DEFAULTS = { backend_buffer_size: 200, backend_outage_timeout: 30, leader_failover_timeout: 15 } as const
+export const DEFAULTS = { backend_buffer_size: 200, backend_outage_timeout: 30, leader_failover_timeout: 15, leader_failback_delay: 60 } as const
 export const DEFAULT_SUBPROTOCOL = 'ocpp1.6'
 
 export type Tri = '' | 'true' | 'false' // empty: the broker's own default
@@ -32,6 +32,8 @@ export interface Draft {
   backend_buffer_size: string
   backend_outage_timeout: string
   leader_failover_timeout: string
+  leader_failback: Tri
+  leader_failback_delay: string
   mapping: Tri
   follower_wait: string
   dedupe_start: Tri
@@ -57,6 +59,8 @@ export function emptyDraft(): Draft {
     backend_buffer_size: '',
     backend_outage_timeout: '',
     leader_failover_timeout: '',
+    leader_failback: '',
+    leader_failback_delay: '',
     mapping: '',
     follower_wait: '',
     dedupe_start: '',
@@ -85,6 +89,8 @@ export function draftFromOrg(org: AdminOrg): Draft {
     backend_buffer_size: unlessDefault(org.backend_buffer_size, DEFAULTS.backend_buffer_size),
     backend_outage_timeout: unlessDefault(org.backend_outage_timeout, DEFAULTS.backend_outage_timeout),
     leader_failover_timeout: unlessDefault(org.leader_failover_timeout, DEFAULTS.leader_failover_timeout),
+    leader_failback: org.leader_failback ? 'true' : '',
+    leader_failback_delay: unlessDefault(org.leader_failback_delay, DEFAULTS.leader_failback_delay),
     mapping: tri(org.transaction_ids.mapping),
     follower_wait: text(org.transaction_ids.follower_wait),
     dedupe_start: tri(org.transaction_ids.dedupe_start),
@@ -116,6 +122,7 @@ export function draftProblems(draft: Draft, isNew: boolean): string[] {
     if (n !== null && (!Number.isInteger(n) || n < 0)) problems.push(`${label} must be a whole number, 0 or more, or left empty.`)
   }
   for (const [label, value] of [
+    ['Fail-back delay', draft.leader_failback_delay],
     ['Follower wait', draft.follower_wait],
     ['Keep ended transactions', draft.retain_closed],
     ['Keep open transactions', draft.retain_open],
@@ -152,6 +159,8 @@ export function toInput(draft: Draft): AdminOrgInput {
     backend_buffer_size: whole(draft.backend_buffer_size),
     backend_outage_timeout: whole(draft.backend_outage_timeout),
     leader_failover_timeout: whole(draft.leader_failover_timeout),
+    leader_failback: boolOrNull(draft.leader_failback),
+    leader_failback_delay: whole(draft.leader_failback_delay),
     transaction_ids: {
       mapping: boolOrNull(draft.mapping),
       follower_wait: whole(draft.follower_wait),

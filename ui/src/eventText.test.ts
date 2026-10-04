@@ -42,6 +42,12 @@ describe('describeEvent', () => {
 
   it('says who took over from whom in a failover', () => {
     expect(text('backend.failover', { old_leader: 'primary', new_leader: 'standby' })).toBe('failover: standby took over from primary')
+    expect(text('backend.failover', { old_leader: 'primary', new_leader: 'standby', reason: 'failover' })).toBe('failover: standby took over from primary')
+  })
+
+  it('tells a fail-back and an operator’s change from a failover', () => {
+    expect(text('backend.failover', { old_leader: 'standby', new_leader: 'primary', reason: 'failback' })).toBe('fail-back: primary has the charger again, from standby')
+    expect(text('backend.failover', { old_leader: 'primary', new_leader: 'standby', reason: 'manual' })).toBe('leader changed by an operator: standby took over from primary')
   })
 
   it('describes transactions', () => {
@@ -73,6 +79,9 @@ describe('eventTone', () => {
     expect(tone('backend.link', { connected: true })).toBe('ok')
     expect(tone('backend.link', { connected: false })).toBe('warn')
     expect(tone('backend.failover')).toBe('bad')
+    expect(tone('backend.failover', { reason: 'failover' })).toBe('bad')
+    expect(tone('backend.failover', { reason: 'failback' })).toBe('info')
+    expect(tone('backend.failover', { reason: 'manual' })).toBe('info')
     expect(tone('charger.status', { status: 'Faulted' })).toBe('bad')
     expect(tone('charger.status', { status: 'Unavailable' })).toBe('warn')
     expect(tone('charger.status', { status: 'Charging' })).toBe('neutral')

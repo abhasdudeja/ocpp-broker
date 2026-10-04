@@ -262,6 +262,16 @@ function Editor({ config, existing, reload }: { config: AdminConfig; existing: s
             <Field label="Failover timeout" hint={`Seconds the leader may be down before a follower takes over; 0 never. Empty means ${DEFAULTS.leader_failover_timeout}.`}>
               {(id) => <input id={id} type="text" inputMode="numeric" value={draft.leader_failover_timeout} onChange={(e) => edit({ leader_failover_timeout: e.target.value })} />}
             </Field>
+            <Field label="Give the charger back to the configured leader" hint="After a failover, once the configured leader has been connected for the delay below. Default: off. A leader chosen by an operator is never taken away.">
+              {(id) => (
+                <select id={id} value={draft.leader_failback} onChange={(e) => edit({ leader_failback: e.target.value as Tri })}>
+                  {triOptions('On', 'Off', 'Default (off)')}
+                </select>
+              )}
+            </Field>
+            <Field label="Fail-back delay" hint={`Seconds the configured leader must stay connected without a break. Empty means ${DEFAULTS.leader_failback_delay}.`}>
+              {(id) => <input id={id} type="text" inputMode="decimal" value={draft.leader_failback_delay} onChange={(e) => edit({ leader_failback_delay: e.target.value })} />}
+            </Field>
             <Field label="Transaction id mapping" hint="Give each backend its own transaction ids. By default on when there are several backends.">
               {(id) => (
                 <select id={id} value={draft.mapping} onChange={(e) => edit({ mapping: e.target.value as Tri })}>

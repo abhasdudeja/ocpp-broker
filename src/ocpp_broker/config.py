@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from .transaction_ids import local_index
+
 logger = logging.getLogger("ocpp_broker.config")
 
 DEFAULT_CONFIG_PATH = os.environ.get("OCPP_BROKER_CONFIG", "config.yaml")
@@ -212,13 +214,20 @@ def _apply_defaults(cfg):
         _normalize_charger_auth(org)
         _validate_transaction_ids(org)
 
+        _validate_backends(org)
+
         # Set backend defaults
         for backend in org.get("backends", []):
-            backend.setdefault("ocpp_subprotocol", org.get("ocpp_subprotocol", "ocpp1.6"))
+            if not backend.get("local"):
+                backend.setdefault("ocpp_subprotocol", org.get("ocpp_subprotocol", "ocpp1.6"))
 
         # Validate and fix backend leaders
         leaders = [b for b in org["backends"] if b.get("leader")]
-        if len(leaders) > 1:
+        if local_index(org["backends"]) is not None:
+            # The local backend (this broker) is the leader; the others are observe-only followers
+            for b in org["backends"]:
+                b["leader"] = bool(b.get("local"))
+        elif len(leaders) > 1:
             logger.warning(f"Organization {name} has multiple leaders; using first one only.")
             for b in org["backends"]:
                 b["leader"] = b is leaders[0]  # identity: two identical entries are still two backends
@@ -229,6 +238,37 @@ def _apply_defaults(cfg):
         _check_backend_ids(org)
 
     return cfg
+
+
+def _validate_backends(org):
+    """
+    Check an organization's ``backends``: every external one needs a ``url``, and at most one may be
+    ``local: true``, which means "this broker answers the charger itself" (see docs/leader-follower.md).
+    A local backend is always the leader: the others receive copies of the charger's messages and
+    can take no part in the conversation, so ``leader: true`` on another entry would contradict it.
+    """
+    name = org["name"]
+    backends = org.get("backends") or []
+    if not isinstance(backends, list) or not all(isinstance(b, dict) for b in backends):
+        raise ValueError(f"Organization {name}: backends must be a list of mappings")
+    locals_ = [b for b in backends if b.get("local")]
+    for backend in backends:
+        if backend.get("local") not in (None, True, False):
+            raise ValueError(f"Organization {name}: a backend's local must be true or false")
+    if len(locals_) > 1:
+        raise ValueError(f"Organization {name}: only one backend can be local (this broker)")
+    for backend in backends:
+        if backend.get("local"):
+            if backend.get("url"):
+                raise ValueError(f"Organization {name}: a local backend is this broker and has no url")
+            if backend.get("leader") is False:
+                raise ValueError(f"Organization {name}: a local backend is always the leader; a local follower is not supported")
+        elif not backend.get("url"):
+            raise ValueError(f"Organization {name}: every backend needs a url (or local: true for this broker)")
+        elif locals_ and backend.get("leader"):
+            raise ValueError(f"Organization {name}: the local backend is the leader, so {backend.get('id') or backend['url']} cannot be marked leader")
+    if locals_ and org.get("connect_to_backend") is False:
+        logger.warning("Organization %s: connect_to_backend is false, so its backends (including the local one) are ignored", name)
 
 
 def _normalize_charger_auth(org):

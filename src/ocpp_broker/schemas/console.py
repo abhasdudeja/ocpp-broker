@@ -15,19 +15,22 @@ from pydantic import BaseModel, Field
 
 
 class OrgBackend(BaseModel):
-    key: str = Field(description="The backend's id from the configuration, or its URL if it has none")
-    url: str
+    key: str = Field(description="The backend's id from the configuration, or its URL if it has none (\"broker\" for the local one)")
+    url: Optional[str] = Field(description="Null for the local backend, which is this broker itself")
+    local: bool = Field(description="This broker itself, answering the charger as its leader; the other backends only observe")
     leader: bool = Field(description="Marked leader in the configuration (a failover can change who leads a charger)")
     ocpp_subprotocol: str
 
 
 class OrgSummary(BaseModel):
     name: str
-    mode: Literal["broker", "relay"] = Field(description="broker: the broker answers chargers itself; relay: it forwards to backends")
+    mode: Literal["broker", "relay"] = Field(
+        description="broker: the broker answers chargers itself (with a local backend, other backends receive copies); relay: it forwards to backends"
+    )
     ocpp_version: str
     charger_auth_required: bool
     connected_chargers: int = Field(description="Chargers of this organization connected to this instance")
-    backends: List[OrgBackend] = Field(description="Empty in broker mode")
+    backends: List[OrgBackend] = Field(description="Empty in broker mode without followers")
     transaction_id_mapping: bool = Field(description="Transaction ids are translated per backend (relay mode with several backends)")
 
 

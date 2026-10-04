@@ -9,6 +9,7 @@ from .backend_manager import BackendConnection
 from .registry import ChargerRegistry
 from .config import load_config
 from .events import EventBus
+from .local_transactions import LocalTransactions
 from .tag_manager import TagManager
 from .session import ChargerSession
 from .transaction_ids import TransactionIdTable, backend_keys, table_for_org
@@ -37,6 +38,8 @@ class OcppBroker:
         # Transaction id tables outlive sessions: a charger's socket drops and
         # reconnects in the middle of a charge, and the mapping must survive that.
         self.transaction_tables: Dict[Tuple[str, str], TransactionIdTable] = {}
+        # What the broker itself numbered for each charger (broker mode and the local leader); see local_transactions.py
+        self.local_transactions: Dict[Tuple[str, str], LocalTransactions] = {}
         self._tx_store: Optional[TransactionStore] = None
         self._tx_store_for: Any = None  # the MongoDBService the store was made for
         self._tx_memory_warned = False
@@ -214,12 +217,22 @@ class OcppBroker:
                     logger.info("Restored %d transaction id record(s) for %s/%s", restored, org_name, charger_id)
         return table
 
+    def local_transactions_for(self, org_name: str, charger_id: str) -> LocalTransactions:
+        key = (org_name, charger_id)
+        found = self.local_transactions.get(key)
+        if found is None:
+            found = self.local_transactions[key] = LocalTransactions()
+        return found
+
     def release_transaction_table(self, org_name: str, charger_id: str) -> None:
         """Drop a charger's table once nothing in it is worth keeping and no session uses it."""
         key = (org_name, charger_id)
         table = self.transaction_tables.get(key)
         if table is not None and key not in self.sessions and table.is_idle():
             del self.transaction_tables[key]
+        local = self.local_transactions.get(key)
+        if local is not None and key not in self.sessions and local.is_idle():
+            del self.local_transactions[key]
 
     async def next_transaction_id(self, org_name: str) -> int:
         """

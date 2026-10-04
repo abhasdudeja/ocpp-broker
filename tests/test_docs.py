@@ -151,7 +151,7 @@ def test_curl_examples_use_the_right_method(doc):
 # ---------------------------------------------------------------------------
 # YAML configuration
 # ---------------------------------------------------------------------------
-BACKEND = {"id": None, "url": None, "leader": None, "ocpp_subprotocol": None}
+BACKEND = {"id": None, "url": None, "leader": None, "local": None, "ocpp_subprotocol": None}
 ORG = {
     "name": None,
     "connect_to_backend": None,

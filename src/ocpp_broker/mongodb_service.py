@@ -431,6 +431,7 @@ class MongoDBService:
         transaction_type: str = "start",  # "start" or "stop"
         meter_stop: Optional[int] = None,
         stop_reason: Optional[str] = None,
+        transaction_data: Optional[List[Dict[str, Any]]] = None,
     ):
         """
         Save transaction data (StartTransaction or StopTransaction) to MongoDB.
@@ -452,6 +453,7 @@ class MongoDBService:
             transaction_type: "start" or "stop"
             meter_stop: Meter value at stop (stop only)
             stop_reason: Optional StopTransaction reason (stop only)
+            transaction_data: Optional meter readings the charger sent with the stop (stop only)
         """
         if not self._connected:
             logger.warning("MongoDB not connected, skipping transaction save")
@@ -474,7 +476,7 @@ class MongoDBService:
                     "timestamp": event_time
                 })
             else:
-                stop_fields = {
+                stop_fields: Dict[str, Any] = {
                     "transaction_type": "stop",
                     "meter_stop": meter_stop,
                     "stop_timestamp": event_time,
@@ -482,6 +484,8 @@ class MongoDBService:
                 }
                 if id_tag:
                     stop_fields["stop_id_tag"] = id_tag
+                if transaction_data:
+                    stop_fields["transaction_data"] = transaction_data
                 await collection.update_one(
                     {
                         "org_name": org_name,

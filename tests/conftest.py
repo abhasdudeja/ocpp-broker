@@ -52,3 +52,4 @@ async def run_server(monkeypatch):
     # Transaction id tables outlive sessions on purpose (a charger reconnects mid-charge), so a
     # test must not inherit the previous test's transactions.
     server.broker.transaction_tables.clear()
+    server.broker.local_transactions.clear()

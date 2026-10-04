@@ -1097,15 +1097,26 @@ def table_for_org(org_entry: Dict[str, Any]) -> Optional[TransactionIdTable]:
     )
 
 
+LOCAL_KEY = "broker"  # what the local backend (this broker itself) is called when it has no ``id``
+
+
+def local_index(backends: Iterable[Dict[str, Any]]) -> Optional[int]:
+    """Position of the ``local: true`` entry of an organization's backends (this broker as a backend), or None."""
+    for index, backend in enumerate(backends):
+        if backend.get("local"):
+            return index
+    return None
+
+
 def backend_keys(backends: Iterable[Dict[str, Any]]) -> List[str]:
     """
-    Stable, unique key per configured backend: its ``id`` if given, else its URL.
+    Stable, unique key per configured backend: its ``id`` if given, else its URL (a local backend: "broker").
     A repeated key gets ``#2``, ``#3``... so two backends never share a table entry.
     """
     seen: Counter = Counter()
     keys = []
     for backend in backends:
-        base = str(backend.get("id") or backend.get("url") or "backend")
+        base = str(backend.get("id") or backend.get("url") or (LOCAL_KEY if backend.get("local") else "backend"))
         seen[base] += 1
         keys.append(base if seen[base] == 1 else f"{base}#{seen[base]}")
     return keys

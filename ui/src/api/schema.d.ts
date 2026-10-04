@@ -1749,7 +1749,7 @@ export interface components {
         OrgBackend: {
             /**
              * Key
-             * @description The backend's id from the configuration, or its URL if it has none
+             * @description The backend's id from the configuration, or its URL if it has none ("broker" for the local one)
              */
             key: string;
             /**
@@ -1757,16 +1757,24 @@ export interface components {
              * @description Marked leader in the configuration (a failover can change who leads a charger)
              */
             leader: boolean;
+            /**
+             * Local
+             * @description This broker itself, answering the charger as its leader; the other backends only observe
+             */
+            local: boolean;
             /** Ocpp Subprotocol */
             ocpp_subprotocol: string;
-            /** Url */
-            url: string;
+            /**
+             * Url
+             * @description Null for the local backend, which is this broker itself
+             */
+            url: string | null;
         };
         /** OrgSummary */
         OrgSummary: {
             /**
              * Backends
-             * @description Empty in broker mode
+             * @description Empty in broker mode without followers
              */
             backends: components["schemas"]["OrgBackend"][];
             /** Charger Auth Required */
@@ -1778,7 +1786,7 @@ export interface components {
             connected_chargers: number;
             /**
              * Mode
-             * @description broker: the broker answers chargers itself; relay: it forwards to backends
+             * @description broker: the broker answers chargers itself (with a local backend, other backends receive copies); relay: it forwards to backends
              * @enum {string}
              */
             mode: "broker" | "relay";

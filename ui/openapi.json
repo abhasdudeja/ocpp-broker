@@ -1626,7 +1626,7 @@
       "OrgBackend": {
         "properties": {
           "key": {
-            "description": "The backend's id from the configuration, or its URL if it has none",
+            "description": "The backend's id from the configuration, or its URL if it has none (\"broker\" for the local one)",
             "title": "Key",
             "type": "string"
           },
@@ -1635,18 +1635,32 @@
             "title": "Leader",
             "type": "boolean"
           },
+          "local": {
+            "description": "This broker itself, answering the charger as its leader; the other backends only observe",
+            "title": "Local",
+            "type": "boolean"
+          },
           "ocpp_subprotocol": {
             "title": "Ocpp Subprotocol",
             "type": "string"
           },
           "url": {
-            "title": "Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for the local backend, which is this broker itself",
+            "title": "Url"
           }
         },
         "required": [
           "key",
           "url",
+          "local",
           "leader",
           "ocpp_subprotocol"
         ],
@@ -1656,7 +1670,7 @@
       "OrgSummary": {
         "properties": {
           "backends": {
-            "description": "Empty in broker mode",
+            "description": "Empty in broker mode without followers",
             "items": {
               "$ref": "#/components/schemas/OrgBackend"
             },
@@ -1673,7 +1687,7 @@
             "type": "integer"
           },
           "mode": {
-            "description": "broker: the broker answers chargers itself; relay: it forwards to backends",
+            "description": "broker: the broker answers chargers itself (with a local backend, other backends receive copies); relay: it forwards to backends",
             "enum": [
               "broker",
               "relay"

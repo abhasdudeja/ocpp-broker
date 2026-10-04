@@ -1,11 +1,13 @@
 import asyncio
+import dataclasses
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as OcppChargePoint, call_result, datatypes
 
+from .local_transactions import LocalTransactions, start_key
 from .sockets import locked_send
 
 logger = logging.getLogger("ocpp_broker.charge_point")
@@ -24,6 +26,8 @@ class StarletteWebSocketAdapter:
         send_lock: Optional[asyncio.Lock] = None,
         on_receive: Optional[Callable[[str], None]] = None,
         on_send: Optional[Callable[[], None]] = None,
+        filter_in: Optional[Callable[[str], Awaitable[Optional[str]]]] = None,
+        filter_out: Optional[Callable[[str], List[str]]] = None,
     ):
         self._ws = websocket
         # Shared with ChargerSession so every writer to this socket is serialised.
@@ -33,13 +37,23 @@ class StarletteWebSocketAdapter:
         # Let the session watch the traffic (its charger state); they never change a frame.
         self._on_receive = on_receive
         self._on_send = on_send
+        # Used when the broker is the leader of a charger that also has followers: what the ``ocpp``
+        # library gets is the charger's frame in the leader's ids (None: nothing for the library, e.g. a
+        # retried start answered from the id table), and each frame it sends goes out as the charger's own.
+        self._filter_in = filter_in
+        self._filter_out = filter_out
 
     async def recv(self) -> str:
         # Schema validation is the ocpp library's job (route_message / call).
-        message = await self._ws.receive_text()
-        if self._on_receive is not None:
-            self._on_receive(message)
-        return message
+        while True:
+            message = await self._ws.receive_text()
+            if self._on_receive is not None:
+                self._on_receive(message)
+            if self._filter_in is None:
+                return message
+            kept = await self._filter_in(message)
+            if kept is not None:
+                return kept
 
     async def send(self, message: str):
         # Save call results/errors to MongoDB when broker is leader
@@ -87,9 +101,10 @@ class StarletteWebSocketAdapter:
         except Exception:
             pass  # Ignore parsing errors
         
-        await locked_send(self._send_lock, self._ws.send_text, message)
-        if self._on_send is not None:
-            self._on_send()
+        for frame in self._filter_out(message) if self._filter_out is not None else [message]:
+            await locked_send(self._send_lock, self._ws.send_text, frame)
+            if self._on_send is not None:
+                self._on_send()
 
     async def close(self, code: int = 1000, reason: str | None = None):
         await self._ws.close(code=code, reason=reason)
@@ -104,6 +119,17 @@ class StarletteWebSocketAdapter:
         if client_state is None:
             return False
         return getattr(client_state, "name", None) == "DISCONNECTED"
+
+
+def _plain(value: Any) -> Any:
+    """``value`` with any dataclass the ocpp library built turned back into plain dicts and lists."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _plain(dataclasses.asdict(value))
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    return value
 
 
 class BrokerChargePoint(OcppChargePoint):
@@ -293,7 +319,20 @@ class BrokerChargePoint(OcppChargePoint):
 
     @on("StartTransaction")
     async def on_start_transaction(self, connector_id: int, id_tag: str, **payload):
-        transaction_id = await self.broker.next_transaction_id(self.org_name)
+        # A charger that missed the answer sends the same start again: it must get the same transaction
+        # back, not a second one. (Connector, tag, meter reading and time are all fixed by the charger.)
+        transactions = self._transactions()
+        key = start_key(connector_id, id_tag, payload.get("meter_start"), payload.get("timestamp"))
+        earlier = transactions.find_start(key) if transactions is not None else None
+        if earlier is not None:
+            transaction_id = earlier.tx_id
+            self.logger.info(
+                "StartTransaction connector=%s id_tag=%s repeats transaction %s; answering it again", connector_id, id_tag, transaction_id
+            )
+        else:
+            transaction_id = await self.broker.next_transaction_id(self.org_name)
+            if transactions is not None:
+                transactions.started(key, transaction_id, connector_id, id_tag, payload.get("meter_start"))
         self.logger.info(
             "StartTransaction connector=%s id_tag=%s transaction=%s payload=%s",
             connector_id,
@@ -301,11 +340,12 @@ class BrokerChargePoint(OcppChargePoint):
             transaction_id,
             payload,
         )
+        # The tag is judged again, so a tag blocked since the first attempt is refused now
         tag_info = await self._authorize_tag(id_tag)
-        
-        # Save transaction
+
+        # Save transaction (once: a repeated start is the same transaction)
         mongodb = getattr(self.broker, "mongodb_service", None)
-        if mongodb and mongodb.is_connected():
+        if earlier is None and mongodb and mongodb.is_connected():
             await mongodb.save_transaction(
                 org_name=self.org_name,
                 charger_id=self.id,
@@ -327,11 +367,24 @@ class BrokerChargePoint(OcppChargePoint):
         self.logger.info("StopTransaction transaction_id=%s payload=%s", transaction_id, payload)
         id_tag = payload.get("id_tag")
         tag_info = await self._authorize_tag(id_tag) if id_tag else datatypes.IdTagInfo(status="Invalid")
-        
+
+        # A StopTransaction is always answered (the charger cannot do anything with a refusal), but a
+        # repeated one is recognised and one about a transaction this broker did not start is reported.
+        repeated = False
+        transactions = self._transactions()
+        if transactions is not None:
+            known, repeated = transactions.stopped(transaction_id, payload.get("meter_stop"), payload.get("reason"))
+            if known is None:
+                self.logger.warning(
+                    "StopTransaction for transaction %s, which this broker did not start (or no longer remembers)", transaction_id
+                )
+            elif repeated:
+                self.logger.info("StopTransaction for transaction %s repeats an earlier stop; answering it again", transaction_id)
+
         # Save transaction stop. StopTransaction carries no connector_id and the
         # start-side fields are already stored, so only stop data is written.
         mongodb = getattr(self.broker, "mongodb_service", None)
-        if mongodb and mongodb.is_connected():
+        if not repeated and mongodb and mongodb.is_connected():
             await mongodb.save_transaction(
                 org_name=self.org_name,
                 charger_id=self.id,
@@ -340,6 +393,7 @@ class BrokerChargePoint(OcppChargePoint):
                 meter_stop=payload.get("meter_stop"),
                 timestamp=self._parse_timestamp(payload.get("timestamp")),
                 stop_reason=payload.get("reason"),
+                transaction_data=_plain(payload.get("transaction_data")),
                 transaction_type="stop"
             )
         
@@ -461,6 +515,11 @@ class BrokerChargePoint(OcppChargePoint):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    def _transactions(self) -> Optional[LocalTransactions]:
+        """What this broker knows of the charger's transactions (None where the broker keeps no such thing)."""
+        lookup = getattr(self.broker, "local_transactions_for", None)
+        return lookup(self.org_name, self.id) if callable(lookup) else None
+
     async def _register_charger(self):
         try:
             registry = self.broker.get_registry(self.org_name)

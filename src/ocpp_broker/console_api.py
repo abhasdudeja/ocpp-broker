@@ -29,7 +29,7 @@ from .schemas.console import (
     TransactionRow,
 )
 from .session import ChargerSession, SessionMode
-from .transaction_ids import backend_keys, table_for_org
+from .transaction_ids import backend_keys, local_index, table_for_org
 
 BROKER_KEY = "broker"
 
@@ -43,8 +43,13 @@ def _org_entries(broker: Any) -> List[Dict[str, Any]]:
     return list((getattr(broker, "config_data", None) or {}).get("organizations") or [])
 
 
+def _local(entry: Dict[str, Any]) -> bool:
+    """The organization has a backend that is this broker itself (the broker answers, the others observe)."""
+    return bool(entry.get("connect_to_backend", True)) and local_index(entry.get("backends") or []) is not None
+
+
 def _mode(entry: Dict[str, Any]) -> str:
-    return "relay" if entry.get("connect_to_backend", True) else "broker"
+    return "relay" if entry.get("connect_to_backend", True) and not _local(entry) else "broker"
 
 
 def _link(conn: BackendConnection, role: Literal["leader", "follower"]) -> BackendLink:
@@ -64,19 +69,41 @@ def _link(conn: BackendConnection, role: Literal["leader", "follower"]) -> Backe
 def _backends(session: ChargerSession) -> List[BackendLink]:
     """The leader first, then the followers. In broker mode the leader is the broker itself."""
     if session.mode is SessionMode.BROKER or session.backend_conn is None:
-        return [
-            BackendLink(
-                key=BROKER_KEY, url=None, role="leader", local=True, connected=True, buffered_frames=0, down_for_seconds=None
-            )
-        ]
+        local = BackendLink(
+            key=session.local_key or BROKER_KEY,
+            url=None,
+            role="leader",
+            local=True,
+            connected=True,
+            buffered_frames=0,
+            down_for_seconds=None,
+        )
+        return [local, *(_link(f, "follower") for f in session.follower_conns)]
     return [_link(session.backend_conn, "leader"), *(_link(f, "follower") for f in session.follower_conns)]
 
 
-def _summary(org: str, charger_id: str, session: ChargerSession) -> ChargerSummary:
+def _transaction_rows(broker: Any, org: str, charger_id: str, session: ChargerSession) -> List[Dict[str, Any]]:
+    """
+    The charger's transactions: from the id table when there is one (it knows each backend's own id),
+    otherwise, when the broker itself answers, from what it numbered.
+    """
+    if session._ids is not None:
+        return session._ids.snapshot()
+    local = getattr(broker, "local_transactions", {}).get((org, charger_id))
+    if local is None or session.mode is not SessionMode.BROKER:
+        return []
+    key = session.local_key or BROKER_KEY
+    return [
+        {"transaction_id": row["transaction_id"], "state": row["state"], "backend_ids": {key: row["transaction_id"]}, "degraded": [], "awaiting": []}
+        for row in local.snapshot()
+    ]
+
+
+def _summary(broker: Any, org: str, charger_id: str, session: ChargerSession) -> ChargerSummary:
     state = session.state
     links = _backends(session)
     leader, followers = links[0], links[1:]
-    rows = session._ids.snapshot() if session._ids is not None else []
+    rows = _transaction_rows(broker, org, charger_id, session)
     running = [r for r in rows if r["state"] in ("open", "pending") and r["transaction_id"] is not None]
     boot = state.boot
     return ChargerSummary(
@@ -122,15 +149,16 @@ def create_console_api(broker: Any) -> APIRouter:
                     backends=[
                         OrgBackend(
                             key=key,
-                            url=str(b.get("url", "")),
+                            url=None if b.get("local") else str(b.get("url", "")),
+                            local=bool(b.get("local")),
                             leader=bool(b.get("leader")),
                             ocpp_subprotocol=str(b.get("ocpp_subprotocol", entry.get("ocpp_subprotocol", "ocpp1.6"))),
                         )
                         for key, b in zip(keys, backends)
                     ]
-                    if _mode(entry) == "relay"
+                    if _mode(entry) == "relay" or _local(entry)
                     else [],
-                    transaction_id_mapping=_mode(entry) == "relay" and table_for_org(entry) is not None,
+                    transaction_id_mapping=(_mode(entry) == "relay" or _local(entry)) and table_for_org(entry) is not None,
                 )
             )
         return result
@@ -142,7 +170,7 @@ def create_console_api(broker: Any) -> APIRouter:
     ) -> ChargerList:
         needle = q.lower() if q else None
         found = [
-            _summary(o, cid, session)
+            _summary(broker, o, cid, session)
             for (o, cid), session in sorted(list(broker.sessions.items()))
             if (org is None or o == org) and (needle is None or needle in cid.lower())
         ]
@@ -160,7 +188,7 @@ def create_console_api(broker: Any) -> APIRouter:
         spaces = table.spaces_snapshot() if table is not None else {}
         state = session.state
         links = _backends(session)
-        summary = _summary(org, charger_id, session)
+        summary = _summary(broker, org, charger_id, session)
         boot = state.boot
         return ChargerDetail(
             **summary.model_dump(),
@@ -169,7 +197,7 @@ def create_console_api(broker: Any) -> APIRouter:
             connectors=[ConnectorInfo(**vars(c)) for c in state.ordered_connectors()],
             backends=links,
             transaction_id_mapping=table is not None,
-            transactions=[TransactionRow(**row) for row in (table.snapshot() if table is not None else [])],
+            transactions=[TransactionRow(**row) for row in _transaction_rows(broker, org, charger_id, session)],
             reservations=[IdObject(**row) for row in spaces.get("reservation", [])],
             charging_profiles=[IdObject(**row) for row in spaces.get("profile", [])],
             frames_in=state.frames_in,

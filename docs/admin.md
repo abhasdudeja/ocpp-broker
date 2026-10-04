@@ -65,4 +65,4 @@ With one shared API key the label is `api-key` for everyone. Give people their o
 - It does not change the sections other than `organizations`; edit the file and restart for those.
 - It does not undo: to go back, copy a `config.yaml.bak-...` file over the configuration and restart (or apply the reverse change).
 
-See the [API reference](api-reference.md#admin-apiadmin) for the routes.
+See the [API reference](api-reference.md#admin-apiadmin) for the routes and the [web console](web-console.md#admin) for the page.

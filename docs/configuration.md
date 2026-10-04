@@ -286,7 +286,7 @@ Changing the setting needs a restart, like every other setting; there is no live
 
 ## Accepted but ignored
 
-The loader fills in defaults for the settings below, but nothing in the broker reads them. Changing them has no effect:
+Nothing in the broker reads the settings below. A file that has them is still accepted, and changing them has no effect:
 
 - `broker.ocpp_version`, `broker.enable_validation`, `broker.enable_smart_charging`, `broker.enable_firmware_management`, `broker.enable_local_auth`, `broker.enable_reservations`, `broker.enable_tag_management`
 - `api.*` and the `API_HOST` / `API_PORT` variables (the REST API shares the broker port)

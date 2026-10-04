@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 
 import { AppRoutes } from './App'
-import type { BackendLink, BrokerEvent, ChargerDetail, ChargerSummary, CommandCatalog, OrgSummary, SystemInfo } from './api/client'
+import type { AdminConfig, AdminOrg, BackendLink, BrokerEvent, ChargerDetail, ChargerSummary, CommandCatalog, OrgSummary, SystemInfo } from './api/client'
 import { AuthProvider } from './auth'
 import commandCatalog from './test-fixtures/command-catalog.json'
 
@@ -34,6 +34,7 @@ export function info(overrides: Partial<SystemInfo> = {}): SystemInfo {
     api_auth: 'api_key',
     ui_enabled: true,
     ui_built: true,
+    admin_enabled: true,
     organizations: 2,
     connected_chargers: 14,
     mongodb: mongo(),
@@ -53,6 +54,38 @@ export function backendLink(overrides: Partial<BackendLink> = {}): BackendLink {
     ...overrides,
   }
 }
+
+/** The organizations as the admin API lists them. */
+const noTx = { mapping: null, follower_wait: null, dedupe_start: null, retain_closed: null, retain_open: null }
+
+export const adminOrg = (overrides: Partial<AdminOrg> = {}): AdminOrg => ({
+  name: 'Fleet',
+  connect_to_backend: true,
+  ocpp_subprotocol: 'ocpp1.6',
+  backends: [
+    { id: 'primary', url: 'ws://a.example/ocpp', leader: true, local: false, ocpp_subprotocol: 'ocpp1.6' },
+    { id: 'standby', url: 'ws://b.example/ocpp', leader: false, local: false, ocpp_subprotocol: 'ocpp1.6' },
+  ],
+  backend_buffer_size: 200,
+  backend_outage_timeout: 30,
+  leader_failover_timeout: 15,
+  transaction_ids: noTx,
+  charger_auth_required: true,
+  credentials: [{ charger_id: 'CP1', storage: 'hash' }],
+  tags: 2,
+  ...overrides,
+})
+
+export const adminConfig = (overrides: Partial<AdminConfig> = {}): AdminConfig => ({
+  path: '/etc/ocpp-broker/config.yaml',
+  revision: 'rev-1',
+  modified: '2026-10-04T10:00:00Z',
+  writable: true,
+  writable_reason: null,
+  keeps_backups: 10,
+  organizations: [adminOrg(), adminOrg({ name: 'Home', connect_to_backend: false, backends: [], credentials: [], charger_auth_required: false, tags: 0 })],
+  ...overrides,
+})
 
 export function ago(seconds: number): string {
   return new Date(Date.now() - seconds * 1000).toISOString()

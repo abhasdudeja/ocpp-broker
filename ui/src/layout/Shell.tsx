@@ -23,6 +23,7 @@ export function Shell() {
             <NavLink to="/backends">Backends</NavLink>
             <NavLink to="/history">History</NavLink>
             <NavLink to="/tags">Tags</NavLink>
+            <NavLink to="/admin">Admin</NavLink>
           </nav>
           <LiveIndicator />
           <button type="button" className="link" onClick={signOut}>

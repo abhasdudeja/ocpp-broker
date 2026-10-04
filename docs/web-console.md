@@ -66,6 +66,19 @@ A transaction's page shows its facts and a chart of its meter readings, one meas
 
 A charger's page has a **Recent status changes** list from the history (left out when there is none), with a link to the full list.
 
+## Admin
+
+`/ui/admin` (the [admin API](admin.md)): add, change and remove organizations, their backends and the credentials their chargers use. It needs `admin.enabled: true` in the broker's configuration; without it the page says so and shows how to switch it on. Holding an API key is enough to change everything here.
+
+- **Organizations:** one row each with how it works (the broker answers, or relays to N backends, or both with this broker as a backend), its backends, whether chargers must sign in (with a warning for any password stored as plaintext) and the tags written in the file. **Add organization** opens an empty form.
+- **The form:** the name (fixed once created), whether chargers connect to backends, the backends (id, address, which one leads, or *this broker*), the relay tuning (held frames, outage and failover timeouts, transaction id settings: empty means the broker's default) and the chargers: who may connect and with what password. A password field left empty keeps the current password; **Generate** makes a random one, shows it once to copy, and it is hashed when applied. Passwords are never shown again, by this page or by the API.
+- **Check, then apply.** **Check changes** asks the broker what the change would do and lists it in words (`~ credential for CP1: password replaced`, `connect_to_backend: false → true`), with the errors and warnings, and writes nothing. **Apply changes** is possible only for the form exactly as it was checked: editing again asks for a new check. If chargers of the organization are connected, the page says that they keep what they connected with until they reconnect, and offers to disconnect them now.
+- **If the file changed meanwhile** (someone edited it, or applied a change), the page says so, applying is refused, and **Reload** starts again from what is there.
+- **Remove organization** shows what goes with it (its credentials and the tags written in the file) and goes through the same check and apply.
+- **Audit log:** every change, refused change and failed change with when, who (the label of the API key) and from where, and what changed. It never holds a password.
+
+Applying rewrites `config.yaml` without its comments and keeps a copy of the file as it was; the page says where.
+
 ## Tags
 
 `/ui/tags`: the id tags the broker authorizes when it answers a charger itself. Pick an organization (only those where the broker answers or may take over: broker mode, a local leader, or a local standby); the list is the organization's tag list ([Tag Management](tag-management.md)).

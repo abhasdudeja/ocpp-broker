@@ -796,3 +796,91 @@ textarea.json-input {
   fill: var(--muted);
   font-size: 11px;
 }
+
+/* ---- admin ---- */
+a.button {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.tabs .tab-action {
+  margin-left: auto;
+  align-self: center;
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-weight: 500;
+}
+
+label.check input {
+  width: auto;
+  flex: none;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.row input[type='text'] {
+  flex: 1 1 160px;
+  width: auto;
+}
+
+fieldset.row-group {
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+}
+
+.card + .card,
+.card + details.card,
+details.card + .card,
+form > .card {
+  margin-top: 16px;
+}
+
+.plain {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9rem;
+}
+
+.block {
+  display: block;
+}
+
+.actions {
+  margin-top: 20px;
+}
+
+button.danger {
+  color: var(--error-text);
+  border-color: var(--error-text);
+}
+
+.table input[type='text'],
+.table input[type='password'] {
+  min-width: 140px;
+}

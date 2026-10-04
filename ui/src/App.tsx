@@ -3,6 +3,8 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { useAuth } from './auth'
 import { Shell } from './layout/Shell'
+import { Admin } from './pages/Admin'
+import { AdminOrg } from './pages/AdminOrg'
 import { Backends } from './pages/Backends'
 import { ChargerDetail } from './pages/ChargerDetail'
 import { Chargers } from './pages/Chargers'
@@ -37,6 +39,9 @@ export function AppRoutes() {
         <Route path="history" element={<History />} />
         <Route path="history/transactions/:org/:chargerId/:transactionId" element={<TransactionHistory />} />
         <Route path="tags" element={<Tags />} />
+        <Route path="admin" element={<Admin />} />
+        <Route path="admin/new" element={<AdminOrg />} />
+        <Route path="admin/orgs/:name" element={<AdminOrg />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

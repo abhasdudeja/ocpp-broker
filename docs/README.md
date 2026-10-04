@@ -29,6 +29,7 @@ An OCPP 1.6 broker built on the upstream [`ocpp`](https://github.com/mobilityhou
 
 **Operations**
 - [Deployment](deployment.md)
+- [Releasing](releasing.md): how a version is made
 - [Changing organizations at runtime](admin.md): the admin API and the console's Admin page
 - [Web Console](web-console.md): the browser UI at `/ui`
 - [Monitoring & Logging](monitoring.md)

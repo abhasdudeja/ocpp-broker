@@ -27,6 +27,7 @@
 # Operations
 
 - [Deployment](deployment.md)
+- [Releasing](releasing.md)
 - [Changing Organizations at Runtime](admin.md)
 - [Web Console](web-console.md)
 - [Monitoring & Logging](monitoring.md)

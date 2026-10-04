@@ -14,6 +14,16 @@ export type CommandCatalog = components['schemas']['CommandCatalog']
 export type CommandSpec = components['schemas']['CommandSpecInfo']
 export type CommandHistory = components['schemas']['CommandHistory']
 export type CommandLogEntry = components['schemas']['CommandLogEntry']
+export type Tag = components['schemas']['OCPPTag']
+export type TagSearch = components['schemas']['TagSearchResponse']
+export type TagStatistics = components['schemas']['TagStatistics']
+export type TagValidation = components['schemas']['TagValidationResult']
+export type TagAck = components['schemas']['TagAck']
+export type BulkTagResult = components['schemas']['BulkTagResult']
+export type TagImportResult = components['schemas']['TagImportResult']
+export type TagSyncResult = components['schemas']['TagSyncResult']
+export type TagStatusValue = Tag['status']
+export type TagTypeValue = NonNullable<Tag['tag_type']>
 
 const KEY_STORAGE = 'ocpp-broker-api-key'
 
@@ -95,21 +105,25 @@ export async function apiGet<T>(path: string, key: string, signal?: AbortSignal)
 }
 
 /**
- * POST JSON to the broker. Besides 2xx, the statuses in ``accept`` are returned as data instead of thrown
- * (a command that timed out is answered with 504 and a body that says so).
+ * Send a request with a JSON body (when ``body`` is given) and read the answer as JSON, or as text with
+ * ``text: true``. Besides 2xx, the statuses in ``accept`` are returned as data instead of thrown (a command
+ * that timed out is answered with 504 and a body that says so).
  */
-export async function apiPost<T>(
+export async function apiRequest<T>(
+  method: 'POST' | 'PUT' | 'DELETE',
   path: string,
   key: string,
-  body: unknown,
-  options: { signal?: AbortSignal; accept?: number[] } = {},
+  body?: unknown,
+  options: { signal?: AbortSignal; accept?: number[]; text?: boolean } = {},
 ): Promise<{ status: number; body: T }> {
+  const headers: Record<string, string> = { 'X-API-Key': key, Accept: options.text ? '*/*' : 'application/json' }
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
   let response: Response
   try {
     response = await fetch(path, {
-      method: 'POST',
-      headers: { 'X-API-Key': key, Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
       cache: 'no-store',
       signal: options.signal,
     })
@@ -118,7 +132,17 @@ export async function apiPost<T>(
     throw new ApiError(0, 'Could not reach the broker')
   }
   if (!response.ok && !options.accept?.includes(response.status)) throw new ApiError(response.status, await errorDetail(response))
-  return { status: response.status, body: (await response.json()) as T }
+  return { status: response.status, body: (options.text ? await response.text() : await response.json()) as T }
+}
+
+/** POST JSON to the broker (see ``apiRequest``). */
+export function apiPost<T>(
+  path: string,
+  key: string,
+  body: unknown,
+  options: { signal?: AbortSignal; accept?: number[] } = {},
+): Promise<{ status: number; body: T }> {
+  return apiRequest<T>('POST', path, key, body, options)
 }
 
 export function isAbort(error: unknown): boolean {

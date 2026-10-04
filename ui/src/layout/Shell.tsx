@@ -20,6 +20,7 @@ export function Shell() {
               Overview
             </NavLink>
             <NavLink to="/chargers">Chargers</NavLink>
+            <NavLink to="/tags">Tags</NavLink>
           </nav>
           <LiveIndicator />
           <button type="button" className="link" onClick={signOut}>

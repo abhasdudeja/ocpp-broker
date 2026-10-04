@@ -712,3 +712,29 @@ textarea.json-input {
 .history li:last-child {
   border-bottom: 0;
 }
+
+/* ---- tags ---- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.banner.ok {
+  background: var(--surface);
+  border: 1px solid var(--ok);
+  color: var(--text);
+}
+
+.banner.list {
+  padding-left: 28px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}

@@ -7,6 +7,7 @@ import { ChargerDetail } from './pages/ChargerDetail'
 import { Chargers } from './pages/Chargers'
 import { Overview } from './pages/Overview'
 import { SignIn } from './pages/SignIn'
+import { Tags } from './pages/Tags'
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { key } = useAuth()
@@ -29,6 +30,7 @@ export function AppRoutes() {
         <Route index element={<Overview />} />
         <Route path="chargers" element={<Chargers />} />
         <Route path="chargers/:org/:chargerId" element={<ChargerDetail />} />
+        <Route path="tags" element={<Tags />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

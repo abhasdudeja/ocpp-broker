@@ -1,6 +1,6 @@
 # Web Console
 
-The broker serves a web console at `/ui` on its own port, next to the charger WebSocket and the REST API. It is an early version: it shows what is connected, updates as things happen, and can send commands. The pages that exist are listed below; more (tags, history, administration) are planned, see `plans/ui-plan.md` in the repository.
+The broker serves a web console at `/ui` on its own port, next to the charger WebSocket and the REST API. It is an early version: it shows what is connected, updates as things happen, can send commands and manages tags. The pages that exist are listed below; more (history, administration) are planned, see `plans/ui-plan.md` in the repository.
 
 ## Opening it
 
@@ -44,6 +44,20 @@ Search by charger id and filter by organization; both are kept in the address, s
 - **Recent events for this charger:** what has happened to it since the page was opened (and the last few events the broker remembers).
 
 If the charger is not connected to this instance the page says so and keeps checking; if it disconnects while open, the page keeps what it last showed and says that it is out of date. If a page fails to render something it was sent, the console shows a message and the navigation still works.
+
+## Tags
+
+`/ui/tags`: the id tags the broker authorizes when it answers a charger itself. Pick an organization (only those where the broker answers: broker mode, with or without followers); the list is the organization's tag list ([Tag Management](tag-management.md)).
+
+- **Search and filters** by id tag, status and type, and paging (25 per page); all are kept in the address.
+- **Counts:** tags, active, expired and blocked.
+- **Add and change** a tag. The form asks the broker to check the tag first (`/tags/validate`) and shows its errors and warnings, such as "already exists" or an expiry date in the past; nothing is saved until the check passes. Editing keeps the id and any metadata the form does not show.
+- **Delete** asks for confirmation. **Select** tags on the page to set them all to Accepted or Blocked, or delete them; items that fail are named.
+- **Import** JSON or CSV, pasted or from a file. **Check** reports what would be added, updated, left alone and rejected (with the reason for each rejected record) without changing anything; **Import** then applies it, and only for the text and options that were checked.
+- **Export** JSON or CSV, which can be imported again.
+- **Sync with MongoDB** reloads the organization's tags from MongoDB and reports how many were loaded, pushed to MongoDB and dropped; it says when MongoDB is not connected.
+
+Changing tags here is as powerful as the API key: there are no separate permissions.
 
 ## Live updates
 

@@ -3,6 +3,8 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { useAuth } from './auth'
 import { Shell } from './layout/Shell'
+import { ChargerDetail } from './pages/ChargerDetail'
+import { Chargers } from './pages/Chargers'
 import { Overview } from './pages/Overview'
 import { SignIn } from './pages/SignIn'
 
@@ -25,6 +27,8 @@ export function AppRoutes() {
         }
       >
         <Route index element={<Overview />} />
+        <Route path="chargers" element={<Chargers />} />
+        <Route path="chargers/:org/:chargerId" element={<ChargerDetail />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

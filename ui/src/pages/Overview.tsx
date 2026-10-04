@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
+import { Link } from 'react-router-dom'
 
-import { ApiError, apiGet, type SystemInfo } from '../api/client'
+import { ApiError, apiGet, type OrgSummary, type SystemInfo } from '../api/client'
 import { useAuth } from '../auth'
+import { Chip } from '../components/Chip'
 import { formatClock, formatDateTime, formatUptime } from '../format'
 import { usePolling } from '../usePolling'
 
@@ -25,12 +27,74 @@ function warnings(info: SystemInfo): string[] {
   return found
 }
 
+function Organizations({ orgs }: { orgs: OrgSummary[] }) {
+  return (
+    <section aria-labelledby="orgs-heading">
+      <h2 id="orgs-heading">Organizations</h2>
+      {orgs.length === 0 ? (
+        <p className="empty">No organizations are configured, so every charger connection is refused.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Mode</th>
+                <th scope="col">Connected chargers</th>
+                <th scope="col">Backends</th>
+                <th scope="col">Charger authentication</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orgs.map((org) => (
+                <tr key={org.name}>
+                  <th scope="row">{org.name}</th>
+                  <td>
+                    {org.mode} <span className="muted small">OCPP {org.ocpp_version}</span>
+                  </td>
+                  <td>
+                    {org.connected_chargers > 0 ? (
+                      <Link to={`/chargers?org=${encodeURIComponent(org.name)}`}>{org.connected_chargers}</Link>
+                    ) : (
+                      0
+                    )}
+                  </td>
+                  <td>
+                    {org.mode === 'broker' ? (
+                      <span className="muted">this broker</span>
+                    ) : (
+                      <ul className="inline-list">
+                        {org.backends.map((b) => (
+                          <li key={b.key} title={b.url}>
+                            {b.key} {b.leader && <Chip tone="info">leader</Chip>}
+                          </li>
+                        ))}
+                        {org.transaction_id_mapping && (
+                          <li>
+                            <Chip title="Each backend is spoken to in its own transaction ids">ids translated</Chip>
+                          </li>
+                        )}
+                      </ul>
+                    )}
+                  </td>
+                  <td>{org.charger_auth_required ? 'required' : <span className="muted">not required</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function Overview() {
   const { key, keyRejected } = useAuth()
   const { data, error, updatedAt } = usePolling(
     (signal) => apiGet<SystemInfo>('/api/system/info', key ?? '', signal),
     REFRESH_MS,
   )
+  const orgs = usePolling((signal) => apiGet<OrgSummary[]>('/api/orgs', key ?? '', signal), REFRESH_MS)
 
   useEffect(() => {
     if (error instanceof ApiError && error.status === 401) keyRejected()
@@ -104,6 +168,7 @@ export function Overview() {
               <dd>{data.ui_built ? 'Built into this installation' : 'Not built'}</dd>
             </div>
           </dl>
+          {Array.isArray(orgs.data) && <Organizations orgs={orgs.data} />}
         </>
       )}
     </section>

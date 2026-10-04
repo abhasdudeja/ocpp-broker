@@ -10,8 +10,16 @@ export interface Polled<T> {
   updatedAt: Date | null
 }
 
-/** Call ``load`` now and then every ``intervalMs`` after each call finishes, until the component goes away. */
-export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, intervalMs: number): Polled<T> {
+/**
+ * Call ``load`` now and then every ``intervalMs`` after each call finishes, until the component goes away.
+ * A different ``resetKey`` (say, a changed search) starts over at once; the previous result stays on screen
+ * until the new one arrives.
+ */
+export function usePolling<T>(
+  load: (signal: AbortSignal) => Promise<T>,
+  intervalMs: number,
+  resetKey = '',
+): Polled<T> {
   const [state, setState] = useState<Polled<T>>({ data: null, error: null, updatedAt: null })
   const latest = useRef(load)
   useEffect(() => {
@@ -40,7 +48,7 @@ export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, interva
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [intervalMs])
+  }, [intervalMs, resetKey])
 
   return state
 }

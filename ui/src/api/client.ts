@@ -3,6 +3,12 @@ import type { components } from './schema'
 // Types come from the broker's OpenAPI schema (ui/openapi.json, regenerated with `npm run api`),
 // so a change to the API that the console does not follow fails the type check.
 export type SystemInfo = components['schemas']['SystemInfo']
+export type OrgSummary = components['schemas']['OrgSummary']
+export type ChargerList = components['schemas']['ChargerList']
+export type ChargerSummary = components['schemas']['ChargerSummary']
+export type ChargerDetail = components['schemas']['ChargerDetail']
+export type BackendLink = components['schemas']['BackendLink']
+export type TransactionRow = components['schemas']['TransactionRow']
 
 const KEY_STORAGE = 'ocpp-broker-api-key'
 
@@ -54,6 +60,16 @@ async function errorDetail(response: Response): Promise<string> {
     // not JSON
   }
   return response.statusText || `HTTP ${response.status}`
+}
+
+/** ``path`` with the given query parameters; empty ones are left out. Values are encoded, never concatenated. */
+export function withQuery(path: string, params: Record<string, string | undefined>): string {
+  const query = new URLSearchParams()
+  for (const [name, value] of Object.entries(params)) {
+    if (value) query.set(name, value)
+  }
+  const text = query.toString()
+  return text ? `${path}?${text}` : path
 }
 
 /** GET a JSON resource from the broker, authenticated with the API key. */

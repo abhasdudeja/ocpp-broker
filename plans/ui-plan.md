@@ -1,8 +1,8 @@
 # Plan: web UI for the OCPP broker
 
-Status: Phase 0 backend built, the rest is proposal. Written 2026-10-03, updated 2026-10-04.
+Status (2026-10-04): **Phase 0 is built, and the first slice of Phase 1.** Built: `/ui` serving and security headers, sign-in, overview with organizations, the chargers list and the charger page (topology of leader and followers, connectors, identity, the transaction table with each backend's own id, reservations and profiles), `GET /api/system/info`, `/api/orgs`, `/api/chargers`, `/api/chargers/{org}/{id}`, the per-charger state model, the OpenAPI contract check, and the CI job. **Not yet built from Phase 1:** the live event stream (the pages poll every 3 to 10 seconds instead), the command panel and command catalog, the backends page, offline chargers. Phases 2 to 6 are unchanged. See "Build log" below.
 
-Transaction id mapping between the charger and its several backends (a correctness problem in relay mode today, shown in the console's charger detail) has its own plan: [transaction-ids.md](transaction-ids.md). Its stages T1 to T3 are proposed to come before further console phases.
+Transaction id mapping between the charger and its several backends (a correctness problem in relay mode, shown in the console's charger detail) has its own plan: [transaction-ids.md](transaction-ids.md). Its stages T1 to T5 are built; T6 (the console's view of the table) is the charger page's Transactions section.
 
 Future OCPP 2.0.1 / 2.1 support is planned; see [roadmap.md](roadmap.md). The "Rules to follow now" there apply to everything in this plan (protocol-neutral state model, `ocpp_version` in responses, no hard-coded "1.6" in the UI).
 
@@ -194,6 +194,23 @@ Reordered on 2026-10-04: the topology console comes first and tags move behind i
 | **6. Hardening** | A11y pass, empty/error/loading states, large-list performance (virtualised tables), docs and screenshots, release process. | M |
 
 Order: 0 → 1 → (2 and 3 in either order) → 4 → 5 → 6. Admin stays late because it depends on a decision (file or MongoDB) and changes how the broker behaves at runtime.
+
+## Build log
+
+| Piece | Commit | Notes |
+|-------|--------|-------|
+| `/ui` serving, CSP, `ui.enabled`, `GET /api/system/info` | `afa6aeb` | Per-request enable check (the app is built before the config is read). |
+| Console shell: sign-in and overview, packaging, CI | Phase 0 frontend commit | Vite + React + TypeScript; TypeScript pinned to 5.9 (typescript-eslint and openapi-typescript do not support 7 yet). A wheel was built and its console served from an isolated install. |
+| Per-charger state, `/api/orgs`, `/api/chargers`, charger detail | Phase 1 backend commit | State is learned by watching frames the same way in both modes. |
+| Chargers list, charger page, topology, transactions, error boundary | Phase 1 frontend commit | 90 Vitest tests; every deliberate break of the pages fails a test. |
+
+What building it changed in the plan:
+
+1. **The state model needed no new protocol work.** Watching frames (in the relay loop and in the broker-mode adapter) gives the same boot details, connector statuses and counters in both modes, so B1 was small.
+2. **Polling is good enough for now.** The event stream is not needed to make the pages useful; it can be added without changing them.
+3. **The OpenAPI contract check compares the contract, not the text**, so a different FastAPI version in CI cannot fail it for wording.
+4. **Typed responses are added per endpoint** as planned (finding 1); the older routes are still untyped, so the console only uses typed ones.
+5. **An error boundary was added** after a mismatched test fixture showed that one render error blanked the whole console.
 
 ## Risks
 

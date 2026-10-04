@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { ApiError, apiGet, forgetKey, isAbort, loadKey, saveKey } from './client'
+import { ApiError, apiGet, forgetKey, isAbort, loadKey, saveKey, withQuery } from './client'
 import { mockFetch, respond } from '../test-utils'
+
+describe('withQuery', () => {
+  it('adds the given parameters, encoded, and leaves out empty ones', () => {
+    expect(withQuery('/api/chargers', { org: 'My Org', q: 'a&b=c' })).toBe('/api/chargers?org=My+Org&q=a%26b%3Dc')
+    expect(withQuery('/api/chargers', { org: '', q: undefined })).toBe('/api/chargers')
+    expect(withQuery('/api/chargers', {})).toBe('/api/chargers')
+  })
+})
 
 describe('apiGet', () => {
   it('sends the key in X-API-Key and never in the URL, and returns the JSON body', async () => {

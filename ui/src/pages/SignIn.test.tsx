@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import { API_KEY, info, mockFetch, renderApp, respond, signedIn } from '../test-utils'
+import { API_KEY, info, mockBroker, mockFetch, renderApp, respond, signedIn } from '../test-utils'
 
 async function submit(key: string) {
   const user = userEvent.setup()
@@ -12,14 +12,14 @@ async function submit(key: string) {
 
 describe('sign-in', () => {
   it('is where an unauthenticated visitor lands, whatever page they asked for', () => {
-    mockFetch(() => respond(info()))
+    mockBroker()
     renderApp('/')
     expect(screen.getByRole('heading', { name: 'OCPP Broker' })).toBeInTheDocument()
     expect(screen.getByLabelText('API key')).toHaveAttribute('type', 'password')
   })
 
   it('asks for a key before it asks the broker anything', async () => {
-    const fetch = mockFetch(() => respond(info()))
+    const fetch = mockBroker()
     renderApp('/signin')
     await submit('')
     expect(await screen.findByRole('alert')).toHaveTextContent('Enter the API key.')
@@ -52,7 +52,7 @@ describe('sign-in', () => {
   })
 
   it('checks the key with the system info call, trimmed, in the header', async () => {
-    const fetch = mockFetch(() => respond(info()))
+    const fetch = mockBroker()
     renderApp('/signin')
     await submit(`  ${API_KEY}  `)
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument()
@@ -63,7 +63,7 @@ describe('sign-in', () => {
   })
 
   it('does not leave the key anywhere in the page once signed in', async () => {
-    mockFetch(() => respond(info()))
+    mockBroker()
     const { container } = renderApp('/signin')
     await submit(API_KEY)
     await screen.findByRole('heading', { name: 'Overview' })
@@ -83,13 +83,13 @@ describe('sign-in', () => {
 
   it('sends someone who is already signed in straight to the overview', async () => {
     signedIn()
-    mockFetch(() => respond(info()))
+    mockBroker()
     renderApp('/signin')
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument()
   })
 
   it('treats an unknown address as the overview: sign in first, then land there', async () => {
-    mockFetch(() => respond(info()))
+    mockBroker()
     renderApp('/unknown/page')
     await submit(API_KEY)
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument())

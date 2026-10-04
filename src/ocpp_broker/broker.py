@@ -40,6 +40,8 @@ class OcppBroker:
         self.transaction_tables: Dict[Tuple[str, str], TransactionIdTable] = {}
         # What the broker itself numbered for each charger (broker mode and the local leader); see local_transactions.py
         self.local_transactions: Dict[Tuple[str, str], LocalTransactions] = {}
+        self._presence_indexed = False
+        self._presence_tasks: set = set()
         self._tx_store: Optional[TransactionStore] = None
         self._tx_store_for: Any = None  # the MongoDBService the store was made for
         self._tx_memory_warned = False
@@ -132,6 +134,14 @@ class OcppBroker:
         previous = self.sessions.get(key)
         self.sessions[key] = session
         session.handler_task = asyncio.current_task()
+        self.note_presence(
+            org_name,
+            charger_id,
+            mode=session.mode.value,
+            remote_address=session.state.remote_address,
+            last_connected_at=session.state.connected_at,
+            last_seen_at=session.state.connected_at,
+        )
         session.publish(
             "charger.connected",
             mode=session.mode.value,
@@ -156,6 +166,12 @@ class OcppBroker:
             # Only drop our own entry: a newer connection may have replaced us.
             if self.sessions.get(key) is session:
                 del self.sessions[key]
+                self.note_presence(
+                    org_name,
+                    charger_id,
+                    last_disconnected_at=datetime.now(timezone.utc),
+                    last_seen_at=session.state.last_seen or session.state.connected_at,
+                )
                 session.publish(
                     "charger.disconnected",
                     connected_for_seconds=round((datetime.now(timezone.utc) - session.state.connected_at).total_seconds(), 1),
@@ -216,6 +232,28 @@ class OcppBroker:
                 if restored:
                     logger.info("Restored %d transaction id record(s) for %s/%s", restored, org_name, charger_id)
         return table
+
+    def note_presence(self, org_name: str, charger_id: str, **fields: Any) -> None:
+        """
+        Remember in MongoDB that a charger connected, booted or left, so the console can list chargers that
+        are not connected now. Fire and forget: it never delays a charger, and a failure is only logged.
+        """
+        mongodb = getattr(self, "mongodb_service", None)
+        if mongodb is None or not mongodb.is_connected():
+            return
+
+        async def write() -> None:
+            try:
+                if not self._presence_indexed:
+                    await mongodb.ensure_presence_indexes()
+                    self._presence_indexed = True
+                await mongodb.record_presence(org_name, charger_id, **fields)
+            except Exception as exc:
+                logger.warning("Could not record %s/%s in MongoDB: %s", org_name, charger_id, exc)
+
+        task = asyncio.ensure_future(write())
+        self._presence_tasks.add(task)
+        task.add_done_callback(self._presence_tasks.discard)
 
     def local_transactions_for(self, org_name: str, charger_id: str) -> LocalTransactions:
         key = (org_name, charger_id)

@@ -35,7 +35,7 @@ def mock_broker_with_tag_manager():
     mock_search_result = Mock()
     mock_search_result.tags = []
     mock_search_result.total = 0
-    mock_search_result.dict = Mock(return_value={"tags": [], "total": 0})
+    mock_search_result.dict = Mock(return_value={"tags": [], "total": 0, "limit": 100, "offset": 0})
     broker.tag_manager.search_tags = AsyncMock(return_value=mock_search_result)
     
     broker.tag_manager.get_tag_list = AsyncMock(return_value=None)

@@ -136,6 +136,80 @@
         "title": "BackendLink",
         "type": "object"
       },
+      "BackendStat": {
+        "description": "One configured backend, summed over the chargers connected to this instance.",
+        "properties": {
+          "buffered_frames": {
+            "description": "Charger messages held for it as a leader that is unreachable",
+            "title": "Buffered Frames",
+            "type": "integer"
+          },
+          "configured_leader": {
+            "title": "Configured Leader",
+            "type": "boolean"
+          },
+          "down_chargers": {
+            "description": "Chargers whose link to it is down (at most 20)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Down Chargers",
+            "type": "array"
+          },
+          "following": {
+            "description": "Chargers for which it is a follower now",
+            "title": "Following",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "leading": {
+            "description": "Chargers for which it is the leader now (a failover can change this)",
+            "title": "Leading",
+            "type": "integer"
+          },
+          "links_down": {
+            "title": "Links Down",
+            "type": "integer"
+          },
+          "links_up": {
+            "title": "Links Up",
+            "type": "integer"
+          },
+          "local": {
+            "title": "Local",
+            "type": "boolean"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for the local backend (this broker itself)",
+            "title": "Url"
+          }
+        },
+        "required": [
+          "key",
+          "url",
+          "local",
+          "configured_leader",
+          "leading",
+          "following",
+          "links_up",
+          "links_down",
+          "buffered_frames",
+          "down_chargers"
+        ],
+        "title": "BackendStat",
+        "type": "object"
+      },
       "BootInfo": {
         "properties": {
           "firmware_version": {
@@ -351,6 +425,35 @@
         "title": "BootNotificationRequest",
         "type": "object"
       },
+      "BulkTagItemResult": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id_tag": {
+            "title": "Id Tag",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id_tag",
+          "success"
+        ],
+        "title": "BulkTagItemResult",
+        "type": "object"
+      },
       "BulkTagRequest": {
         "properties": {
           "operation": {
@@ -375,6 +478,42 @@
           "tags"
         ],
         "title": "BulkTagRequest",
+        "type": "object"
+      },
+      "BulkTagResult": {
+        "properties": {
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "operation": {
+            "title": "Operation",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/BulkTagItemResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation",
+          "total",
+          "succeeded",
+          "failed",
+          "results"
+        ],
+        "title": "BulkTagResult",
         "type": "object"
       },
       "CancelReservationRequest": {
@@ -1623,6 +1762,179 @@
         "title": "OCPPTag",
         "type": "object"
       },
+      "OfflineCharger": {
+        "description": "A charger this broker has seen before (remembered in MongoDB) that is not connected to this instance now.",
+        "properties": {
+          "charger_id": {
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "firmware_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firmware Version"
+          },
+          "last_boot_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Boot At"
+          },
+          "last_connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Connected At"
+          },
+          "last_disconnected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Disconnected At"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its last message before the connection ended (or when it connected)",
+            "title": "Last Seen At"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "org": {
+            "title": "Org",
+            "type": "string"
+          },
+          "remote_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Address"
+          },
+          "vendor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor"
+          }
+        },
+        "required": [
+          "org",
+          "charger_id",
+          "mode",
+          "vendor",
+          "model",
+          "firmware_version",
+          "remote_address",
+          "last_connected_at",
+          "last_disconnected_at",
+          "last_seen_at",
+          "last_boot_at"
+        ],
+        "title": "OfflineCharger",
+        "type": "object"
+      },
+      "OfflineChargerList": {
+        "properties": {
+          "available": {
+            "description": "False when chargers are not remembered: MongoDB is not configured or not answering",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "chargers": {
+            "description": "Most recently seen first",
+            "items": {
+              "$ref": "#/components/schemas/OfflineCharger"
+            },
+            "title": "Chargers",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it is not available",
+            "title": "Reason"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "chargers",
+          "total"
+        ],
+        "title": "OfflineChargerList",
+        "type": "object"
+      },
       "OrgBackend": {
         "properties": {
           "key": {
@@ -1665,6 +1977,42 @@
           "ocpp_subprotocol"
         ],
         "title": "OrgBackend",
+        "type": "object"
+      },
+      "OrgBackends": {
+        "properties": {
+          "backends": {
+            "items": {
+              "$ref": "#/components/schemas/BackendStat"
+            },
+            "title": "Backends",
+            "type": "array"
+          },
+          "chargers": {
+            "description": "Chargers of this organization connected to this instance",
+            "title": "Chargers",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "broker",
+              "relay"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "org": {
+            "title": "Org",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org",
+          "mode",
+          "chargers",
+          "backends"
+        ],
+        "title": "OrgBackends",
         "type": "object"
       },
       "OrgSummary": {
@@ -2049,6 +2397,25 @@
         "title": "SystemInfo",
         "type": "object"
       },
+      "TagAck": {
+        "description": "The answer to adding, changing or deleting one tag.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "TagAck",
+        "type": "object"
+      },
       "TagExportRequest": {
         "properties": {
           "format": {
@@ -2067,6 +2434,35 @@
           }
         },
         "title": "TagExportRequest",
+        "type": "object"
+      },
+      "TagImportError": {
+        "properties": {
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "id_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Tag"
+          },
+          "record": {
+            "title": "Record",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "record",
+          "error"
+        ],
+        "title": "TagImportError",
         "type": "object"
       },
       "TagImportRequest": {
@@ -2101,6 +2497,190 @@
         "title": "TagImportRequest",
         "type": "object"
       },
+      "TagImportResult": {
+        "properties": {
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/TagImportError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "imported": {
+            "title": "Imported",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          },
+          "validate_only": {
+            "title": "Validate Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source",
+          "validate_only",
+          "total",
+          "imported",
+          "updated",
+          "skipped",
+          "errors"
+        ],
+        "title": "TagImportResult",
+        "type": "object"
+      },
+      "TagManagementStatus": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "mongodb_persistence": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tags are also stored in MongoDB (absent when tag management is off)",
+            "title": "Mongodb Persistence"
+          },
+          "organizations": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Organizations that have a tag list",
+            "title": "Organizations"
+          }
+        },
+        "required": [
+          "enabled",
+          "message"
+        ],
+        "title": "TagManagementStatus",
+        "type": "object"
+      },
+      "TagOrganizations": {
+        "properties": {
+          "organizations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Organizations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "organizations"
+        ],
+        "title": "TagOrganizations",
+        "type": "object"
+      },
+      "TagSearchResponse": {
+        "description": "Tag search results",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/OCPPTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tags",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TagSearchResponse",
+        "type": "object"
+      },
+      "TagStatistics": {
+        "description": "Counts of an organization's tags.",
+        "properties": {
+          "active_tags": {
+            "title": "Active Tags",
+            "type": "integer"
+          },
+          "blocked_tags": {
+            "title": "Blocked Tags",
+            "type": "integer"
+          },
+          "expired_tags": {
+            "title": "Expired Tags",
+            "type": "integer"
+          },
+          "tags_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Tags By Status",
+            "type": "object"
+          },
+          "tags_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Tags By Type",
+            "type": "object"
+          },
+          "total_tags": {
+            "title": "Total Tags",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_tags",
+          "active_tags",
+          "expired_tags",
+          "blocked_tags",
+          "tags_by_type",
+          "tags_by_status"
+        ],
+        "title": "TagStatistics",
+        "type": "object"
+      },
       "TagStatus": {
         "description": "OCPP Tag Status",
         "enum": [
@@ -2113,6 +2693,58 @@
         "title": "TagStatus",
         "type": "string"
       },
+      "TagSyncResult": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "organizations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TagSyncSummary"
+            },
+            "title": "Organizations",
+            "type": "object"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message",
+          "organizations"
+        ],
+        "title": "TagSyncResult",
+        "type": "object"
+      },
+      "TagSyncSummary": {
+        "properties": {
+          "dropped": {
+            "description": "In-memory tags removed because MongoDB does not have them",
+            "title": "Dropped",
+            "type": "integer"
+          },
+          "loaded": {
+            "description": "Tags now held, read from MongoDB (MongoDB is authoritative when it has any)",
+            "title": "Loaded",
+            "type": "integer"
+          },
+          "seeded": {
+            "description": "Tags pushed into MongoDB because it had none for this organization",
+            "title": "Seeded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "loaded",
+          "seeded",
+          "dropped"
+        ],
+        "title": "TagSyncSummary",
+        "type": "object"
+      },
       "TagType": {
         "description": "OCPP Tag Type",
         "enum": [
@@ -2124,6 +2756,34 @@
         ],
         "title": "TagType",
         "type": "string"
+      },
+      "TagValidationResult": {
+        "description": "Outcome of validating one tag. Errors make it invalid; warnings do not.",
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "is_valid": {
+            "title": "Is Valid",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "is_valid"
+        ],
+        "title": "TagValidationResult",
+        "type": "object"
       },
       "TransactionRequest": {
         "properties": {
@@ -2529,6 +3189,67 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/backends": {
+      "get": {
+        "description": "Each backend of each organization where the broker has backends, with how its links stand across the connected chargers.",
+        "operationId": "backends_api_backends_get",
+        "parameters": [
+          {
+            "description": "Only this organization",
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this organization",
+              "title": "Org"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OrgBackends"
+                  },
+                  "title": "Response Backends Api Backends Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Backends",
+        "tags": [
+          "Console"
+        ]
+      }
+    },
     "/api/chargers": {
       "get": {
         "operationId": "list_chargers_api_chargers_get",
@@ -2598,6 +3319,81 @@
           }
         ],
         "summary": "List Chargers",
+        "tags": [
+          "Console"
+        ]
+      }
+    },
+    "/api/chargers/offline": {
+      "get": {
+        "description": "Chargers this broker has seen (kept in MongoDB, written when a charger connects, boots and\ndisconnects) that are not connected to this instance now. Without MongoDB nothing is remembered:\nthe answer is then `available: false` with the reason.",
+        "operationId": "offline_chargers_api_chargers_offline_get",
+        "parameters": [
+          {
+            "description": "Only this organization",
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this organization",
+              "title": "Org"
+            }
+          },
+          {
+            "description": "Only charger ids containing this text (case-insensitive)",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only charger ids containing this text (case-insensitive)",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfflineChargerList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Offline Chargers",
         "tags": [
           "Console"
         ]
@@ -4777,7 +5573,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagOrganizations"
+                }
               }
             },
             "description": "Successful Response"
@@ -4863,7 +5661,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagStatistics"
+                }
               }
             },
             "description": "Successful Response"
@@ -5010,7 +5810,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagSearchResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -5067,7 +5869,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagAck"
+                }
               }
             },
             "description": "Successful Response"
@@ -5186,7 +5990,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BulkTagResult"
+                }
               }
             },
             "description": "Successful Response"
@@ -5307,7 +6113,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagImportResult"
+                }
               }
             },
             "description": "Successful Response"
@@ -5378,7 +6186,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagValidationResult"
+                }
               }
             },
             "description": "Successful Response"
@@ -5437,7 +6247,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagAck"
+                }
               }
             },
             "description": "Successful Response"
@@ -5494,7 +6306,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OCPPTag"
+                }
               }
             },
             "description": "Successful Response"
@@ -5562,7 +6376,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagAck"
+                }
               }
             },
             "description": "Successful Response"
@@ -5597,7 +6413,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagManagementStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -5642,7 +6460,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TagSyncResult"
+                }
               }
             },
             "description": "Successful Response"

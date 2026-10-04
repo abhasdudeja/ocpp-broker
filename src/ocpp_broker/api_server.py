@@ -31,8 +31,9 @@ from .tag_manager import TagSyncUnavailable
 
 # Import schemas and services
 from .schemas.tags import (
-    BulkTagRequest, OCPPTag, TagExportRequest, TagImportRequest, TagSearchRequest,
-    TagStatus, TagType
+    BulkTagRequest, BulkTagResult, OCPPTag, TagAck, TagExportRequest, TagImportRequest, TagImportResult,
+    TagManagementStatus, TagOrganizations, TagSearchRequest, TagSearchResponse, TagStatistics, TagStatus,
+    TagSyncResult, TagType, TagValidationResult,
 )
 from .mongodb_service import (
     StatusNotificationRequest,
@@ -214,7 +215,7 @@ def create_tag_api(broker) -> APIRouter:
     router = APIRouter(prefix="/api/tags", tags=["Tag Management"])
     tag_manager = _TagManagerRef(broker)
 
-    @router.get("/status")
+    @router.get("/status", response_model=TagManagementStatus, response_model_exclude_none=True)
     async def tag_management_status():
         """Get tag management status"""
         if not tag_manager:
@@ -230,7 +231,7 @@ def create_tag_api(broker) -> APIRouter:
             "organizations": list(tag_manager._tag_lists.keys())
         }
     
-    @router.post("/organizations/{org_name}/tags")
+    @router.post("/organizations/{org_name}/tags", response_model=TagAck)
     async def add_tag(
         org_name: str = Path(..., description="Organization name"),
         tag: OCPPTag = Body(..., description="Tag to add")
@@ -248,7 +249,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error adding tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @router.get("/organizations/{org_name}/tags/{id_tag}")
+    @router.get("/organizations/{org_name}/tags/{id_tag}", response_model=OCPPTag)
     async def get_tag(
         org_name: str = Path(..., description="Organization name"),
         id_tag: str = Path(..., description="Tag ID")
@@ -266,7 +267,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error getting tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @router.put("/organizations/{org_name}/tags/{id_tag}")
+    @router.put("/organizations/{org_name}/tags/{id_tag}", response_model=TagAck)
     async def update_tag(
         org_name: str = Path(..., description="Organization name"),
         id_tag: str = Path(..., description="Tag ID"),
@@ -285,7 +286,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error updating tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @router.delete("/organizations/{org_name}/tags/{id_tag}")
+    @router.delete("/organizations/{org_name}/tags/{id_tag}", response_model=TagAck)
     async def delete_tag(
         org_name: str = Path(..., description="Organization name"),
         id_tag: str = Path(..., description="Tag ID")
@@ -303,7 +304,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error deleting tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @router.get("/organizations/{org_name}/tags")
+    @router.get("/organizations/{org_name}/tags", response_model=TagSearchResponse)
     async def search_tags(
         org_name: str = Path(..., description="Organization name"),
         id_tag: Optional[str] = Query(None, description="Filter by ID tag"),
@@ -348,7 +349,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error getting tag list: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @router.get("/organizations/{org_name}/statistics")
+    @router.get("/organizations/{org_name}/statistics", response_model=TagStatistics)
     async def get_tag_statistics(
         org_name: str = Path(..., description="Organization name")
     ):
@@ -361,7 +362,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error getting tag statistics: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.post("/organizations/{org_name}/tags/validate")
+    @router.post("/organizations/{org_name}/tags/validate", response_model=TagValidationResult)
     async def validate_tag(
         org_name: str = Path(..., description="Organization name"),
         tag: OCPPTag = Body(..., description="Tag to validate (nothing is stored)"),
@@ -377,7 +378,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error validating tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.post("/organizations/{org_name}/tags/bulk")
+    @router.post("/organizations/{org_name}/tags/bulk", response_model=BulkTagResult)
     async def bulk_tag_operation(
         org_name: str = Path(..., description="Organization name"),
         request: BulkTagRequest = Body(..., description="Operation (add, update or delete) and the tags")
@@ -391,7 +392,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error in bulk tag operation: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.post("/organizations/{org_name}/tags/import")
+    @router.post("/organizations/{org_name}/tags/import", response_model=TagImportResult)
     async def import_tags(
         org_name: str = Path(..., description="Organization name"),
         request: TagImportRequest = Body(..., description="JSON or CSV text to import")
@@ -458,7 +459,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error authorizing tag: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @router.get("/organizations")
+    @router.get("/organizations", response_model=TagOrganizations)
     async def list_organizations():
         """List all organizations with tag management"""
         try:
@@ -470,7 +471,7 @@ def create_tag_api(broker) -> APIRouter:
             tag_logger.error(f"Error listing organizations: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @router.post("/sync")
+    @router.post("/sync", response_model=TagSyncResult)
     async def sync_tags_from_mongodb(org_name: Optional[str] = Query(None, description="Organization name (optional, syncs all if not provided)")):
         """
         Reload tags from MongoDB into the broker's cache.

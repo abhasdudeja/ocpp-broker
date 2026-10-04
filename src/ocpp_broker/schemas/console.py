@@ -173,3 +173,48 @@ class CommandLogEntry(BaseModel):
 
 class CommandHistory(BaseModel):
     commands: List[CommandLogEntry] = Field(description="Newest first; the last 50 commands sent to this charger while it stayed connected")
+
+
+class OfflineCharger(BaseModel):
+    """A charger this broker has seen before (remembered in MongoDB) that is not connected to this instance now."""
+
+    org: str
+    charger_id: str
+    mode: Optional[str]
+    vendor: Optional[str]
+    model: Optional[str]
+    firmware_version: Optional[str]
+    remote_address: Optional[str]
+    last_connected_at: Optional[datetime]
+    last_disconnected_at: Optional[datetime]
+    last_seen_at: Optional[datetime] = Field(description="Its last message before the connection ended (or when it connected)")
+    last_boot_at: Optional[datetime]
+
+
+class OfflineChargerList(BaseModel):
+    available: bool = Field(description="False when chargers are not remembered: MongoDB is not configured or not answering")
+    reason: Optional[str] = Field(description="Why it is not available")
+    chargers: List[OfflineCharger] = Field(description="Most recently seen first")
+    total: int
+
+
+class BackendStat(BaseModel):
+    """One configured backend, summed over the chargers connected to this instance."""
+
+    key: str
+    url: Optional[str] = Field(description="Null for the local backend (this broker itself)")
+    local: bool
+    configured_leader: bool
+    leading: int = Field(description="Chargers for which it is the leader now (a failover can change this)")
+    following: int = Field(description="Chargers for which it is a follower now")
+    links_up: int
+    links_down: int
+    buffered_frames: int = Field(description="Charger messages held for it as a leader that is unreachable")
+    down_chargers: List[str] = Field(description="Chargers whose link to it is down (at most 20)")
+
+
+class OrgBackends(BaseModel):
+    org: str
+    mode: Literal["broker", "relay"]
+    chargers: int = Field(description="Chargers of this organization connected to this instance")
+    backends: List[BackendStat]

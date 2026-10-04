@@ -9,6 +9,7 @@ Everything is read from this process's live sessions; nothing here changes broke
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Path, Query
@@ -24,7 +25,11 @@ from .schemas.console import (
     CommandLogEntry,
     ConnectorInfo,
     IdObject,
+    BackendStat,
+    OfflineCharger,
+    OfflineChargerList,
     OrgBackend,
+    OrgBackends,
     OrgSummary,
     TransactionRow,
 )
@@ -32,6 +37,7 @@ from .session import ChargerSession, SessionMode
 from .transaction_ids import backend_keys, local_index, table_for_org
 
 BROKER_KEY = "broker"
+OFFLINE_LIMIT = 500
 
 
 def _version(subprotocol: str) -> str:
@@ -46,6 +52,29 @@ def _org_entries(broker: Any) -> List[Dict[str, Any]]:
 def _local(entry: Dict[str, Any]) -> bool:
     """The organization has a backend that is this broker itself (the broker answers, the others observe)."""
     return bool(entry.get("connect_to_backend", True)) and local_index(entry.get("backends") or []) is not None
+
+
+def _when(value: Any) -> Optional[datetime]:
+    """A time read back from MongoDB, which hands out naive UTC datetimes: say it is UTC."""
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _offline(doc: Dict[str, Any]) -> OfflineCharger:
+    return OfflineCharger(
+        org=str(doc.get("org_name", "")),
+        charger_id=str(doc.get("charger_id", "")),
+        mode=doc.get("mode"),
+        vendor=doc.get("vendor"),
+        model=doc.get("model"),
+        firmware_version=doc.get("firmware_version"),
+        remote_address=doc.get("remote_address"),
+        last_connected_at=_when(doc.get("last_connected_at")),
+        last_disconnected_at=_when(doc.get("last_disconnected_at")),
+        last_seen_at=_when(doc.get("last_seen_at")),
+        last_boot_at=_when(doc.get("last_boot_at")),
+    )
 
 
 def _mode(entry: Dict[str, Any]) -> str:
@@ -175,6 +204,80 @@ def create_console_api(broker: Any) -> APIRouter:
             if (org is None or o == org) and (needle is None or needle in cid.lower())
         ]
         return ChargerList(chargers=found, total=len(found))
+
+    @router.get("/chargers/offline", response_model=OfflineChargerList)
+    async def offline_chargers(
+        org: Optional[str] = Query(None, description="Only this organization"),
+        q: Optional[str] = Query(None, description="Only charger ids containing this text (case-insensitive)"),
+    ) -> OfflineChargerList:
+        """
+        Chargers this broker has seen (kept in MongoDB, written when a charger connects, boots and
+        disconnects) that are not connected to this instance now. Without MongoDB nothing is remembered:
+        the answer is then `available: false` with the reason.
+        """
+        mongodb = getattr(broker, "mongodb_service", None)
+        if mongodb is None:
+            return OfflineChargerList(available=False, reason="MongoDB is not configured, so chargers that are not connected are not remembered", chargers=[], total=0)
+        if not mongodb.is_connected():
+            return OfflineChargerList(available=False, reason="MongoDB is not connected", chargers=[], total=0)
+        try:
+            documents = await mongodb.list_presence(org)
+        except Exception as exc:
+            return OfflineChargerList(available=False, reason=f"MongoDB did not answer: {exc}", chargers=[], total=0)
+        needle = q.lower() if q else None
+        online = set(broker.sessions)
+        found = [
+            _offline(doc)
+            for doc in documents
+            if (doc.get("org_name"), doc.get("charger_id")) not in online and (needle is None or needle in str(doc.get("charger_id", "")).lower())
+        ]
+        found.sort(key=lambda c: c.last_seen_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        return OfflineChargerList(available=True, reason=None, chargers=found[:OFFLINE_LIMIT], total=len(found))
+
+    @router.get("/backends", response_model=List[OrgBackends])
+    async def backends(org: Optional[str] = Query(None, description="Only this organization")) -> List[OrgBackends]:
+        """Each backend of each organization where the broker has backends, with how its links stand across the connected chargers."""
+        result: List[OrgBackends] = []
+        for entry in _org_entries(broker):
+            name = entry["name"]
+            configured = entry.get("backends") or []
+            if (org is not None and name != org) or not configured or not (_mode(entry) == "relay" or _local(entry)):
+                continue
+            keys = backend_keys(configured)
+            stats = {
+                key: BackendStat(
+                    key=key,
+                    url=None if b.get("local") else str(b.get("url", "")),
+                    local=bool(b.get("local")),
+                    configured_leader=bool(b.get("leader")),
+                    leading=0,
+                    following=0,
+                    links_up=0,
+                    links_down=0,
+                    buffered_frames=0,
+                    down_chargers=[],
+                )
+                for key, b in zip(keys, configured)
+            }
+            sessions = [(cid, s) for (o, cid), s in sorted(list(broker.sessions.items())) if o == name]
+            for cid, session in sessions:
+                for link in _backends(session):
+                    stat = stats.get(link.key)
+                    if stat is None:
+                        continue
+                    if link.role == "leader":
+                        stat.leading += 1
+                    else:
+                        stat.following += 1
+                    if link.connected:
+                        stat.links_up += 1
+                    else:
+                        stat.links_down += 1
+                        if len(stat.down_chargers) < 20:
+                            stat.down_chargers.append(cid)
+                    stat.buffered_frames += link.buffered_frames
+            result.append(OrgBackends(org=name, mode=_mode(entry), chargers=len(sessions), backends=list(stats.values())))  # type: ignore[arg-type]
+        return result
 
     @router.get("/chargers/{org}/{charger_id}", response_model=ChargerDetail)
     async def charger_detail(

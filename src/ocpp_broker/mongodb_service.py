@@ -109,6 +109,30 @@ class MongoDBService:
         await collection.create_index([("org_name", 1), ("charger_id", 1)])
         await collection.create_index("expires_at", expireAfterSeconds=0)
 
+    # ------------------------------------------------------------------
+    # Which chargers have connected, so the console can list the ones that are not connected now.
+    # One small document per charger; written when it connects, boots and disconnects (never per message).
+    # ------------------------------------------------------------------
+    PRESENCE = "charger_presence"
+
+    async def ensure_presence_indexes(self) -> None:
+        await self._get_collection(self.PRESENCE).create_index([("org_name", 1), ("charger_id", 1)], unique=True)
+
+    async def record_presence(self, org_name: str, charger_id: str, **fields: Any) -> None:
+        """Merge ``fields`` into the charger's presence document (created if needed). Raises on failure."""
+        await self._get_collection(self.PRESENCE).update_one(
+            {"org_name": org_name, "charger_id": charger_id},
+            {"$set": {**fields, "updated_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+
+    async def list_presence(self, org_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        query = {"org_name": org_name} if org_name else {}
+        rows = await self._get_collection(self.PRESENCE).find(query).to_list(length=None)
+        for row in rows:
+            row.pop("_id", None)
+        return rows
+
     async def save_transaction_map_doc(
         self, org_name: str, charger_id: str, document: Dict[str, Any], expires_at: datetime
     ) -> None:

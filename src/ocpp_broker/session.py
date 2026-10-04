@@ -102,6 +102,19 @@ class ChargerSession:
         """Note a frame from the charger in its state, and publish what it changed."""
         for kind, data in self.state.observe(raw):
             self.publish(kind, **data)
+            if kind == "charger.boot" and self.state.boot is not None:
+                note = getattr(self.broker, "note_presence", None)
+                if note is not None:
+                    boot = self.state.boot
+                    note(
+                        self.org_name,
+                        self.charger_id,
+                        vendor=boot.vendor,
+                        model=boot.model,
+                        serial_number=boot.serial_number,
+                        firmware_version=boot.firmware_version,
+                        last_boot_at=boot.received_at,
+                    )
 
     async def evict(self, grace: float = 5.0):
         """

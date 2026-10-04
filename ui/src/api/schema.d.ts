@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/backends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Backends
+         * @description Each backend of each organization where the broker has backends, with how its links stand across the connected chargers.
+         */
+        get: operations["backends_api_backends_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chargers": {
         parameters: {
             query?: never;
@@ -13,6 +33,28 @@ export interface paths {
         };
         /** List Chargers */
         get: operations["list_chargers_api_chargers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chargers/offline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Offline Chargers
+         * @description Chargers this broker has seen (kept in MongoDB, written when a charger connects, boots and
+         *     disconnects) that are not connected to this instance now. Without MongoDB nothing is remembered:
+         *     the answer is then `available: false` with the reason.
+         */
+        get: operations["offline_chargers_api_chargers_offline_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1099,6 +1141,47 @@ export interface components {
              */
             url: string | null;
         };
+        /**
+         * BackendStat
+         * @description One configured backend, summed over the chargers connected to this instance.
+         */
+        BackendStat: {
+            /**
+             * Buffered Frames
+             * @description Charger messages held for it as a leader that is unreachable
+             */
+            buffered_frames: number;
+            /** Configured Leader */
+            configured_leader: boolean;
+            /**
+             * Down Chargers
+             * @description Chargers whose link to it is down (at most 20)
+             */
+            down_chargers: string[];
+            /**
+             * Following
+             * @description Chargers for which it is a follower now
+             */
+            following: number;
+            /** Key */
+            key: string;
+            /**
+             * Leading
+             * @description Chargers for which it is the leader now (a failover can change this)
+             */
+            leading: number;
+            /** Links Down */
+            links_down: number;
+            /** Links Up */
+            links_up: number;
+            /** Local */
+            local: boolean;
+            /**
+             * Url
+             * @description Null for the local backend (this broker itself)
+             */
+            url: string | null;
+        };
         /** BootInfo */
         BootInfo: {
             /** Firmware Version */
@@ -1176,6 +1259,15 @@ export interface components {
              */
             timestamp?: string | null;
         };
+        /** BulkTagItemResult */
+        BulkTagItemResult: {
+            /** Error */
+            error?: string | null;
+            /** Id Tag */
+            id_tag: string;
+            /** Success */
+            success: boolean;
+        };
         /** BulkTagRequest */
         BulkTagRequest: {
             /**
@@ -1185,6 +1277,19 @@ export interface components {
             operation: "add" | "update" | "delete";
             /** Tags */
             tags: components["schemas"]["OCPPTag"][];
+        };
+        /** BulkTagResult */
+        BulkTagResult: {
+            /** Failed */
+            failed: number;
+            /** Operation */
+            operation: string;
+            /** Results */
+            results: components["schemas"]["BulkTagItemResult"][];
+            /** Succeeded */
+            succeeded: number;
+            /** Total */
+            total: number;
         };
         /** CancelReservationRequest */
         CancelReservationRequest: {
@@ -1745,6 +1850,57 @@ export interface components {
             /** Updated At */
             updated_at?: string | null;
         };
+        /**
+         * OfflineCharger
+         * @description A charger this broker has seen before (remembered in MongoDB) that is not connected to this instance now.
+         */
+        OfflineCharger: {
+            /** Charger Id */
+            charger_id: string;
+            /** Firmware Version */
+            firmware_version: string | null;
+            /** Last Boot At */
+            last_boot_at: string | null;
+            /** Last Connected At */
+            last_connected_at: string | null;
+            /** Last Disconnected At */
+            last_disconnected_at: string | null;
+            /**
+             * Last Seen At
+             * @description Its last message before the connection ended (or when it connected)
+             */
+            last_seen_at: string | null;
+            /** Mode */
+            mode: string | null;
+            /** Model */
+            model: string | null;
+            /** Org */
+            org: string;
+            /** Remote Address */
+            remote_address: string | null;
+            /** Vendor */
+            vendor: string | null;
+        };
+        /** OfflineChargerList */
+        OfflineChargerList: {
+            /**
+             * Available
+             * @description False when chargers are not remembered: MongoDB is not configured or not answering
+             */
+            available: boolean;
+            /**
+             * Chargers
+             * @description Most recently seen first
+             */
+            chargers: components["schemas"]["OfflineCharger"][];
+            /**
+             * Reason
+             * @description Why it is not available
+             */
+            reason: string | null;
+            /** Total */
+            total: number;
+        };
         /** OrgBackend */
         OrgBackend: {
             /**
@@ -1769,6 +1925,23 @@ export interface components {
              * @description Null for the local backend, which is this broker itself
              */
             url: string | null;
+        };
+        /** OrgBackends */
+        OrgBackends: {
+            /** Backends */
+            backends: components["schemas"]["BackendStat"][];
+            /**
+             * Chargers
+             * @description Chargers of this organization connected to this instance
+             */
+            chargers: number;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "broker" | "relay";
+            /** Org */
+            org: string;
         };
         /** OrgSummary */
         OrgSummary: {
@@ -1988,6 +2161,16 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * TagAck
+         * @description The answer to adding, changing or deleting one tag.
+         */
+        TagAck: {
+            /** Message */
+            message: string;
+            /** Success */
+            success: boolean;
+        };
         /** TagExportRequest */
         TagExportRequest: {
             /**
@@ -2001,6 +2184,15 @@ export interface components {
              * @default true
              */
             include_metadata: boolean;
+        };
+        /** TagImportError */
+        TagImportError: {
+            /** Error */
+            error: string;
+            /** Id Tag */
+            id_tag?: string | null;
+            /** Record */
+            record: number;
         };
         /** TagImportRequest */
         TagImportRequest: {
@@ -2023,18 +2215,134 @@ export interface components {
              */
             validate_only: boolean;
         };
+        /** TagImportResult */
+        TagImportResult: {
+            /** Errors */
+            errors: components["schemas"]["TagImportError"][];
+            /** Imported */
+            imported: number;
+            /** Skipped */
+            skipped: number;
+            /** Source */
+            source: string;
+            /** Total */
+            total: number;
+            /** Updated */
+            updated: number;
+            /** Validate Only */
+            validate_only: boolean;
+        };
+        /** TagManagementStatus */
+        TagManagementStatus: {
+            /** Enabled */
+            enabled: boolean;
+            /** Message */
+            message: string;
+            /**
+             * Mongodb Persistence
+             * @description Tags are also stored in MongoDB (absent when tag management is off)
+             */
+            mongodb_persistence?: boolean | null;
+            /**
+             * Organizations
+             * @description Organizations that have a tag list
+             */
+            organizations?: string[] | null;
+        };
+        /** TagOrganizations */
+        TagOrganizations: {
+            /** Organizations */
+            organizations: string[];
+        };
+        /**
+         * TagSearchResponse
+         * @description Tag search results
+         */
+        TagSearchResponse: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Tags */
+            tags: components["schemas"]["OCPPTag"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * TagStatistics
+         * @description Counts of an organization's tags.
+         */
+        TagStatistics: {
+            /** Active Tags */
+            active_tags: number;
+            /** Blocked Tags */
+            blocked_tags: number;
+            /** Expired Tags */
+            expired_tags: number;
+            /** Tags By Status */
+            tags_by_status: {
+                [key: string]: number;
+            };
+            /** Tags By Type */
+            tags_by_type: {
+                [key: string]: number;
+            };
+            /** Total Tags */
+            total_tags: number;
+        };
         /**
          * TagStatus
          * @description OCPP Tag Status
          * @enum {string}
          */
         TagStatus: "Accepted" | "Blocked" | "Expired" | "Invalid" | "ConcurrentTx";
+        /** TagSyncResult */
+        TagSyncResult: {
+            /** Message */
+            message: string;
+            /** Organizations */
+            organizations: {
+                [key: string]: components["schemas"]["TagSyncSummary"];
+            };
+            /** Success */
+            success: boolean;
+        };
+        /** TagSyncSummary */
+        TagSyncSummary: {
+            /**
+             * Dropped
+             * @description In-memory tags removed because MongoDB does not have them
+             */
+            dropped: number;
+            /**
+             * Loaded
+             * @description Tags now held, read from MongoDB (MongoDB is authoritative when it has any)
+             */
+            loaded: number;
+            /**
+             * Seeded
+             * @description Tags pushed into MongoDB because it had none for this organization
+             */
+            seeded: number;
+        };
         /**
          * TagType
          * @description OCPP Tag Type
          * @enum {string}
          */
         TagType: "RFID" | "NFC" | "QRCode" | "MobileApp" | "UserId";
+        /**
+         * TagValidationResult
+         * @description Outcome of validating one tag. Errors make it invalid; warnings do not.
+         */
+        TagValidationResult: {
+            /** Errors */
+            errors?: string[];
+            /** Is Valid */
+            is_valid: boolean;
+            /** Warnings */
+            warnings?: string[];
+        };
         /** TransactionRequest */
         TransactionRequest: {
             /**
@@ -2241,6 +2549,38 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    backends_api_backends_get: {
+        parameters: {
+            query?: {
+                /** @description Only this organization */
+                org?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgBackends"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_chargers_api_chargers_get: {
         parameters: {
             query?: {
@@ -2262,6 +2602,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChargerList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    offline_chargers_api_chargers_offline_get: {
+        parameters: {
+            query?: {
+                /** @description Only this organization */
+                org?: string | null;
+                /** @description Only charger ids containing this text (case-insensitive) */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfflineChargerList"];
                 };
             };
             /** @description Validation Error */
@@ -3555,7 +3929,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagOrganizations"];
                 };
             };
         };
@@ -3610,7 +3984,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagStatistics"];
                 };
             };
             /** @description Validation Error */
@@ -3655,7 +4029,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagSearchResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3691,7 +4065,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagAck"];
                 };
             };
             /** @description Validation Error */
@@ -3763,7 +4137,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BulkTagResult"];
                 };
             };
             /** @description Validation Error */
@@ -3835,7 +4209,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagImportResult"];
                 };
             };
             /** @description Validation Error */
@@ -3874,7 +4248,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagValidationResult"];
                 };
             };
             /** @description Validation Error */
@@ -3908,7 +4282,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["OCPPTag"];
                 };
             };
             /** @description Validation Error */
@@ -3946,7 +4320,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagAck"];
                 };
             };
             /** @description Validation Error */
@@ -3980,7 +4354,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagAck"];
                 };
             };
             /** @description Validation Error */
@@ -4009,7 +4383,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagManagementStatus"];
                 };
             };
         };
@@ -4032,7 +4406,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TagSyncResult"];
                 };
             };
             /** @description Validation Error */

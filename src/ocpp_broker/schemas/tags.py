@@ -125,6 +125,36 @@ class TagImportResult(BaseModel):
     errors: List[TagImportError]
 
 
+class TagAck(BaseModel):
+    """The answer to adding, changing or deleting one tag."""
+
+    success: bool
+    message: str
+
+
+class TagManagementStatus(BaseModel):
+    enabled: bool
+    message: str
+    mongodb_persistence: Optional[bool] = Field(None, description="Tags are also stored in MongoDB (absent when tag management is off)")
+    organizations: Optional[List[str]] = Field(None, description="Organizations that have a tag list")
+
+
+class TagOrganizations(BaseModel):
+    organizations: List[str]
+
+
+class TagSyncSummary(BaseModel):
+    loaded: int = Field(description="Tags now held, read from MongoDB (MongoDB is authoritative when it has any)")
+    seeded: int = Field(description="Tags pushed into MongoDB because it had none for this organization")
+    dropped: int = Field(description="In-memory tags removed because MongoDB does not have them")
+
+
+class TagSyncResult(BaseModel):
+    success: bool
+    message: str
+    organizations: Dict[str, TagSyncSummary]
+
+
 class TagExportRequest(BaseModel):
     format: Literal["json", "csv"] = "json"
     include_metadata: bool = True  # created_at, updated_at and metadata

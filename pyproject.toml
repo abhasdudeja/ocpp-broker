@@ -43,7 +43,8 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"ocpp_broker" = []
+# The built web console (npm run build in ui/). Not committed; CI builds it before the wheel.
+"ocpp_broker" = ["ui_dist/**/*"]
 
 [project.scripts]
 ocpp-broker-server = "ocpp_broker.server:main"

@@ -1,0 +1,252 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #16202a;
+  --muted: #5b6875;
+  --border: #d9dee5;
+  --accent: #0f766e;
+  --accent-text: #ffffff;
+  --ok: #15803d;
+  --warn-bg: #fef3c7;
+  --warn-text: #7a4b00;
+  --error-bg: #fee2e2;
+  --error-text: #8f1d1d;
+  --focus: #1d4ed8;
+  --radius: 8px;
+  --gutter: 16px;
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e141a;
+    --surface: #161e26;
+    --text: #e6ecf2;
+    --muted: #9aa8b6;
+    --border: #2a3541;
+    --accent: #2dd4bf;
+    --accent-text: #052e2b;
+    --ok: #4ade80;
+    --warn-bg: #3a2c05;
+    --warn-text: #fcd34d;
+    --error-bg: #3b1212;
+    --error-text: #fca5a5;
+    --focus: #93c5fd;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.875rem;
+}
+
+/* ---- layout ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px var(--gutter);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar nav {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.topbar nav a {
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.topbar nav a.active {
+  color: var(--text);
+  background: var(--bg);
+  font-weight: 600;
+}
+
+.content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px var(--gutter) 48px;
+}
+
+.page-head {
+  margin-bottom: 16px;
+}
+
+.page-head p {
+  margin: 0;
+}
+
+/* ---- controls ---- */
+button {
+  font: inherit;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+button.link {
+  padding: 6px 10px;
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+button.link:hover {
+  color: var(--text);
+}
+
+label {
+  display: block;
+  margin: 16px 0 6px;
+  font-weight: 600;
+}
+
+input {
+  width: 100%;
+  font: inherit;
+  padding: 9px 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+input[aria-invalid='true'] {
+  border-color: var(--error-text);
+}
+
+/* ---- surfaces ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.signin {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+}
+
+.signin .card {
+  width: min(420px, 100%);
+}
+
+.signin button {
+  margin-top: 16px;
+  width: 100%;
+}
+
+.banner {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.banner.warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.banner.error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+/* ---- overview ---- */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.facts > div {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.facts dd {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.tone-ok {
+  color: var(--ok);
+}
+
+.tone-warn {
+  color: var(--warn-text);
+}
+
+.tone-off {
+  color: var(--muted);
+}

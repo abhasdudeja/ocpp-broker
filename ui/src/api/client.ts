@@ -1,0 +1,78 @@
+import type { components } from './schema'
+
+// Types come from the broker's OpenAPI schema (ui/openapi.json, regenerated with `npm run api`),
+// so a change to the API that the console does not follow fails the type check.
+export type SystemInfo = components['schemas']['SystemInfo']
+
+const KEY_STORAGE = 'ocpp-broker-api-key'
+
+/** A request that did not succeed. ``status`` is 0 when the broker could not be reached at all. */
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+// The key is kept for the life of the tab only (sessionStorage), never in the URL or localStorage.
+// Storage can be unavailable (private windows, blocked site data): then the key lives in memory only.
+export function loadKey(): string | null {
+  try {
+    return window.sessionStorage.getItem(KEY_STORAGE)
+  } catch {
+    return null
+  }
+}
+
+export function saveKey(key: string): void {
+  try {
+    window.sessionStorage.setItem(KEY_STORAGE, key)
+  } catch {
+    // memory only
+  }
+}
+
+export function forgetKey(): void {
+  try {
+    window.sessionStorage.removeItem(KEY_STORAGE)
+  } catch {
+    // nothing stored
+  }
+}
+
+async function errorDetail(response: Response): Promise<string> {
+  try {
+    const body: unknown = await response.json()
+    if (body && typeof body === 'object' && 'detail' in body) {
+      const detail = (body as { detail: unknown }).detail
+      return typeof detail === 'string' ? detail : JSON.stringify(detail)
+    }
+  } catch {
+    // not JSON
+  }
+  return response.statusText || `HTTP ${response.status}`
+}
+
+/** GET a JSON resource from the broker, authenticated with the API key. */
+export async function apiGet<T>(path: string, key: string, signal?: AbortSignal): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(path, {
+      headers: { 'X-API-Key': key, Accept: 'application/json' },
+      cache: 'no-store',
+      signal,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ApiError(0, 'Could not reach the broker')
+  }
+  if (!response.ok) throw new ApiError(response.status, await errorDetail(response))
+  return (await response.json()) as T
+}
+
+export function isAbort(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}

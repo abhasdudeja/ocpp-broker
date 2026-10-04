@@ -1,0 +1,4331 @@
+{
+  "components": {
+    "schemas": {
+      "AuthorizationRequest": {
+        "properties": {
+          "charger_id": {
+            "description": "Charger ID",
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "expiry_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expiry date",
+            "title": "Expiry Date"
+          },
+          "id_tag": {
+            "description": "ID tag",
+            "title": "Id Tag",
+            "type": "string"
+          },
+          "org_name": {
+            "description": "Organization name",
+            "title": "Org Name",
+            "type": "string"
+          },
+          "parent_id_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent ID tag",
+            "title": "Parent Id Tag"
+          },
+          "status": {
+            "description": "Authorization status",
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp (defaults to now)",
+            "title": "Timestamp"
+          }
+        },
+        "required": [
+          "org_name",
+          "charger_id",
+          "id_tag",
+          "status"
+        ],
+        "title": "AuthorizationRequest",
+        "type": "object"
+      },
+      "BootNotificationRequest": {
+        "properties": {
+          "charge_point_model": {
+            "description": "Charger model",
+            "title": "Charge Point Model",
+            "type": "string"
+          },
+          "charge_point_vendor": {
+            "description": "Charger vendor",
+            "title": "Charge Point Vendor",
+            "type": "string"
+          },
+          "charger_id": {
+            "description": "Charger ID",
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "firmware_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Firmware version",
+            "title": "Firmware Version"
+          },
+          "iccid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ICCID",
+            "title": "Iccid"
+          },
+          "imsi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IMSI",
+            "title": "Imsi"
+          },
+          "meter_serial_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Meter serial number",
+            "title": "Meter Serial Number"
+          },
+          "meter_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Meter type",
+            "title": "Meter Type"
+          },
+          "org_name": {
+            "description": "Organization name",
+            "title": "Org Name",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp (defaults to now)",
+            "title": "Timestamp"
+          }
+        },
+        "required": [
+          "org_name",
+          "charger_id",
+          "charge_point_model",
+          "charge_point_vendor"
+        ],
+        "title": "BootNotificationRequest",
+        "type": "object"
+      },
+      "BulkTagRequest": {
+        "properties": {
+          "operation": {
+            "enum": [
+              "add",
+              "update",
+              "delete"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/OCPPTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "operation",
+          "tags"
+        ],
+        "title": "BulkTagRequest",
+        "type": "object"
+      },
+      "CancelReservationRequest": {
+        "properties": {
+          "reservation_id": {
+            "description": "Reservation ID to cancel",
+            "title": "Reservation Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reservation_id"
+        ],
+        "title": "CancelReservationRequest",
+        "type": "object"
+      },
+      "ChangeAvailabilityRequest": {
+        "properties": {
+          "connector_id": {
+            "description": "Connector ID (0 for entire charge point)",
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Availability type: Inoperative or Operative",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_id",
+          "type"
+        ],
+        "title": "ChangeAvailabilityRequest",
+        "type": "object"
+      },
+      "ChangeConfigurationRequest": {
+        "properties": {
+          "key": {
+            "description": "Configuration key",
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "description": "Configuration value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "ChangeConfigurationRequest",
+        "type": "object"
+      },
+      "ClearChargingProfileRequest": {
+        "properties": {
+          "charging_profile_purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Charging profile purpose",
+            "title": "Charging Profile Purpose"
+          },
+          "connector_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Connector ID",
+            "title": "Connector Id"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Charging profile ID",
+            "title": "Id"
+          },
+          "stack_level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stack level",
+            "title": "Stack Level"
+          }
+        },
+        "title": "ClearChargingProfileRequest",
+        "type": "object"
+      },
+      "GetCompositeScheduleRequest": {
+        "properties": {
+          "charging_rate_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Charging rate unit: W or A",
+            "title": "Charging Rate Unit"
+          },
+          "connector_id": {
+            "description": "Connector ID",
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "duration": {
+            "description": "Duration in seconds",
+            "title": "Duration",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "duration"
+        ],
+        "title": "GetCompositeScheduleRequest",
+        "type": "object"
+      },
+      "GetConfigurationRequest": {
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "List of configuration keys (empty for all)",
+            "title": "Key"
+          }
+        },
+        "title": "GetConfigurationRequest",
+        "type": "object"
+      },
+      "GetDiagnosticsRequest": {
+        "properties": {
+          "location": {
+            "description": "URL where diagnostics should be uploaded",
+            "title": "Location",
+            "type": "string"
+          },
+          "retries": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of retries",
+            "title": "Retries"
+          },
+          "retry_interval": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retry interval in seconds",
+            "title": "Retry Interval"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 8601 start time",
+            "title": "Start Time"
+          },
+          "stop_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 8601 stop time",
+            "title": "Stop Time"
+          }
+        },
+        "required": [
+          "location"
+        ],
+        "title": "GetDiagnosticsRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "MeterValuesRequest": {
+        "properties": {
+          "charger_id": {
+            "description": "Charger ID",
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "connector_id": {
+            "description": "Connector ID",
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "meter_value": {
+            "description": "List of meter value readings",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Meter Value",
+            "type": "array"
+          },
+          "org_name": {
+            "description": "Organization name",
+            "title": "Org Name",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp (defaults to now)",
+            "title": "Timestamp"
+          },
+          "transaction_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Transaction ID",
+            "title": "Transaction Id"
+          }
+        },
+        "required": [
+          "org_name",
+          "charger_id",
+          "connector_id",
+          "meter_value"
+        ],
+        "title": "MeterValuesRequest",
+        "type": "object"
+      },
+      "MongoInfo": {
+        "properties": {
+          "configured": {
+            "description": "MongoDB is enabled and a service object exists",
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "connected": {
+            "description": "The connection made at startup succeeded",
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "database": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Database"
+          },
+          "reachable": {
+            "description": "The server answered a ping just now",
+            "title": "Reachable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configured",
+          "connected",
+          "reachable"
+        ],
+        "title": "MongoInfo",
+        "type": "object"
+      },
+      "OCPPCommandRequest": {
+        "description": "Generic OCPP command request",
+        "properties": {
+          "action": {
+            "description": "OCPP action name",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "Command payload",
+            "title": "Payload",
+            "type": "object"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "maximum": 300.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 30,
+            "description": "Response timeout in seconds",
+            "title": "Timeout"
+          }
+        },
+        "required": [
+          "action",
+          "payload"
+        ],
+        "title": "OCPPCommandRequest",
+        "type": "object"
+      },
+      "OCPPMessageRequest": {
+        "properties": {
+          "action": {
+            "description": "OCPP action name",
+            "title": "Action",
+            "type": "string"
+          },
+          "charger_id": {
+            "description": "Charger ID",
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "direction": {
+            "default": "charger_to_broker",
+            "description": "Message direction",
+            "title": "Direction",
+            "type": "string"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Message ID",
+            "title": "Message Id"
+          },
+          "message_type": {
+            "description": "Message type: 'call', 'call_result', 'call_error'",
+            "title": "Message Type",
+            "type": "string"
+          },
+          "org_name": {
+            "description": "Organization name",
+            "title": "Org Name",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "Message payload",
+            "title": "Payload",
+            "type": "object"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp (defaults to now)",
+            "title": "Timestamp"
+          }
+        },
+        "required": [
+          "org_name",
+          "charger_id",
+          "message_type",
+          "action",
+          "payload"
+        ],
+        "title": "OCPPMessageRequest",
+        "type": "object"
+      },
+      "OCPPTag": {
+        "description": "OCPP Tag definition",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "expiry_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiry Date"
+          },
+          "id_tag": {
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Id Tag",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "parent_id_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id Tag"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TagStatus"
+          },
+          "tag_type": {
+            "$ref": "#/components/schemas/TagType",
+            "default": "RFID"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id_tag",
+          "status"
+        ],
+        "title": "OCPPTag",
+        "type": "object"
+      },
+      "RemoteStartTransactionRequest": {
+        "properties": {
+          "charging_profile": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Charging profile",
+            "title": "Charging Profile"
+          },
+          "connector_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Connector ID",
+            "title": "Connector Id"
+          },
+          "id_tag": {
+            "description": "Authorization tag",
+            "title": "Id Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id_tag"
+        ],
+        "title": "RemoteStartTransactionRequest",
+        "type": "object"
+      },
+      "RemoteStopTransactionRequest": {
+        "properties": {
+          "transaction_id": {
+            "description": "Transaction ID to stop",
+            "title": "Transaction Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "transaction_id"
+        ],
+        "title": "RemoteStopTransactionRequest",
+        "type": "object"
+      },
+      "ReserveNowRequest": {
+        "properties": {
+          "connector_id": {
+            "description": "Connector ID",
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "expiry_date": {
+            "description": "ISO 8601 expiry date",
+            "title": "Expiry Date",
+            "type": "string"
+          },
+          "id_tag": {
+            "description": "Authorization tag",
+            "title": "Id Tag",
+            "type": "string"
+          },
+          "parent_id_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent authorization tag",
+            "title": "Parent Id Tag"
+          },
+          "reservation_id": {
+            "description": "Reservation ID",
+            "title": "Reservation Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "expiry_date",
+          "id_tag",
+          "reservation_id"
+        ],
+        "title": "ReserveNowRequest",
+        "type": "object"
+      },
+      "ResetRequest": {
+        "properties": {
+          "type": {
+            "description": "Reset type: Hard or Soft",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "ResetRequest",
+        "type": "object"
+      },
+      "SendLocalListRequest": {
+        "properties": {
+          "list_version": {
+            "description": "Version number of the list",
+            "title": "List Version",
+            "type": "integer"
+          },
+          "local_authorization_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "List of authorization entries",
+            "title": "Local Authorization List"
+          },
+          "update_type": {
+            "description": "Update type: Full or Differential",
+            "title": "Update Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "list_version",
+          "update_type"
+        ],
+        "title": "SendLocalListRequest",
+        "type": "object"
+      },
+      "SetChargingProfileRequest": {
+        "properties": {
+          "connector_id": {
+            "description": "Connector ID",
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "cs_charging_profiles": {
+            "additionalProperties": true,
+            "description": "Charging profile",
+            "title": "Cs Charging Profiles",
+            "type": "object"
+          }
+        },
+        "required": [
+          "connector_id",
+          "cs_charging_profiles"
+        ],
+        "title": "SetChargingProfileRequest",
+        "type": "object"
+      },
+      "StatusNotificationRequest": {
+        "properties": {
+          "charger_id": {
+            "description": "Charger ID",
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "connector_id": {
+            "description": "Connector ID",
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Error code",
+            "title": "Error Code"
+          },
+          "info": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Info message",
+            "title": "Info"
+          },
+          "org_name": {
+            "description": "Organization name",
+            "title": "Org Name",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status (Available, Preparing, Charging, etc.)",
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp (defaults to now)",
+            "title": "Timestamp"
+          },
+          "vendor_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Vendor error code",
+            "title": "Vendor Error Code"
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Vendor ID",
+            "title": "Vendor Id"
+          }
+        },
+        "required": [
+          "org_name",
+          "charger_id",
+          "connector_id",
+          "status"
+        ],
+        "title": "StatusNotificationRequest",
+        "type": "object"
+      },
+      "SystemInfo": {
+        "properties": {
+          "api_auth": {
+            "description": "'none' only when security.allow_unauthenticated_api is true",
+            "enum": [
+              "api_key",
+              "none"
+            ],
+            "title": "Api Auth",
+            "type": "string"
+          },
+          "connected_chargers": {
+            "description": "Chargers connected to this instance (sessions are per process)",
+            "title": "Connected Chargers",
+            "type": "integer"
+          },
+          "instance_id": {
+            "description": "Random per process; differs between instances and restarts",
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "mongodb": {
+            "$ref": "#/components/schemas/MongoInfo"
+          },
+          "organizations": {
+            "description": "Organizations in the configuration",
+            "title": "Organizations",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "ui_built": {
+            "description": "The console files are present in this installation",
+            "title": "Ui Built",
+            "type": "boolean"
+          },
+          "ui_enabled": {
+            "title": "Ui Enabled",
+            "type": "boolean"
+          },
+          "uptime_seconds": {
+            "title": "Uptime Seconds",
+            "type": "number"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "instance_id",
+          "started_at",
+          "uptime_seconds",
+          "api_auth",
+          "ui_enabled",
+          "ui_built",
+          "organizations",
+          "connected_chargers",
+          "mongodb"
+        ],
+        "title": "SystemInfo",
+        "type": "object"
+      },
+      "TagExportRequest": {
+        "properties": {
+          "format": {
+            "default": "json",
+            "enum": [
+              "json",
+              "csv"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "include_metadata": {
+            "default": true,
+            "title": "Include Metadata",
+            "type": "boolean"
+          }
+        },
+        "title": "TagExportRequest",
+        "type": "object"
+      },
+      "TagImportRequest": {
+        "properties": {
+          "data": {
+            "title": "Data",
+            "type": "string"
+          },
+          "overwrite_existing": {
+            "default": false,
+            "title": "Overwrite Existing",
+            "type": "boolean"
+          },
+          "source": {
+            "default": "json",
+            "enum": [
+              "json",
+              "csv"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "validate_only": {
+            "default": false,
+            "title": "Validate Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "TagImportRequest",
+        "type": "object"
+      },
+      "TagStatus": {
+        "description": "OCPP Tag Status",
+        "enum": [
+          "Accepted",
+          "Blocked",
+          "Expired",
+          "Invalid",
+          "ConcurrentTx"
+        ],
+        "title": "TagStatus",
+        "type": "string"
+      },
+      "TagType": {
+        "description": "OCPP Tag Type",
+        "enum": [
+          "RFID",
+          "NFC",
+          "QRCode",
+          "MobileApp",
+          "UserId"
+        ],
+        "title": "TagType",
+        "type": "string"
+      },
+      "TransactionRequest": {
+        "properties": {
+          "charger_id": {
+            "description": "Charger ID",
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "connector_id": {
+            "description": "Connector ID",
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "id_tag": {
+            "description": "ID tag",
+            "title": "Id Tag",
+            "type": "string"
+          },
+          "meter_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Meter start value (start only)",
+            "title": "Meter Start"
+          },
+          "meter_stop": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Meter stop value (stop only)",
+            "title": "Meter Stop"
+          },
+          "org_name": {
+            "description": "Organization name",
+            "title": "Org Name",
+            "type": "string"
+          },
+          "reservation_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reservation ID",
+            "title": "Reservation Id"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "StopTransaction reason (stop only)",
+            "title": "Stop Reason"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp (defaults to now)",
+            "title": "Timestamp"
+          },
+          "transaction_id": {
+            "description": "Transaction ID",
+            "title": "Transaction Id",
+            "type": "integer"
+          },
+          "transaction_type": {
+            "default": "start",
+            "description": "Transaction type: 'start' or 'stop'",
+            "title": "Transaction Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_name",
+          "charger_id",
+          "transaction_id",
+          "connector_id",
+          "id_tag"
+        ],
+        "title": "TransactionRequest",
+        "type": "object"
+      },
+      "TriggerMessageRequest": {
+        "properties": {
+          "connector_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Connector ID (required for some messages)",
+            "title": "Connector Id"
+          },
+          "requested_message": {
+            "description": "Message to trigger",
+            "title": "Requested Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requested_message"
+        ],
+        "title": "TriggerMessageRequest",
+        "type": "object"
+      },
+      "UnlockConnectorRequest": {
+        "properties": {
+          "connector_id": {
+            "description": "Connector ID to unlock",
+            "title": "Connector Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id"
+        ],
+        "title": "UnlockConnectorRequest",
+        "type": "object"
+      },
+      "UpdateFirmwareRequest": {
+        "properties": {
+          "location": {
+            "description": "URL of firmware location",
+            "title": "Location",
+            "type": "string"
+          },
+          "retrieve_date": {
+            "description": "ISO 8601 date when to retrieve firmware",
+            "title": "Retrieve Date",
+            "type": "string"
+          },
+          "retry_interval": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retry interval in seconds",
+            "title": "Retry Interval"
+          }
+        },
+        "required": [
+          "location",
+          "retrieve_date"
+        ],
+        "title": "UpdateFirmwareRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "ocpp_broker__api_server__DataTransferRequest": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Data to transfer",
+            "title": "Data"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Message identifier",
+            "title": "Message Id"
+          },
+          "vendor_id": {
+            "description": "Vendor identifier",
+            "title": "Vendor Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vendor_id"
+        ],
+        "title": "DataTransferRequest",
+        "type": "object"
+      },
+      "ocpp_broker__mongodb_service__DataTransferRequest": {
+        "properties": {
+          "charger_id": {
+            "description": "Charger ID",
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Data payload",
+            "title": "Data"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Message ID",
+            "title": "Message Id"
+          },
+          "org_name": {
+            "description": "Organization name",
+            "title": "Org Name",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Status response",
+            "title": "Status"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp (defaults to now)",
+            "title": "Timestamp"
+          },
+          "vendor_id": {
+            "description": "Vendor ID",
+            "title": "Vendor Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_name",
+          "charger_id",
+          "vendor_id"
+        ],
+        "title": "DataTransferRequest",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "description": "REST API key",
+        "in": "header",
+        "name": "X-API-Key",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "OCPP Broker",
+    "version": "0.5"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/mongodb/authorization": {
+      "post": {
+        "description": "Save Authorization to MongoDB.",
+        "operationId": "save_authorization_api_mongodb_authorization_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Save Authorization to MongoDB",
+        "tags": [
+          "MongoDB OCPP Data"
+        ]
+      }
+    },
+    "/api/mongodb/boot-notification": {
+      "post": {
+        "description": "Save BootNotification to MongoDB.",
+        "operationId": "save_boot_notification_api_mongodb_boot_notification_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Save BootNotification to MongoDB",
+        "tags": [
+          "MongoDB OCPP Data"
+        ]
+      }
+    },
+    "/api/mongodb/data-transfer": {
+      "post": {
+        "description": "Save DataTransfer to MongoDB.",
+        "operationId": "save_data_transfer_api_mongodb_data_transfer_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ocpp_broker__mongodb_service__DataTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Save DataTransfer to MongoDB",
+        "tags": [
+          "MongoDB OCPP Data"
+        ]
+      }
+    },
+    "/api/mongodb/health": {
+      "get": {
+        "description": "Check if MongoDB service is connected.",
+        "operationId": "mongodb_health_api_mongodb_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Check MongoDB connection status",
+        "tags": [
+          "MongoDB OCPP Data"
+        ]
+      }
+    },
+    "/api/mongodb/meter-values": {
+      "post": {
+        "description": "Save MeterValues to MongoDB.",
+        "operationId": "save_meter_values_api_mongodb_meter_values_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeterValuesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Save MeterValues to MongoDB",
+        "tags": [
+          "MongoDB OCPP Data"
+        ]
+      }
+    },
+    "/api/mongodb/ocpp-message": {
+      "post": {
+        "description": "Save a generic OCPP message to MongoDB.",
+        "operationId": "save_ocpp_message_api_mongodb_ocpp_message_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OCPPMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Save generic OCPP message to MongoDB",
+        "tags": [
+          "MongoDB OCPP Data"
+        ]
+      }
+    },
+    "/api/mongodb/status-notification": {
+      "post": {
+        "description": "Save a StatusNotification to MongoDB.",
+        "operationId": "save_status_notification_api_mongodb_status_notification_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Save StatusNotification to MongoDB",
+        "tags": [
+          "MongoDB OCPP Data"
+        ]
+      }
+    },
+    "/api/mongodb/transaction": {
+      "post": {
+        "description": "Save StartTransaction or StopTransaction to MongoDB.",
+        "operationId": "save_transaction_api_mongodb_transaction_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Save Transaction to MongoDB",
+        "tags": [
+          "MongoDB OCPP Data"
+        ]
+      }
+    },
+    "/api/ocpp/commands/{message_id}/response": {
+      "get": {
+        "description": "Get response for a sent command",
+        "operationId": "get_command_response_api_ocpp_commands__message_id__response_get",
+        "parameters": [
+          {
+            "description": "Message ID",
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "description": "Message ID",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Command Response",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers": {
+      "get": {
+        "description": "List all connected chargers for an organization",
+        "operationId": "list_chargers_api_ocpp_organizations__org_name__chargers_get",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Chargers",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands": {
+      "post": {
+        "description": "Send a generic OCPP command to a charger",
+        "operationId": "send_command_api_ocpp_organizations__org_name__chargers__charger_id__commands_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OCPPCommandRequest",
+                "description": "OCPP command request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Send Command",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/CancelReservation": {
+      "post": {
+        "description": "Cancel a reservation",
+        "operationId": "cancel_reservation_api_ocpp_organizations__org_name__chargers__charger_id__commands_CancelReservation_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReservationRequest",
+                "description": "Cancel reservation request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Cancel Reservation",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ChangeAvailability": {
+      "post": {
+        "description": "Change availability of a connector or charge point",
+        "operationId": "change_availability_api_ocpp_organizations__org_name__chargers__charger_id__commands_ChangeAvailability_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeAvailabilityRequest",
+                "description": "Change availability request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Change Availability",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ChangeConfiguration": {
+      "post": {
+        "description": "Change configuration parameter",
+        "operationId": "change_configuration_api_ocpp_organizations__org_name__chargers__charger_id__commands_ChangeConfiguration_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeConfigurationRequest",
+                "description": "Change configuration request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Change Configuration",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ClearCache": {
+      "post": {
+        "description": "Clear authorization cache",
+        "operationId": "clear_cache_api_ocpp_organizations__org_name__chargers__charger_id__commands_ClearCache_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Clear Cache",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ClearChargingProfile": {
+      "post": {
+        "description": "Clear charging profile",
+        "operationId": "clear_charging_profile_api_ocpp_organizations__org_name__chargers__charger_id__commands_ClearChargingProfile_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClearChargingProfileRequest",
+                "description": "Clear charging profile request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Clear Charging Profile",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/DataTransfer": {
+      "post": {
+        "description": "Send custom data to charger",
+        "operationId": "data_transfer_api_ocpp_organizations__org_name__chargers__charger_id__commands_DataTransfer_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ocpp_broker__api_server__DataTransferRequest",
+                "description": "Data transfer request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Data Transfer",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/GetCompositeSchedule": {
+      "post": {
+        "description": "Get composite charging schedule",
+        "operationId": "get_composite_schedule_api_ocpp_organizations__org_name__chargers__charger_id__commands_GetCompositeSchedule_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetCompositeScheduleRequest",
+                "description": "Get composite schedule request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Composite Schedule",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/GetConfiguration": {
+      "post": {
+        "description": "Get configuration parameters",
+        "operationId": "get_configuration_api_ocpp_organizations__org_name__chargers__charger_id__commands_GetConfiguration_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetConfigurationRequest",
+                "description": "Get configuration request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Configuration",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/GetDiagnostics": {
+      "post": {
+        "description": "Get diagnostics",
+        "operationId": "get_diagnostics_api_ocpp_organizations__org_name__chargers__charger_id__commands_GetDiagnostics_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetDiagnosticsRequest",
+                "description": "Get diagnostics request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Diagnostics",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/GetLocalListVersion": {
+      "post": {
+        "description": "Get local authorization list version",
+        "operationId": "get_local_list_version_api_ocpp_organizations__org_name__chargers__charger_id__commands_GetLocalListVersion_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Local List Version",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/RemoteStartTransaction": {
+      "post": {
+        "description": "Remotely start a transaction",
+        "operationId": "remote_start_transaction_api_ocpp_organizations__org_name__chargers__charger_id__commands_RemoteStartTransaction_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteStartTransactionRequest",
+                "description": "Remote start transaction request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Remote Start Transaction",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/RemoteStopTransaction": {
+      "post": {
+        "description": "Remotely stop a transaction",
+        "operationId": "remote_stop_transaction_api_ocpp_organizations__org_name__chargers__charger_id__commands_RemoteStopTransaction_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteStopTransactionRequest",
+                "description": "Remote stop transaction request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Remote Stop Transaction",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/ReserveNow": {
+      "post": {
+        "description": "Create a reservation",
+        "operationId": "reserve_now_api_ocpp_organizations__org_name__chargers__charger_id__commands_ReserveNow_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReserveNowRequest",
+                "description": "Reserve now request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Reserve Now",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/Reset": {
+      "post": {
+        "description": "Reset the charge point",
+        "operationId": "reset_api_ocpp_organizations__org_name__chargers__charger_id__commands_Reset_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetRequest",
+                "description": "Reset request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Reset",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/SendLocalList": {
+      "post": {
+        "description": "Send local authorization list",
+        "operationId": "send_local_list_api_ocpp_organizations__org_name__chargers__charger_id__commands_SendLocalList_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendLocalListRequest",
+                "description": "Send local list request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Send Local List",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/SetChargingProfile": {
+      "post": {
+        "description": "Set charging profile",
+        "operationId": "set_charging_profile_api_ocpp_organizations__org_name__chargers__charger_id__commands_SetChargingProfile_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetChargingProfileRequest",
+                "description": "Set charging profile request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Set Charging Profile",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/TriggerMessage": {
+      "post": {
+        "description": "Trigger a message from charger",
+        "operationId": "trigger_message_api_ocpp_organizations__org_name__chargers__charger_id__commands_TriggerMessage_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerMessageRequest",
+                "description": "Trigger message request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Trigger Message",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/UnlockConnector": {
+      "post": {
+        "description": "Unlock a connector",
+        "operationId": "unlock_connector_api_ocpp_organizations__org_name__chargers__charger_id__commands_UnlockConnector_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnlockConnectorRequest",
+                "description": "Unlock connector request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Unlock Connector",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/commands/UpdateFirmware": {
+      "post": {
+        "description": "Update firmware",
+        "operationId": "update_firmware_api_ocpp_organizations__org_name__chargers__charger_id__commands_UpdateFirmware_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFirmwareRequest",
+                "description": "Update firmware request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Update Firmware",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/ocpp/organizations/{org_name}/chargers/{charger_id}/status": {
+      "get": {
+        "description": "Get status of a specific charger",
+        "operationId": "get_charger_status_api_ocpp_organizations__org_name__chargers__charger_id__status_get",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger ID",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger ID",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Charger Status",
+        "tags": [
+          "OCPP Commands"
+        ]
+      }
+    },
+    "/api/system/info": {
+      "get": {
+        "operationId": "system_info_api_system_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "System Info",
+        "tags": [
+          "System"
+        ]
+      }
+    },
+    "/api/tags/organizations": {
+      "get": {
+        "description": "List all organizations with tag management",
+        "operationId": "list_organizations_api_tags_organizations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Organizations",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/organizations/{org_name}/list": {
+      "get": {
+        "description": "Get complete tag list for an organization",
+        "operationId": "get_tag_list_api_tags_organizations__org_name__list_get",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Tag List",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/organizations/{org_name}/statistics": {
+      "get": {
+        "description": "Counts of the organization's tags by status and type",
+        "operationId": "get_tag_statistics_api_tags_organizations__org_name__statistics_get",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Tag Statistics",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/organizations/{org_name}/tags": {
+      "get": {
+        "description": "Search tags with filters",
+        "operationId": "search_tags_api_tags_organizations__org_name__tags_get",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by ID tag",
+            "in": "query",
+            "name": "id_tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by ID tag",
+              "title": "Id Tag"
+            }
+          },
+          {
+            "description": "Filter by status",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TagStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by status",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Filter by tag type",
+            "in": "query",
+            "name": "tag_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TagType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by tag type",
+              "title": "Tag Type"
+            }
+          },
+          {
+            "description": "Filter by parent tag",
+            "in": "query",
+            "name": "parent_id_tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by parent tag",
+              "title": "Parent Id Tag"
+            }
+          },
+          {
+            "description": "Maximum number of results",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Maximum number of results",
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of results to skip",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of results to skip",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Search Tags",
+        "tags": [
+          "Tag Management"
+        ]
+      },
+      "post": {
+        "description": "Add a new tag to an organization",
+        "operationId": "add_tag_api_tags_organizations__org_name__tags_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OCPPTag",
+                "description": "Tag to add"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Add Tag",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/organizations/{org_name}/tags/authorize": {
+      "post": {
+        "description": "Authorize a tag (same as OCPP Authorize command)",
+        "operationId": "authorize_tag_api_tags_organizations__org_name__tags_authorize_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Tag ID to authorize",
+                "title": "Id Tag",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Authorize Tag",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/organizations/{org_name}/tags/bulk": {
+      "post": {
+        "description": "Add, update or delete many tags; each item succeeds or fails on its own",
+        "operationId": "bulk_tag_operation_api_tags_organizations__org_name__tags_bulk_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkTagRequest",
+                "description": "Operation (add, update or delete) and the tags"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Bulk Tag Operation",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/organizations/{org_name}/tags/export": {
+      "post": {
+        "description": "Export the organization's tags as JSON or CSV (re-importable)",
+        "operationId": "export_tags_api_tags_organizations__org_name__tags_export_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagExportRequest",
+                "default": {
+                  "format": "json",
+                  "include_metadata": true
+                },
+                "description": "Export format"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Export Tags",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/organizations/{org_name}/tags/import": {
+      "post": {
+        "description": "Import tags; bad records are reported in `errors` and the rest still go in",
+        "operationId": "import_tags_api_tags_organizations__org_name__tags_import_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagImportRequest",
+                "description": "JSON or CSV text to import"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Import Tags",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/organizations/{org_name}/tags/validate": {
+      "post": {
+        "description": "Check a tag against the organization's rules",
+        "operationId": "validate_tag_api_tags_organizations__org_name__tags_validate_post",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Skip the 'already exists' check",
+            "in": "query",
+            "name": "for_update",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Skip the 'already exists' check",
+              "title": "For Update",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OCPPTag",
+                "description": "Tag to validate (nothing is stored)"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Validate Tag",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/organizations/{org_name}/tags/{id_tag}": {
+      "delete": {
+        "description": "Delete a tag",
+        "operationId": "delete_tag_api_tags_organizations__org_name__tags__id_tag__delete",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tag ID",
+            "in": "path",
+            "name": "id_tag",
+            "required": true,
+            "schema": {
+              "description": "Tag ID",
+              "title": "Id Tag",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Delete Tag",
+        "tags": [
+          "Tag Management"
+        ]
+      },
+      "get": {
+        "description": "Get a specific tag",
+        "operationId": "get_tag_api_tags_organizations__org_name__tags__id_tag__get",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tag ID",
+            "in": "path",
+            "name": "id_tag",
+            "required": true,
+            "schema": {
+              "description": "Tag ID",
+              "title": "Id Tag",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Tag",
+        "tags": [
+          "Tag Management"
+        ]
+      },
+      "put": {
+        "description": "Update an existing tag",
+        "operationId": "update_tag_api_tags_organizations__org_name__tags__id_tag__put",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org_name",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tag ID",
+            "in": "path",
+            "name": "id_tag",
+            "required": true,
+            "schema": {
+              "description": "Tag ID",
+              "title": "Id Tag",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OCPPTag",
+                "description": "Updated tag data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Update Tag",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/status": {
+      "get": {
+        "description": "Get tag management status",
+        "operationId": "tag_management_status_api_tags_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Tag Management Status",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/api/tags/sync": {
+      "post": {
+        "description": "Reload tags from MongoDB into the broker's cache.\n\nMongoDB is authoritative for any organization that has stored tags; an\norganization with none is seeded from memory (e.g. config.yaml tags).",
+        "operationId": "sync_tags_from_mongodb_api_tags_sync_post",
+        "parameters": [
+          {
+            "description": "Organization name (optional, syncs all if not provided)",
+            "in": "query",
+            "name": "org_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Organization name (optional, syncs all if not provided)",
+              "title": "Org Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Sync Tags From Mongodb",
+        "tags": [
+          "Tag Management"
+        ]
+      }
+    },
+    "/orgs/{org}/backends": {
+      "get": {
+        "operationId": "list_backends_orgs__org__backends_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "title": "Org",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Backends",
+        "tags": [
+          "Broker Management"
+        ]
+      }
+    }
+  }
+}

@@ -4,3 +4,6 @@ dist
 build
 **/__pycache__/*
 .env
+# the web console: built by `npm run build` in ui/ into the Python package
+ui/node_modules
+src/ocpp_broker/ui_dist

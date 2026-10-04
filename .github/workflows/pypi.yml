@@ -26,10 +26,56 @@ jobs:
         pip install -e ".[tests,lint]"
 
     - name: Ruff
-      run: ruff check src tests
+      run: ruff check src tests scripts
 
     - name: Mypy
       run: mypy
+
+  ui:
+    # The web console (ui/): checks, then the build that the wheel ships.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: ui/package-lock.json
+
+    - name: Install
+      run: npm ci
+
+    - name: ESLint
+      run: npm run lint
+
+    - name: Type check
+      run: npm run typecheck
+
+    - name: Unit tests
+      run: npm test
+
+    - name: Generated API types are current
+      # ui/openapi.json is checked against the broker by tests/test_openapi_contract.py;
+      # this checks that the TypeScript types were generated from it.
+      run: |
+        npm run api
+        git diff --exit-code -- src/api/schema.d.ts
+
+    - name: Build
+      run: npm run build
+
+    - name: Keep the build for the package
+      uses: actions/upload-artifact@v4
+      with:
+        name: ui-dist
+        path: src/ocpp_broker/ui_dist
+        retention-days: 1
 
   mongo-tests:
     # The transaction id store against a real MongoDB: index definitions, the TTL index
@@ -66,6 +112,7 @@ jobs:
       run: pytest tests/test_transaction_store_mongo.py -v --tb=short
 
   build-and-test:
+    needs: ui
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -73,6 +120,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Get the built web console
+      uses: actions/download-artifact@v4
+      with:
+        name: ui-dist
+        path: src/ocpp_broker/ui_dist
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -92,10 +145,20 @@ jobs:
         pip install twine
         twine check dist/*
 
+    - name: The wheel contains the web console
+      run: |
+        unzip -l dist/*.whl | grep -q 'ocpp_broker/ui_dist/index.html'
+        unzip -l dist/*.whl | grep -q 'ocpp_broker/ui_dist/assets/'
+
     - name: Install package and test dependencies
       run: |
         pip install dist/*.whl
         pip install .[tests]
+
+    - name: The installed package finds its web console
+      # from another directory, so the source tree is not what gets imported
+      working-directory: ${{ runner.temp }}
+      run: python -c "from ocpp_broker import ui; assert ui.ui_built(), ui.DIST_DIR"
 
     - name: Run tests
       run: |
@@ -109,13 +172,19 @@ jobs:
         retention-days: 1
 
   publish:
-    needs: [lint, build-and-test, mongo-tests]
+    needs: [lint, ui, build-and-test, mongo-tests]
     runs-on: ubuntu-latest
-    environment: default 
+    environment: default
     if: github.event_name == 'release'
-    
+
     steps:
     - uses: actions/checkout@v4
+
+    - name: Get the built web console
+      uses: actions/download-artifact@v4
+      with:
+        name: ui-dist
+        path: src/ocpp_broker/ui_dist
 
     - name: Set up Python
       uses: actions/setup-python@v5

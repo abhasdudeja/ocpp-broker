@@ -107,6 +107,7 @@ For complete documentation, see the [docs/](docs/README.md) directory:
 - [MongoDB Integration](docs/mongodb-integration.md)
 - [API Reference](docs/api-reference.md)
 - [Architecture Overview](docs/architecture.md)
+- [Web Console](docs/web-console.md) (the browser UI at `/ui`)
 - [Deployment](docs/deployment.md), [Monitoring](docs/monitoring.md), [Troubleshooting](docs/troubleshooting.md)
 
 ## Development

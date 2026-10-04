@@ -29,6 +29,7 @@ An OCPP 1.6 broker built on the upstream [`ocpp`](https://github.com/mobilityhou
 
 **Operations**
 - [Deployment](deployment.md)
+- [Web Console](web-console.md): the browser UI at `/ui`
 - [Monitoring & Logging](monitoring.md)
 - [Troubleshooting](troubleshooting.md)
 
@@ -40,7 +41,7 @@ The REST API also documents itself: with the broker running, open `http://localh
 
 ## At a glance
 
-- One port (`broker.port`, default 8765) serves the charger WebSocket (`ws://HOST:8765/{org}/{charger id}`), the REST API, `/health` and the Swagger UI.
+- One port (`broker.port`, default 8765) serves the charger WebSocket (`ws://HOST:8765/{org}/{charger id}`), the REST API, `/health`, the Swagger UI and the [web console](web-console.md) at `/ui`.
 - The REST API needs an API key (`OCPP_BROKER_API_KEY`); without one it answers `503`.
 - Chargers can be required to authenticate with HTTP Basic (OCPP security profile 1) per organization. There is no TLS in the broker itself; terminate TLS in a reverse proxy.
 - MongoDB is optional. Without it nothing is persisted and transaction ids are not durable.

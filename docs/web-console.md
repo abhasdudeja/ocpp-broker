@@ -17,6 +17,8 @@ What the sign-in does:
 
 ## The overview
 
+![The overview page: broker facts, organizations and recent events](images/console-overview.jpg)
+
 Figures from `GET /api/system/info`, refreshed every 10 seconds: broker version, instance id, uptime, organizations, chargers connected to **this instance** (sessions are per process), whether the API needs a key, whether MongoDB answers right now, and whether the console is built into this installation. It warns when the API accepts requests without a key, when MongoDB is configured but not answering, when MongoDB is not accepting writes (with how many records are waiting to be stored, see [Writes happen after the reply](mongodb-integration.md#writes-happen-after-the-reply)), and when records were dropped because too many were waiting. The MongoDB figure also says how many records are waiting to be written. If a refresh fails it keeps the last figures on screen and says so.
 
 The overview also lists **recent events** (see [Live updates](#live-updates)).
@@ -34,6 +36,8 @@ Search by charger id and filter by organization; both are kept in the address, s
 Below the table, **Not connected now** lists chargers this broker has seen before that are not connected to this instance (last seen, last boot, vendor and model), most recent first. It needs MongoDB, which remembers each charger when it connects, boots and disconnects (one small document per charger, never per message); without MongoDB the page says so. A charger that is connected to a *different* broker instance also appears here, because sessions are per process.
 
 ## A charger
+
+![A charger's page: the leader and the followers it is connected to, and the control to change the leader](images/console-charger.jpg)
 
 `/ui/chargers/{org}/{charger id}` (`GET /api/chargers/{org}/{charger_id}`, refreshed every 3 seconds):
 
@@ -54,6 +58,8 @@ If the charger is not connected to this instance the page says so and keeps chec
 
 ## History
 
+![A transaction in the history, with its meter readings drawn as a line](images/console-transaction.jpg)
+
 `/ui/history` (`GET /api/history/...`, see [MongoDB Integration](mongodb-integration.md#history)): what the broker recorded, newest first, in four tabs. Everything needs MongoDB; without it, or while it does not answer, the page says why instead of showing an empty table.
 
 - **Transactions:** the charger, connector and id tag, when it started, how long it ran, the energy (meter at the end minus meter at the start) and how it ended, or *running*. Each transaction opens its own page. Only transactions the broker answered itself are here (broker mode, a local leader); in relay mode the backend has them.
@@ -68,6 +74,8 @@ A transaction's page shows its facts and a chart of its meter readings, one meas
 A charger's page has a **Recent status changes** list from the history (left out when there is none), with a link to the full list.
 
 ## Admin
+
+![An organization's form in the Admin pages: its backends with the leader marked](images/console-admin.jpg)
 
 `/ui/admin` (the [admin API](admin.md)): add, change and remove organizations, their backends and the credentials their chargers use. It needs `admin.enabled: true` in the broker's configuration; without it the page says so and shows how to switch it on. Holding an API key is enough to change everything here.
 

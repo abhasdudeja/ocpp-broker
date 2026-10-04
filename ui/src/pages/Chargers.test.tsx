@@ -268,3 +268,43 @@ describe('chargers list', () => {
     expect(screen.getByText(/1[3-4]s ago/)).toBeInTheDocument()
   })
 })
+
+describe('a long list', () => {
+  const many = (count: number) => Array.from({ length: count }, (_, n) => charger({ charger_id: `CP-${String(n).padStart(3, '0')}` }))
+
+  it('shows a hundred chargers and reveals more on request', async () => {
+    mockApi({ '/api/orgs': [org()], '/api/chargers': list(...many(250)) })
+    await open()
+    await screen.findByRole('link', { name: 'CP-000' })
+    const rows = () => within(screen.getAllByRole('table')[0]!).getAllByRole('row').length - 1
+    expect(rows()).toBe(100)
+    expect(screen.getByText('250 chargers')).toBeInTheDocument()
+    expect(screen.getByText('150 not shown')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Show 100 more chargers' }))
+    expect(rows()).toBe(200)
+    await userEvent.click(screen.getByRole('button', { name: 'Show 50 more chargers' }))
+    expect(rows()).toBe(250)
+    expect(screen.queryByRole('button', { name: /more chargers/ })).not.toBeInTheDocument()
+  })
+
+  it('goes back to a hundred when the search changes', async () => {
+    mockApi({ '/api/orgs': [org()], '/api/chargers': list(...many(250)) })
+    await open()
+    await screen.findByRole('link', { name: 'CP-000' })
+    await userEvent.click(screen.getByRole('button', { name: 'Show 100 more chargers' }))
+    await userEvent.type(screen.getByLabelText('Search chargers'), 'CP')
+    await vi.waitFor(() => expect(within(screen.getAllByRole('table')[0]!).getAllByRole('row').length - 1).toBe(100))
+  })
+
+  it('does the same for the chargers that are not connected', async () => {
+    const gone = Array.from({ length: 150 }, (_, n) => ({ org: 'Fleet', charger_id: `OLD-${String(n).padStart(3, '0')}`, mode: 'relay', vendor: null, model: null, firmware_version: null, remote_address: null, last_connected_at: null, last_disconnected_at: null, last_seen_at: ago(60), last_boot_at: null }))
+    mockApi({ '/api/orgs': [org()], '/api/chargers': list(charger()), '/api/chargers/offline': { available: true, reason: null, chargers: gone, total: 150 } })
+    await open()
+    await screen.findByRole('heading', { name: 'Not connected now' })
+    expect(screen.getAllByRole('table')[1]!.querySelectorAll('tbody tr')).toHaveLength(100)
+    await userEvent.click(screen.getByRole('button', { name: 'Show 50 more chargers' }))
+    expect(screen.getAllByRole('table')[1]!.querySelectorAll('tbody tr')).toHaveLength(150)
+    await userEvent.type(screen.getByLabelText('Search chargers'), 'OLD')
+    await vi.waitFor(() => expect(screen.getAllByRole('table')[1]!.querySelectorAll('tbody tr')).toHaveLength(100))
+  })
+})

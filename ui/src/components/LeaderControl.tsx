@@ -35,7 +35,7 @@ export function LeaderControl({ org, chargerId, backends, onChanged }: { org: st
   }
 
   return (
-    <section aria-labelledby="leader-heading" className="card">
+    <section aria-labelledby="leader-heading" className="card spaced">
       <h2 id="leader-heading">Change the leader</h2>
       {done && <p role="status" className="banner ok">{done}</p>}
       {candidates.length > 0 && (

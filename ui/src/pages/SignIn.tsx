@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 
 import { useAuth } from '../auth'
+import { pageTitle } from '../pageTitle'
 
 export function SignIn() {
   const { key, signIn, notice } = useAuth()
@@ -9,6 +10,9 @@ export function SignIn() {
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    document.title = pageTitle('/signin')
+  }, [])
 
   if (key) {
     const from = (location.state as { from?: string } | null)?.from

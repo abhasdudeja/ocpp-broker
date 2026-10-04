@@ -18,6 +18,12 @@ describe('sign-in', () => {
     expect(screen.getByLabelText('API key')).toHaveAttribute('type', 'password')
   })
 
+  it('names the page for the browser tab', () => {
+    mockBroker()
+    renderApp('/signin')
+    expect(document.title).toBe('Sign in · OCPP Broker')
+  })
+
   it('asks for a key before it asks the broker anything', async () => {
     const fetch = mockBroker()
     renderApp('/signin')

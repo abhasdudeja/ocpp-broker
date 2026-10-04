@@ -889,3 +889,29 @@ button.danger {
 .table input[type='password'] {
   min-width: 140px;
 }
+
+/* ---- keyboard and screen readers ---- */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 10;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 8px;
+}
+
+.content:focus {
+  outline: none; /* it is focused by the program to move the reader; there is nothing to operate on it */
+}
+
+.card.spaced {
+  margin: 16px 0;
+}

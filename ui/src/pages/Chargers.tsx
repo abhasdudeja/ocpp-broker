@@ -6,7 +6,9 @@ import { useAuth } from '../auth'
 import { Chip, ConnectorStatus } from '../components/Chip'
 import { useRefreshOnEvents } from '../events'
 import { formatDateTime, formatRelative } from '../format'
+import { ShowMore } from '../components/ShowMore'
 import { useNow } from '../useNow'
+import { useShowMore } from '../useShowMore'
 import { usePolling } from '../usePolling'
 
 const REFRESH_MS = 5_000
@@ -126,6 +128,7 @@ export function Chargers() {
 
   const filtered = Boolean(org || q)
   const data = list.data
+  const rows = useShowMore(data?.chargers ?? [], `${org}|${q}`)
   return (
     <section>
       <header className="page-head">
@@ -195,22 +198,24 @@ export function Chargers() {
                 </tr>
               </thead>
               <tbody>
-                {data.chargers.map((charger) => (
+                {rows.visible.map((charger) => (
                   <Row key={`${charger.org}/${charger.charger_id}`} charger={charger} now={now} />
                 ))}
               </tbody>
             </table>
           </div>
+          <ShowMore hidden={rows.hidden} onClick={rows.showMore} noun="more chargers" />
         </>
       )}
 
-      <Offline result={offline.data} now={now} />
+      <Offline result={offline.data} now={now} resetKey={`${org}|${q}`} />
     </section>
   )
 }
 
 /** Chargers the broker has seen before (kept in MongoDB) that are not connected now. */
-function Offline({ result, now }: { result: OfflineChargerList | null; now: number }) {
+function Offline({ result, now, resetKey }: { result: OfflineChargerList | null; now: number; resetKey: string }) {
+  const rows = useShowMore(result?.chargers ?? [], resetKey)
   if (!result || typeof result.available !== 'boolean') return null
   return (
     <section aria-labelledby="offline-heading">
@@ -237,7 +242,7 @@ function Offline({ result, now }: { result: OfflineChargerList | null; now: numb
                 </tr>
               </thead>
               <tbody>
-                {result.chargers.map((c) => (
+                {rows.visible.map((c) => (
                   <tr key={`${c.org}/${c.charger_id}`}>
                     <th scope="row">
                       {c.charger_id}
@@ -252,6 +257,7 @@ function Offline({ result, now }: { result: OfflineChargerList | null; now: numb
               </tbody>
             </table>
           </div>
+          <ShowMore hidden={rows.hidden} onClick={rows.showMore} noun="more chargers" />
         </>
       )}
     </section>

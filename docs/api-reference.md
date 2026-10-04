@@ -115,15 +115,15 @@ One entry per configured organization:
     "name": "Fleet", "mode": "relay", "ocpp_version": "1.6",
     "charger_auth_required": true, "connected_chargers": 14,
     "backends": [
-      {"key": "lead", "url": "ws://primary.example.com/ocpp", "leader": true, "ocpp_subprotocol": "ocpp1.6"},
-      {"key": "follow", "url": "ws://standby.example.com/ocpp", "leader": false, "ocpp_subprotocol": "ocpp1.6"}
+      {"key": "lead", "url": "ws://primary.example.com/ocpp", "local": false, "leader": true, "ocpp_subprotocol": "ocpp1.6"},
+      {"key": "follow", "url": "ws://standby.example.com/ocpp", "local": false, "leader": false, "ocpp_subprotocol": "ocpp1.6"}
     ],
     "transaction_id_mapping": true
   }
 ]
 ```
 
-`mode` is `broker` or `relay`; `backends` is empty in broker mode; `leader` is the configured leader (a failover changes who leads a charger, see below). `key` is the backend's `id`, or its URL if it has none.
+`mode` is `broker` (the broker answers the chargers) or `relay` (a backend does). `backends` is empty in plain broker mode; with a [local leader](leader-follower.md#the-broker-as-the-leader-local-backend) the organization is `broker` mode and lists `{"key": "broker", "url": null, "local": true, "leader": true, ...}` followed by its followers. `leader` is the configured leader (a failover changes who leads a charger, see below). `key` is the backend's `id`, or its URL if it has none (`broker` for a local backend without an `id`).
 
 ```http
 GET /api/chargers?org=Fleet&q=cp

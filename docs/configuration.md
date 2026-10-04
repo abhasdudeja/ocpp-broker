@@ -95,6 +95,8 @@ organizations:
 - `url` is a base URL. For a charger `CP001` the broker connects to `{url}/CP001` (a trailing `/` on `url` is removed).
 - `leader: true` marks the backend that talks to the charger. If none is marked the first is used; if several are marked only the first counts (a warning is logged).
 - Every other backend is a **follower**: it receives a copy of the charger's requests and its replies are discarded.
+- `local: true` (instead of a `url`) makes one backend **this broker itself**, as the leader: the broker answers the charger like broker mode does and the other backends are followers. `id` is optional (`broker` by default), the entry cannot have a `url`, and it cannot be a follower. See [The broker as the leader](leader-follower.md#the-broker-as-the-leader-local-backend).
+- Every backend needs a `url` unless it is `local`; the file is refused otherwise.
 - Backends cannot be given credentials: the broker does not send an `Authorization` header to them.
 - A relay organization with an empty `backends` list fails each charger session with an error.
 

@@ -6,7 +6,7 @@ In broker mode the broker is the central system: chargers connect to it and it a
 Charger <--- WebSocket ---> Broker (central system)
 ```
 
-Compare relay mode (`connect_to_backend: true`), where the broker forwards frames to your own backends; see [Leader/Follower](leader-follower.md).
+Compare relay mode (`connect_to_backend: true`), where the broker forwards frames to your own backends; see [Leader/Follower](leader-follower.md). To answer the charger itself **and** copy everything it says to external backends, mark one backend `local: true` ([the broker as the leader](leader-follower.md#the-broker-as-the-leader-local-backend)); everything below applies to that case too.
 
 ## Configuration
 
@@ -67,7 +67,9 @@ Anything else a charger sends is answered with a CALLERROR: `NotImplemented` for
 
 - `StartTransaction` **always** gets a `transactionId`, even when the tag is not accepted. `idTagInfo.status` tells the charger whether to continue; per OCPP a charger must stop the transaction if it is not `Accepted`.
 - Transaction ids come from a per-organization counter in MongoDB (first id is 1, atomic, survives restarts). Without MongoDB the broker falls back to an in-memory counter seeded from the clock and logs a `TRANSACTION IDS ... ARE NOT DURABLE` warning once per organization. Those ids are only unique within the process and may collide with ids from before a restart.
-- The broker does not keep a table of open transactions and does not check that a `StopTransaction` refers to a transaction it started. A `StopTransaction` without an `idTag` is answered `idTagInfo: Invalid`.
+- A charger that did not get the answer to a `StartTransaction` sends it again. The broker recognises the retry by its four fixed facts (connector, tag, meter reading and timestamp) and answers with the **same transaction id**, with the tag judged again, and stores the transaction once. A different start is a new transaction.
+- The broker remembers, per charger, which transactions it numbered and which are open (up to 100 open and 200 finished ones, finished ones for 24 hours). A `StopTransaction` is **always answered**, since a central system cannot refuse one, but a repeated stop is recognised (answered again, stored once) and a stop for a transaction the broker did not start, or no longer remembers, is logged as a warning (and still stored). The meter readings sent with a stop (`transactionData`) are stored with the transaction (MongoDB field `transaction_data`, in the library's snake_case like other stored readings). The web console lists these transactions.
+- This memory is in the broker's process only: it survives a charger reconnecting but not a broker restart, after which a retried start gets a new id. A `StopTransaction` without an `idTag` is still answered `idTagInfo: Invalid`.
 - Reservations, smart-charging profiles and local-list contents are not tracked by the broker. They are sent to chargers on request (below).
 
 ## Commands from the broker to chargers

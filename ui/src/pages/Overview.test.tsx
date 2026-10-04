@@ -136,6 +136,37 @@ describe('overview', () => {
     expect(depot.queryByText('ids translated')).not.toBeInTheDocument()
   })
 
+  it('shows an organization whose broker is the leader, with the others as followers', async () => {
+    signedIn()
+    mockApi({
+      '/api/system/info': info(),
+      '/api/orgs': [
+        org({
+          name: 'Hybrid',
+          mode: 'broker',
+          backends: [
+            { key: 'broker', url: null, local: true, leader: true, ocpp_subprotocol: 'ocpp1.6' },
+            { key: 'mirror', url: 'ws://mirror.example.com/ocpp', local: false, leader: false, ocpp_subprotocol: 'ocpp1.6' },
+          ],
+        }),
+      ],
+    })
+    renderApp('/')
+    const row = within(await screen.findByRole('row', { name: /Hybrid/ }))
+    expect(row.getByText('broker', { selector: 'li', exact: false })).toBeInTheDocument()
+    expect(row.getByText('this broker', { selector: '.chip' })).toBeInTheDocument()
+    expect(row.getByText('leader')).toBeInTheDocument()
+    expect(row.getByText(/mirror/)).toHaveAttribute('title', 'ws://mirror.example.com/ocpp')
+    expect(row.getByText('ids translated')).toBeInTheDocument()
+  })
+
+  it('says "none" for a relay organization that lists no backends', async () => {
+    signedIn()
+    mockApi({ '/api/system/info': info(), '/api/orgs': [org({ name: 'Empty', backends: [] })] })
+    renderApp('/')
+    expect(within(await screen.findByRole('row', { name: /Empty/ })).getByText('none')).toBeInTheDocument()
+  })
+
   it('still shows the figures if the organizations answer is not a list', async () => {
     signedIn()
     mockApi({ '/api/system/info': info(), '/api/orgs': { unexpected: true } })

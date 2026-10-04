@@ -102,8 +102,8 @@ export function org(overrides: Partial<OrgSummary> = {}): OrgSummary {
     charger_auth_required: false,
     connected_chargers: 2,
     backends: [
-      { key: 'primary', url: 'ws://primary.example.com/ocpp', leader: true, ocpp_subprotocol: 'ocpp1.6' },
-      { key: 'standby', url: 'ws://standby.example.com/ocpp', leader: false, ocpp_subprotocol: 'ocpp1.6' },
+      { key: 'primary', url: 'ws://primary.example.com/ocpp', local: false, leader: true, ocpp_subprotocol: 'ocpp1.6' },
+      { key: 'standby', url: 'ws://standby.example.com/ocpp', local: false, leader: false, ocpp_subprotocol: 'ocpp1.6' },
     ],
     transaction_id_mapping: true,
     ...overrides,

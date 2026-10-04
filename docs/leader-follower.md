@@ -1,6 +1,6 @@
 # Leader-Follower Logic
 
-How the broker behaves when an organization has more than one backend. This applies to **relay mode** only (`connect_to_backend: true`, which is the default). In broker mode there are no backends.
+How the broker behaves when an organization has more than one backend. This applies to **relay mode** (`connect_to_backend: true`, which is the default), and to broker mode with **a local leader**: the broker itself as the leader and other backends as observers ([below](#the-broker-as-the-leader-local-backend)). In plain broker mode there are no backends.
 
 ## Overview
 
@@ -46,7 +46,8 @@ Keys the code reads for this feature:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `backends[].url` | required | WebSocket base URL. The charger id is appended: `ws://primary.example.com/ocpp/CP001`. A trailing `/` is stripped. |
+| `backends[].local` | `false` | `true` marks this broker itself as a backend: it answers the charger and every other backend is an observe-only follower. See [The broker as the leader](#the-broker-as-the-leader-local-backend). A local backend has no `url`. |
+| `backends[].url` | required (not for `local`) | WebSocket base URL. The charger id is appended: `ws://primary.example.com/ocpp/CP001`. A trailing `/` is stripped. |
 | `backends[].leader` | none | Marks the leader. |
 | `backends[].ocpp_subprotocol` | the org's `ocpp_subprotocol` (default `ocpp1.6`) | Subprotocol requested from that backend. |
 | `backends[].id` | the URL | Names the backend in the transaction id table and in log lines. Keep it stable and unique; if two backends share a name the second becomes `name#2`. |
@@ -125,6 +126,42 @@ A command from a backend that quotes an id the table does not know (for example 
 
 A transaction that finished is kept for `transaction_ids.retain_closed` seconds so a retried `StopTransaction` still maps. One that was never stopped is forgotten after `transaction_ids.retain_open` seconds without any frame for it. Once a charger has disconnected and nothing is left to remember, its table is dropped from memory (the stored copy stays until it expires).
 
+## The broker as the leader (local backend)
+
+Mark one backend `local: true` and **this broker is that backend**: it answers the charger itself, with all the behaviour of [broker mode](broker_as_backend.md) (its own tags, transaction ids, validation, and every standard OCPP 1.6 message in both directions), while the other backends receive copies of the charger's requests exactly as followers do in relay mode. It is the way to give a charger a complete central system of its own and still feed an external system (audit, analytics, a vendor platform) with everything the charger does.
+
+```yaml
+organizations:
+  - name: "Depot"
+    connect_to_backend: true          # the default
+    tags:
+      - id_tag: "ADMIN001"
+        status: "Accepted"
+    backends:
+      - id: broker                    # optional; "broker" is used if missing
+        local: true                   # this broker answers the charger
+      - id: analytics
+        url: ws://analytics.example.com/ocpp
+```
+
+```text
+                          +--> follower backend (copy of charger CALLs; replies discarded)
+charger <--> broker ------+
+ (answered by the broker) +--> follower backend (same)
+```
+
+What differs from relay mode:
+
+- The leader is never unreachable and has no outbox, and there is **no failover**: the broker does not hand the charger to a follower. `leader_failover_timeout`, `backend_buffer_size` and `backend_outage_timeout` have no effect.
+- The local backend is always the leader. A local backend marked `leader: false`, a second local backend, a `url` on a local backend, or `leader: true` on another entry is refused when the file is loaded, with a message saying why. A local backend alone behaves like broker mode.
+- The console and the API show the organization as `mode: broker` with a local leader and its followers; each charger lists `broker` (marked *this broker*) first, then the followers.
+- Transaction ids are translated per backend as in relay mode ([Transaction ids](#transaction-ids)): the charger holds the id the broker issued, and each follower is spoken to in the id it issued itself. `transaction_ids.mapping: false` sends the followers the charger's frames as they are instead. A retried `StartTransaction` is answered from the table and a follower is not given a second transaction.
+- **Commands** (`POST /api/ocpp/...`) work as in broker mode: the broker validates the payload (`422` if invalid), sends it and returns the charger's answer. They are not copied to followers, and neither are the charger's answers to them. A reservation or charging profile the broker sets is numbered like any other leader's ([Reservations and charging profiles](#reservations-and-charging-profiles)).
+- Followers receive copies only while their link is up and are never sent what came before they connected: connect the charger after the followers are reachable, or accept that a follower may miss the first messages (the same as in relay mode).
+- A follower that sends the charger a command is ignored, as in relay mode.
+
+Not available yet: a **local follower** (the broker taking over when an external leader fails, and handing back afterwards). It needs the broker to process every charger message silently so that it already knows the open transactions when it takes over; see `plans/local-leader.md`.
+
 ## Leader outage: store-and-forward
 
 Session start does not wait for backends. If the leader is not connected, frames from the charger go into a bounded outbox on the leader's connection and are flushed **in order** when the link returns.
@@ -179,7 +216,7 @@ Failover and outage events are in the log (`FAILOVER: leader ... unreachable, pr
 
 ## What does not exist
 
-There is no way to add or remove backends at runtime, no manual promotion endpoint, no configuration reload (restart to change the config), no health-check-driven election beyond the connection state described above, no weights or priorities, no comparison or voting between backend responses, and no metrics endpoint. Changing the leader means editing `config.yaml` and restarting, or letting failover choose.
+There is no local follower or automatic take-over by the broker itself, no way to add or remove backends at runtime, no manual promotion endpoint, no configuration reload (restart to change the config), no health-check-driven election beyond the connection state described above, no weights or priorities, no comparison or voting between backend responses, and no metrics endpoint. Changing the leader means editing `config.yaml` and restarting, or letting failover choose.
 
 ## Related Documentation
 

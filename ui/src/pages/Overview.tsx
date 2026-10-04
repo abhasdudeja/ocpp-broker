@@ -62,13 +62,15 @@ function Organizations({ orgs }: { orgs: OrgSummary[] }) {
                     )}
                   </td>
                   <td>
-                    {org.mode === 'broker' ? (
-                      <span className="muted">this broker</span>
+                    {org.backends.length === 0 ? (
+                      <span className="muted">{org.mode === 'broker' ? 'this broker' : 'none'}</span>
                     ) : (
                       <ul className="inline-list">
                         {org.backends.map((b) => (
-                          <li key={b.key} title={b.url}>
-                            {b.key} {b.leader && <Chip tone="info">leader</Chip>}
+                          <li key={b.key} title={b.url ?? 'This broker itself answers the charger'}>
+                            {b.key}{' '}
+                            {b.local && <Chip title="This broker itself: it answers the charger, the other backends only receive copies">this broker</Chip>}{' '}
+                            {b.leader && <Chip tone="info">leader</Chip>}
                           </li>
                         ))}
                         {org.transaction_id_mapping && (

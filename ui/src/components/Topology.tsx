@@ -28,12 +28,15 @@ function Link({ link }: { link: BackendLink }) {
 
 /** Charger, then the broker, then the backends it talks to for this charger: the leader first. */
 export function Topology({ chargerId, mode, backends }: { chargerId: string; mode: 'broker' | 'relay'; backends: BackendLink[] }) {
+  const followers = backends.filter((b) => b.role === 'follower')
+  const describe = (list: BackendLink[]) => list.map((b) => `${b.role} ${b.key} (${b.connected ? 'connected' : 'not connected'})`).join(' and ')
   const summary =
-    mode === 'broker'
-      ? `${chargerId} is connected to the broker, which answers it itself.`
-      : `${chargerId} is connected to the broker, which forwards to ${backends
-          .map((b) => `${b.role} ${b.key} (${b.connected ? 'connected' : 'not connected'})`)
-          .join(' and ')}.`
+    mode === 'relay'
+      ? `${chargerId} is connected to the broker, which forwards to ${describe(backends)}.`
+      : followers.length === 0
+        ? `${chargerId} is connected to the broker, which answers it itself.`
+        : `${chargerId} is connected to the broker, which answers it itself and sends copies to ${describe(followers)}.`
+  const role = mode === 'relay' ? 'relays and observes' : followers.length === 0 ? 'answers the charger' : 'answers and copies to followers'
   return (
     <figure className="topology" aria-label="How this charger is connected">
       <div className="node charger">
@@ -43,7 +46,7 @@ export function Topology({ chargerId, mode, backends }: { chargerId: string; mod
       <span className="arrow" aria-hidden="true" />
       <div className="node broker">
         <strong>Broker</strong>
-        <span className="muted small">{mode === 'broker' ? 'answers the charger' : 'relays and observes'}</span>
+        <span className="muted small">{role}</span>
       </div>
       <span className="arrow" aria-hidden="true" />
       <ul className="backends" aria-label="Backends">

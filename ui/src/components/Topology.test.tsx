@@ -58,6 +58,19 @@ describe('Topology', () => {
     expect(screen.getByText('answers the charger')).toBeInTheDocument()
   })
 
+  it('shows the broker as the leader with followers that only receive copies', () => {
+    const local = backendLink({ key: 'broker', url: null, local: true })
+    const { container } = render(<Topology chargerId="CP-001" mode="broker" backends={[local, follower]} />)
+    const backends = within(screen.getByRole('list', { name: 'Backends' }))
+    expect(backends.getAllByRole('listitem').map((li) => li.querySelector('strong')?.textContent)).toEqual(['broker', 'standby'])
+    expect(backends.getByText('this broker')).toBeInTheDocument()
+    expect(screen.getByText('answers and copies to followers')).toBeInTheDocument()
+    expect(screen.queryByText('answers the charger')).not.toBeInTheDocument()
+    expect(container.querySelector('figcaption')).toHaveTextContent(
+      'CP-001 is connected to the broker, which answers it itself and sends copies to follower standby (connected).',
+    )
+  })
+
   it('has a text description for people who cannot see the diagram', () => {
     const { container } = render(<Topology chargerId="CP-001" mode="relay" backends={[backendLink({ connected: false }), follower]} />)
     expect(container.querySelector('figcaption')).toHaveTextContent(

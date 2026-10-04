@@ -78,8 +78,8 @@ jobs:
         retention-days: 1
 
   mongo-tests:
-    # The transaction id store against a real MongoDB: index definitions, the TTL index
-    # and BSON round trips, which the in-memory fake used elsewhere cannot show.
+    # The transaction id store and the history queries against a real MongoDB: index definitions,
+    # TTL indexes, sorting and paging, and BSON round trips, which the in-memory fake used elsewhere cannot show.
     runs-on: ubuntu-latest
     services:
       mongo:
@@ -109,7 +109,7 @@ jobs:
         pip install -e ".[tests]"
 
     - name: Run the MongoDB tests
-      run: pytest tests/test_transaction_store_mongo.py -v --tb=short
+      run: pytest tests/test_transaction_store_mongo.py tests/test_history_mongo.py -v --tb=short
 
   build-and-test:
     needs: ui

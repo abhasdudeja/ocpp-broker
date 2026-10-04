@@ -1,75 +1,6 @@
 {
   "components": {
     "schemas": {
-      "AuthorizationRequest": {
-        "properties": {
-          "charger_id": {
-            "description": "Charger ID",
-            "title": "Charger Id",
-            "type": "string"
-          },
-          "expiry_date": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Expiry date",
-            "title": "Expiry Date"
-          },
-          "id_tag": {
-            "description": "ID tag",
-            "title": "Id Tag",
-            "type": "string"
-          },
-          "org_name": {
-            "description": "Organization name",
-            "title": "Org Name",
-            "type": "string"
-          },
-          "parent_id_tag": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Parent ID tag",
-            "title": "Parent Id Tag"
-          },
-          "status": {
-            "description": "Authorization status",
-            "title": "Status",
-            "type": "string"
-          },
-          "timestamp": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Timestamp (defaults to now)",
-            "title": "Timestamp"
-          }
-        },
-        "required": [
-          "org_name",
-          "charger_id",
-          "id_tag",
-          "status"
-        ],
-        "title": "AuthorizationRequest",
-        "type": "object"
-      },
       "BackendLink": {
         "description": "One backend as one charger's session sees it.",
         "properties": {
@@ -318,111 +249,6 @@
           "received_at"
         ],
         "title": "BootInfo",
-        "type": "object"
-      },
-      "BootNotificationRequest": {
-        "properties": {
-          "charge_point_model": {
-            "description": "Charger model",
-            "title": "Charge Point Model",
-            "type": "string"
-          },
-          "charge_point_vendor": {
-            "description": "Charger vendor",
-            "title": "Charge Point Vendor",
-            "type": "string"
-          },
-          "charger_id": {
-            "description": "Charger ID",
-            "title": "Charger Id",
-            "type": "string"
-          },
-          "firmware_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Firmware version",
-            "title": "Firmware Version"
-          },
-          "iccid": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "ICCID",
-            "title": "Iccid"
-          },
-          "imsi": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "IMSI",
-            "title": "Imsi"
-          },
-          "meter_serial_number": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Meter serial number",
-            "title": "Meter Serial Number"
-          },
-          "meter_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Meter type",
-            "title": "Meter Type"
-          },
-          "org_name": {
-            "description": "Organization name",
-            "title": "Org Name",
-            "type": "string"
-          },
-          "timestamp": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Timestamp (defaults to now)",
-            "title": "Timestamp"
-          }
-        },
-        "required": [
-          "org_name",
-          "charger_id",
-          "charge_point_model",
-          "charge_point_vendor"
-        ],
-        "title": "BootNotificationRequest",
         "type": "object"
       },
       "BulkTagItemResult": {
@@ -1142,6 +968,151 @@
         "title": "CommandLogEntry",
         "type": "object"
       },
+      "CommandPage": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CommandRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass it as `cursor` for the next (older) page; null on the last page",
+            "title": "Next Cursor"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "next_cursor",
+          "items"
+        ],
+        "title": "CommandPage",
+        "type": "object"
+      },
+      "CommandRecord": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "charger_id": {
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "org": {
+            "title": "Org",
+            "type": "string"
+          },
+          "payload": {
+            "description": "As sent, with secrets such as an AuthorizationKey replaced by ***",
+            "title": "Payload"
+          },
+          "response": {
+            "title": "Response"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          },
+          "status": {
+            "enum": [
+              "success",
+              "error",
+              "timeout",
+              "cancelled",
+              "pending"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org",
+          "charger_id",
+          "message_id",
+          "action",
+          "payload",
+          "status",
+          "response",
+          "error",
+          "sent_at",
+          "finished_at",
+          "duration_ms"
+        ],
+        "title": "CommandRecord",
+        "type": "object"
+      },
       "CommandSpecInfo": {
         "properties": {
           "action": {
@@ -1301,6 +1272,44 @@
         "title": "ConsoleEvent",
         "type": "object"
       },
+      "DataTransferRequest": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Data to transfer",
+            "title": "Data"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Message identifier",
+            "title": "Message Id"
+          },
+          "vendor_id": {
+            "description": "Vendor identifier",
+            "title": "Vendor Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vendor_id"
+        ],
+        "title": "DataTransferRequest",
+        "type": "object"
+      },
       "GetCompositeScheduleRequest": {
         "properties": {
           "charging_rate_unit": {
@@ -1429,6 +1438,211 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HistoryInfo": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Roughly how many records each collection holds",
+            "title": "Counts",
+            "type": "object"
+          },
+          "heartbeats_enabled": {
+            "description": "Heartbeats are recorded too, with the message log on",
+            "title": "Heartbeats Enabled",
+            "type": "boolean"
+          },
+          "messages_enabled": {
+            "description": "Every OCPP frame is being recorded (mongodb.history.messages)",
+            "title": "Messages Enabled",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why history is not available, when it is not",
+            "title": "Reason"
+          },
+          "retention_days": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Days each kind of record is kept; null: for ever",
+            "title": "Retention Days",
+            "type": "object"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "messages_enabled",
+          "heartbeats_enabled",
+          "retention_days",
+          "counts"
+        ],
+        "title": "HistoryInfo",
+        "type": "object"
+      },
+      "HistoryTransaction": {
+        "properties": {
+          "charger_id": {
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "connector_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Id"
+          },
+          "energy_wh": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "meter_stop - meter_start, when both are known",
+            "title": "Energy Wh"
+          },
+          "id_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Tag"
+          },
+          "meter_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wh",
+            "title": "Meter Start"
+          },
+          "meter_stop": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wh",
+            "title": "Meter Stop"
+          },
+          "open": {
+            "description": "No stop has been recorded",
+            "title": "Open",
+            "type": "boolean"
+          },
+          "org": {
+            "title": "Org",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "stop_id_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Id Tag"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "stopped_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stopped At"
+          },
+          "transaction_id": {
+            "title": "Transaction Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "org",
+          "charger_id",
+          "transaction_id",
+          "connector_id",
+          "id_tag",
+          "started_at",
+          "stopped_at",
+          "meter_start",
+          "meter_stop",
+          "energy_wh",
+          "stop_reason",
+          "stop_id_tag",
+          "open"
+        ],
+        "title": "HistoryTransaction",
+        "type": "object"
+      },
       "IdObject": {
         "description": "A reservation or charging profile the charger holds.",
         "properties": {
@@ -1466,31 +1680,144 @@
         "title": "IdObject",
         "type": "object"
       },
-      "MeterValuesRequest": {
+      "MessageError": {
         "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "required": [
+          "code",
+          "description"
+        ],
+        "title": "MessageError",
+        "type": "object"
+      },
+      "MessagePage": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MessageRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass it as `cursor` for the next (older) page; null on the last page",
+            "title": "Next Cursor"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "next_cursor",
+          "items"
+        ],
+        "title": "MessagePage",
+        "type": "object"
+      },
+      "MessageRecord": {
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a reply whose request was not seen (for example after a restart)",
+            "title": "Action"
+          },
           "charger_id": {
-            "description": "Charger ID",
             "title": "Charger Id",
             "type": "string"
           },
-          "connector_id": {
-            "description": "Connector ID",
-            "title": "Connector Id",
-            "type": "integer"
-          },
-          "meter_value": {
-            "description": "List of meter value readings",
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Meter Value",
-            "type": "array"
-          },
-          "org_name": {
-            "description": "Organization name",
-            "title": "Org Name",
+          "direction": {
+            "description": "in: from the charger; out: to it",
+            "enum": [
+              "in",
+              "out"
+            ],
+            "title": "Direction",
             "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "org": {
+            "title": "Org",
+            "type": "string"
+          },
+          "payload": {
+            "description": "Null when it was too large to keep (see `truncated`)",
+            "title": "Payload"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Size in bytes of a payload that was not kept",
+            "title": "Size"
           },
           "timestamp": {
             "anyOf": [
@@ -1502,7 +1829,110 @@
                 "type": "null"
               }
             ],
-            "description": "Timestamp (defaults to now)",
+            "title": "Timestamp"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "type": {
+            "enum": [
+              "call",
+              "result",
+              "error"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org",
+          "charger_id",
+          "direction",
+          "type",
+          "action",
+          "message_id",
+          "payload",
+          "error",
+          "truncated",
+          "size",
+          "timestamp"
+        ],
+        "title": "MessageRecord",
+        "type": "object"
+      },
+      "MeterReading": {
+        "properties": {
+          "connector_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Id"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "measurand": {
+            "title": "Measurand",
+            "type": "string"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "raw_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Value"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the meter was read (the charger's time), as the charger sent it",
             "title": "Timestamp"
           },
           "transaction_id": {
@@ -1514,17 +1944,84 @@
                 "type": "null"
               }
             ],
-            "description": "Transaction ID",
             "title": "Transaction Id"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the charger sent something that is not a number",
+            "title": "Value"
           }
         },
         "required": [
-          "org_name",
-          "charger_id",
+          "timestamp",
           "connector_id",
-          "meter_value"
+          "transaction_id",
+          "measurand",
+          "phase",
+          "unit",
+          "context",
+          "location",
+          "value",
+          "raw_value"
         ],
-        "title": "MeterValuesRequest",
+        "title": "MeterReading",
+        "type": "object"
+      },
+      "MeterReadingPage": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MeterReading"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass it as `cursor` for the next (older) page; null on the last page",
+            "title": "Next Cursor"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "next_cursor",
+          "items"
+        ],
+        "title": "MeterReadingPage",
         "type": "object"
       },
       "MongoInfo": {
@@ -1629,76 +2126,6 @@
           "payload"
         ],
         "title": "OCPPCommandRequest",
-        "type": "object"
-      },
-      "OCPPMessageRequest": {
-        "properties": {
-          "action": {
-            "description": "OCPP action name",
-            "title": "Action",
-            "type": "string"
-          },
-          "charger_id": {
-            "description": "Charger ID",
-            "title": "Charger Id",
-            "type": "string"
-          },
-          "direction": {
-            "default": "charger_to_broker",
-            "description": "Message direction",
-            "title": "Direction",
-            "type": "string"
-          },
-          "message_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Message ID",
-            "title": "Message Id"
-          },
-          "message_type": {
-            "description": "Message type: 'call', 'call_result', 'call_error'",
-            "title": "Message Type",
-            "type": "string"
-          },
-          "org_name": {
-            "description": "Organization name",
-            "title": "Org Name",
-            "type": "string"
-          },
-          "payload": {
-            "additionalProperties": true,
-            "description": "Message payload",
-            "title": "Payload",
-            "type": "object"
-          },
-          "timestamp": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Timestamp (defaults to now)",
-            "title": "Timestamp"
-          }
-        },
-        "required": [
-          "org_name",
-          "charger_id",
-          "message_type",
-          "action",
-          "payload"
-        ],
-        "title": "OCPPMessageRequest",
         "type": "object"
       },
       "OCPPTag": {
@@ -2267,17 +2694,68 @@
         "title": "SetChargingProfileRequest",
         "type": "object"
       },
-      "StatusNotificationRequest": {
+      "StatusPage": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StatusRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass it as `cursor` for the next (older) page; null on the last page",
+            "title": "Next Cursor"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "next_cursor",
+          "items"
+        ],
+        "title": "StatusPage",
+        "type": "object"
+      },
+      "StatusRecord": {
         "properties": {
           "charger_id": {
-            "description": "Charger ID",
             "title": "Charger Id",
             "type": "string"
           },
           "connector_id": {
-            "description": "Connector ID",
-            "title": "Connector Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Id"
           },
           "error_code": {
             "anyOf": [
@@ -2288,7 +2766,6 @@
                 "type": "null"
               }
             ],
-            "description": "Error code",
             "title": "Error Code"
           },
           "info": {
@@ -2300,16 +2777,13 @@
                 "type": "null"
               }
             ],
-            "description": "Info message",
             "title": "Info"
           },
-          "org_name": {
-            "description": "Organization name",
-            "title": "Org Name",
+          "org": {
+            "title": "Org",
             "type": "string"
           },
           "status": {
-            "description": "Status (Available, Preparing, Charging, etc.)",
             "title": "Status",
             "type": "string"
           },
@@ -2323,7 +2797,6 @@
                 "type": "null"
               }
             ],
-            "description": "Timestamp (defaults to now)",
             "title": "Timestamp"
           },
           "vendor_error_code": {
@@ -2335,7 +2808,6 @@
                 "type": "null"
               }
             ],
-            "description": "Vendor error code",
             "title": "Vendor Error Code"
           },
           "vendor_id": {
@@ -2347,17 +2819,21 @@
                 "type": "null"
               }
             ],
-            "description": "Vendor ID",
             "title": "Vendor Id"
           }
         },
         "required": [
-          "org_name",
+          "org",
           "charger_id",
           "connector_id",
-          "status"
+          "status",
+          "error_code",
+          "info",
+          "vendor_id",
+          "vendor_error_code",
+          "timestamp"
         ],
-        "title": "StatusNotificationRequest",
+        "title": "StatusRecord",
         "type": "object"
       },
       "SystemInfo": {
@@ -2815,65 +3291,26 @@
         "title": "TagValidationResult",
         "type": "object"
       },
-      "TransactionRequest": {
+      "TransactionDetail": {
         "properties": {
-          "charger_id": {
-            "description": "Charger ID",
-            "title": "Charger Id",
-            "type": "string"
+          "available": {
+            "title": "Available",
+            "type": "boolean"
           },
-          "connector_id": {
-            "description": "Connector ID",
-            "title": "Connector Id",
-            "type": "integer"
+          "readings": {
+            "description": "Oldest first",
+            "items": {
+              "$ref": "#/components/schemas/MeterReading"
+            },
+            "title": "Readings",
+            "type": "array"
           },
-          "id_tag": {
-            "description": "ID tag",
-            "title": "Id Tag",
-            "type": "string"
+          "readings_truncated": {
+            "description": "There are more readings than were returned",
+            "title": "Readings Truncated",
+            "type": "boolean"
           },
-          "meter_start": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Meter start value (start only)",
-            "title": "Meter Start"
-          },
-          "meter_stop": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Meter stop value (stop only)",
-            "title": "Meter Stop"
-          },
-          "org_name": {
-            "description": "Organization name",
-            "title": "Org Name",
-            "type": "string"
-          },
-          "reservation_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Reservation ID",
-            "title": "Reservation Id"
-          },
-          "stop_reason": {
+          "reason": {
             "anyOf": [
               {
                 "type": "string"
@@ -2882,42 +3319,73 @@
                 "type": "null"
               }
             ],
-            "description": "StopTransaction reason (stop only)",
-            "title": "Stop Reason"
+            "title": "Reason"
           },
-          "timestamp": {
+          "transaction": {
             "anyOf": [
               {
-                "format": "date-time",
-                "type": "string"
+                "$ref": "#/components/schemas/HistoryTransaction"
               },
               {
                 "type": "null"
               }
-            ],
-            "description": "Timestamp (defaults to now)",
-            "title": "Timestamp"
-          },
-          "transaction_id": {
-            "description": "Transaction ID",
-            "title": "Transaction Id",
-            "type": "integer"
-          },
-          "transaction_type": {
-            "default": "start",
-            "description": "Transaction type: 'start' or 'stop'",
-            "title": "Transaction Type",
-            "type": "string"
+            ]
           }
         },
         "required": [
-          "org_name",
-          "charger_id",
-          "transaction_id",
-          "connector_id",
-          "id_tag"
+          "available",
+          "reason",
+          "transaction",
+          "readings",
+          "readings_truncated"
         ],
-        "title": "TransactionRequest",
+        "title": "TransactionDetail",
+        "type": "object"
+      },
+      "TransactionPage": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryTransaction"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass it as `cursor` for the next (older) page; null on the last page",
+            "title": "Next Cursor"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "next_cursor",
+          "items"
+        ],
+        "title": "TransactionPage",
         "type": "object"
       },
       "TransactionRow": {
@@ -3088,119 +3556,6 @@
           "type"
         ],
         "title": "ValidationError",
-        "type": "object"
-      },
-      "ocpp_broker__api_server__DataTransferRequest": {
-        "properties": {
-          "data": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Data to transfer",
-            "title": "Data"
-          },
-          "message_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Message identifier",
-            "title": "Message Id"
-          },
-          "vendor_id": {
-            "description": "Vendor identifier",
-            "title": "Vendor Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "vendor_id"
-        ],
-        "title": "DataTransferRequest",
-        "type": "object"
-      },
-      "ocpp_broker__mongodb_service__DataTransferRequest": {
-        "properties": {
-          "charger_id": {
-            "description": "Charger ID",
-            "title": "Charger Id",
-            "type": "string"
-          },
-          "data": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Data payload",
-            "title": "Data"
-          },
-          "message_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Message ID",
-            "title": "Message Id"
-          },
-          "org_name": {
-            "description": "Organization name",
-            "title": "Org Name",
-            "type": "string"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Status response",
-            "title": "Status"
-          },
-          "timestamp": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Timestamp (defaults to now)",
-            "title": "Timestamp"
-          },
-          "vendor_id": {
-            "description": "Vendor ID",
-            "title": "Vendor Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "org_name",
-          "charger_id",
-          "vendor_id"
-        ],
-        "title": "DataTransferRequest",
         "type": "object"
       }
     },
@@ -3639,25 +3994,148 @@
         ]
       }
     },
-    "/api/mongodb/authorization": {
-      "post": {
-        "description": "Save Authorization to MongoDB.",
-        "operationId": "save_authorization_api_mongodb_authorization_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AuthorizationRequest"
-              }
+    "/api/history/commands": {
+      "get": {
+        "description": "Commands sent through the API or the console, newest first, with the outcome.",
+        "operationId": "commands_api_history_commands_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org"
             }
           },
-          "required": true
-        },
+          {
+            "in": "query",
+            "name": "charger_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Charger Id"
+            }
+          },
+          {
+            "description": "For example Reset",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "For example Reset",
+              "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(success|error|timeout|cancelled|pending)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CommandPage"
+                }
               }
             },
             "description": "Successful Response"
@@ -3678,44 +4156,26 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Save Authorization to MongoDB",
+        "summary": "Commands",
         "tags": [
-          "MongoDB OCPP Data"
+          "History"
         ]
       }
     },
-    "/api/mongodb/boot-notification": {
-      "post": {
-        "description": "Save BootNotification to MongoDB.",
-        "operationId": "save_boot_notification_api_mongodb_boot_notification_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BootNotificationRequest"
-              }
-            }
-          },
-          "required": true
-        },
+    "/api/history/info": {
+      "get": {
+        "description": "Whether history is available, what is being recorded and for how long it is kept.",
+        "operationId": "info_api_history_info_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/HistoryInfo"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Successful Response"
           }
         },
         "security": [
@@ -3723,31 +4183,172 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Save BootNotification to MongoDB",
+        "summary": "Info",
         "tags": [
-          "MongoDB OCPP Data"
+          "History"
         ]
       }
     },
-    "/api/mongodb/data-transfer": {
-      "post": {
-        "description": "Save DataTransfer to MongoDB.",
-        "operationId": "save_data_transfer_api_mongodb_data_transfer_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ocpp_broker__mongodb_service__DataTransferRequest"
-              }
+    "/api/history/messages": {
+      "get": {
+        "description": "The OCPP frames to and from chargers, newest first. Empty unless `mongodb.history.messages` is on\n(see `GET /api/history/info`). Payloads are stored as sent: they can hold id tags.",
+        "operationId": "messages_api_history_messages_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org"
             }
           },
-          "required": true
-        },
+          {
+            "in": "query",
+            "name": "charger_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Charger Id"
+            }
+          },
+          {
+            "description": "For example StatusNotification (replies carry the action they answer)",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "For example StatusNotification (replies carry the action they answer)",
+              "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(in|out)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Direction"
+            }
+          },
+          {
+            "description": "A request and its reply share an id",
+            "in": "query",
+            "name": "message_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A request and its reply share an id",
+              "title": "Message Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MessagePage"
+                }
               }
             },
             "description": "Successful Response"
@@ -3768,9 +4369,603 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Save DataTransfer to MongoDB",
+        "summary": "Messages",
         "tags": [
-          "MongoDB OCPP Data"
+          "History"
+        ]
+      }
+    },
+    "/api/history/meter-values": {
+      "get": {
+        "description": "Meter readings, one row per measured value, newest message first.",
+        "operationId": "meter_values_api_history_meter_values_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org"
+            }
+          },
+          {
+            "in": "query",
+            "name": "charger_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Charger Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "transaction_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Transaction Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connector_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Connector Id"
+            }
+          },
+          {
+            "description": "Only this measurand, for example Power.Active.Import",
+            "in": "query",
+            "name": "measurand",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this measurand, for example Power.Active.Import",
+              "title": "Measurand"
+            }
+          },
+          {
+            "description": "Received at or after this time",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Received at or after this time",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "Received before this time",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Received before this time",
+              "title": "Until"
+            }
+          },
+          {
+            "description": "MeterValues messages per page; each holds several readings",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "MeterValues messages per page; each holds several readings",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeterReadingPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Meter Values",
+        "tags": [
+          "History"
+        ]
+      }
+    },
+    "/api/history/statuses": {
+      "get": {
+        "description": "Connector status changes, newest first (the charger's own timestamp when it gave one).",
+        "operationId": "statuses_api_history_statuses_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org"
+            }
+          },
+          {
+            "in": "query",
+            "name": "charger_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Charger Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connector_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Connector Id"
+            }
+          },
+          {
+            "description": "For example Charging or Faulted",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "For example Charging or Faulted",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Statuses",
+        "tags": [
+          "History"
+        ]
+      }
+    },
+    "/api/history/transactions": {
+      "get": {
+        "description": "Charging sessions, newest first. Recorded when the broker answers the charger (broker mode, local leader).",
+        "operationId": "transactions_api_history_transactions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org"
+            }
+          },
+          {
+            "in": "query",
+            "name": "charger_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Charger Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "id_tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Id Tag"
+            }
+          },
+          {
+            "description": "Only transactions still running, or only ended ones",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(open|closed)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only transactions still running, or only ended ones",
+              "title": "State"
+            }
+          },
+          {
+            "description": "Started at or after this time (ISO 8601; no zone means UTC)",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Started at or after this time (ISO 8601; no zone means UTC)",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "Started before this time",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Started before this time",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Transactions",
+        "tags": [
+          "History"
+        ]
+      }
+    },
+    "/api/history/transactions/{org}/{charger_id}/{transaction_id}": {
+      "get": {
+        "description": "One transaction and the meter readings recorded for it, oldest first.",
+        "operationId": "transaction_api_history_transactions__org___charger_id___transaction_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "title": "Org",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "title": "Charger Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Transaction",
+        "tags": [
+          "History"
         ]
       }
     },
@@ -3794,186 +4989,6 @@
           }
         ],
         "summary": "Check MongoDB connection status",
-        "tags": [
-          "MongoDB OCPP Data"
-        ]
-      }
-    },
-    "/api/mongodb/meter-values": {
-      "post": {
-        "description": "Save MeterValues to MongoDB.",
-        "operationId": "save_meter_values_api_mongodb_meter_values_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MeterValuesRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Save MeterValues to MongoDB",
-        "tags": [
-          "MongoDB OCPP Data"
-        ]
-      }
-    },
-    "/api/mongodb/ocpp-message": {
-      "post": {
-        "description": "Save a generic OCPP message to MongoDB.",
-        "operationId": "save_ocpp_message_api_mongodb_ocpp_message_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OCPPMessageRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Save generic OCPP message to MongoDB",
-        "tags": [
-          "MongoDB OCPP Data"
-        ]
-      }
-    },
-    "/api/mongodb/status-notification": {
-      "post": {
-        "description": "Save a StatusNotification to MongoDB.",
-        "operationId": "save_status_notification_api_mongodb_status_notification_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StatusNotificationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Save StatusNotification to MongoDB",
-        "tags": [
-          "MongoDB OCPP Data"
-        ]
-      }
-    },
-    "/api/mongodb/transaction": {
-      "post": {
-        "description": "Save StartTransaction or StopTransaction to MongoDB.",
-        "operationId": "save_transaction_api_mongodb_transaction_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TransactionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Save Transaction to MongoDB",
         "tags": [
           "MongoDB OCPP Data"
         ]
@@ -4543,7 +5558,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ocpp_broker__api_server__DataTransferRequest",
+                "$ref": "#/components/schemas/DataTransferRequest",
                 "description": "Data transfer request"
               }
             }

@@ -528,20 +528,29 @@ Errors: non-printable id, duplicate, unreadable `expiry_date`, missing or self-r
 
 **Sync.** With MongoDB enabled, `POST /api/tags/sync` reloads tags and answers `{"success": true, "message": "...", "organizations": {"orgA": {"loaded": 3, "seeded": 0, "dropped": 0}}}`. See [Tag Management](tag-management.md#syncing-with-mongodb). Without MongoDB: `503` `{"detail": "MongoDB is not connected"}`.
 
-## MongoDB data API (`/api/mongodb`)
+## History (`/api/history`)
 
-These routes let an external system write OCPP records into the broker's MongoDB database. Every route returns `503` `{"detail": "MongoDB service not available"}` when MongoDB is not connected, and `{"status": "success", "message": "..."}` otherwise. See [MongoDB Integration](mongodb-integration.md).
+What the broker recorded in MongoDB (see [MongoDB Integration](mongodb-integration.md#history)). Read-only: nothing can be written to history over REST (earlier versions had `POST /api/mongodb/...` routes for that; they were removed so records can be trusted).
 
-| Route | Required fields (all take `org_name`, `charger_id`, optional `timestamp`) |
-|-------|------------------------------------|
-| `POST /status-notification` | `connector_id`, `status`; optional `error_code`, `info`, `vendor_id`, `vendor_error_code` |
-| `POST /meter-values` | `connector_id`, `meter_value` (list of objects); optional `transaction_id` |
-| `POST /boot-notification` | `charge_point_model`, `charge_point_vendor`; optional `firmware_version`, `iccid`, `imsi`, `meter_type`, `meter_serial_number` |
-| `POST /transaction` | `transaction_id`, `connector_id`, `id_tag`, `transaction_type` (`start` or `stop`, default `start`); optional `meter_start`, `meter_stop`, `stop_reason`, `reservation_id` |
-| `POST /authorization` | `id_tag`, `status`; optional `expiry_date`, `parent_id_tag` |
-| `POST /data-transfer` | `vendor_id`; optional `message_id`, `data`, `status` |
-| `POST /ocpp-message` | `message_type` (`call`, `call_result`, `call_error`), `action`, `payload`; optional `direction`, `message_id` |
-| `GET /health` | see [Health](#health) |
+Every list is **newest first** and answers
+
+```json
+{"available": true, "reason": null, "next_cursor": "WyIyMDI2LTEwLTA0VDEw...", "items": [ ... ]}
+```
+
+`next_cursor` is passed back as `cursor` to get the next page (`null` on the last page); `limit` is 1 to 500 (default 100). Times are ISO 8601 in UTC; `since` is inclusive, `until` exclusive, and a time without a zone means UTC. When MongoDB is not configured, not connected or not answering the list is empty with `available: false` and a `reason`. A cursor that is not one of ours is `422`.
+
+| Route | Filters | Items |
+|-------|---------|-------|
+| `GET /api/history/info` | | `available`, `reason`, `messages_enabled`, `heartbeats_enabled`, `retention_days`, `counts` (records per collection, roughly) |
+| `GET /api/history/transactions` | `org`, `charger_id`, `id_tag`, `state` (`open`, `closed`), `since`, `until` (the start time) | `org`, `charger_id`, `transaction_id`, `connector_id`, `id_tag`, `started_at`, `stopped_at`, `meter_start`, `meter_stop`, `energy_wh` (stop minus start), `stop_reason`, `stop_id_tag`, `open` |
+| `GET /api/history/transactions/{org}/{charger_id}/{transaction_id}` | | `{available, reason, transaction, readings, readings_truncated}`; the readings oldest first; `404` if there is no such transaction |
+| `GET /api/history/meter-values` | `org`, `charger_id`, `transaction_id`, `connector_id`, `measurand`, `since`, `until`; `limit` counts MeterValues messages | one row per sampled value: `timestamp`, `connector_id`, `transaction_id`, `measurand`, `phase`, `unit`, `context`, `location`, `value` (a number, `null` if the charger sent text), `raw_value` |
+| `GET /api/history/statuses` | `org`, `charger_id`, `connector_id`, `status`, `since`, `until` | `org`, `charger_id`, `connector_id`, `status`, `error_code`, `info`, `vendor_id`, `vendor_error_code`, `timestamp` |
+| `GET /api/history/commands` | `org`, `charger_id`, `action`, `status`, `since`, `until` | `org`, `charger_id`, `message_id`, `action`, `payload` (secrets `***`), `status`, `response`, `error`, `sent_at`, `finished_at`, `duration_ms` |
+| `GET /api/history/messages` | `org`, `charger_id`, `action`, `direction` (`in`, `out`), `message_id`, `since`, `until` | `org`, `charger_id`, `direction`, `type` (`call`, `result`, `error`), `action`, `message_id`, `payload`, `error` (`code`, `description`), `truncated`, `size`, `timestamp`. Empty unless `mongodb.history.messages` is on. |
+
+The transactions and meter readings are the ones the broker stored itself (broker mode, local leader); in relay mode the backend has them. `GET /api/mongodb/health` (see [Health](#health)) is the only route left under `/api/mongodb`.
 
 ## Backends (`/orgs`)
 

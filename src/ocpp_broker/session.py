@@ -19,6 +19,7 @@ from .sockets import locked_send
 from .charge_point import BrokerChargePoint, StarletteWebSocketAdapter
 from .charger_state import ChargerState, remote_address
 from .commands import LOG_SIZE, CommandEntry
+from .history import MessageLabels, message_document
 from .local_backend import LocalBackend
 from .transaction_ids import TransactionIdTable, backend_keys, leader_index, local_index
 
@@ -103,6 +104,8 @@ class ChargerSession:
         # Owned by the broker so it outlives this socket; see transaction_ids.py.
         self._ids: Optional[TransactionIdTable] = None
         self._hold_timer: Optional[asyncio.TimerHandle] = None
+        # Names the action a reply answers, for the message log (history.py)
+        self._labels = MessageLabels()
 
     def publish(self, type: str, **data: Any) -> None:
         """Tell the live event stream something happened to this charger (a no-op without an event bus)."""
@@ -110,10 +113,35 @@ class ChargerSession:
         if events is not None:
             events.publish(type, self.org_name, self.charger_id, **data)
 
+    def _record_frame(self, direction: str, raw: str) -> None:
+        """Keep a frame in the message log, when that is switched on (``mongodb.history.messages``)."""
+        config = getattr(self.broker, "history", None)
+        if config is None or not config.messages:
+            return
+        document = message_document(self.org_name, self.charger_id, direction, raw, self._labels, config)
+        if document is not None:
+            self.broker.write_history("save_message", **document)
+
+    def _note_outbound(self, message: str) -> None:
+        """A frame went to the charger."""
+        self.state.note_sent()
+        self._record_frame("out", message)
+
     def _observe(self, raw: str) -> None:
         """Note a frame from the charger in its state, and publish what it changed."""
+        self._record_frame("in", raw)
         for kind, data in self.state.observe(raw):
             self.publish(kind, **data)
+            if kind == "charger.status" and self.mode is SessionMode.RELAY and self.local_key is None:
+                # A backend answers in relay mode, so no handler here stores the status
+                connector = self.state.connectors.get(data["connector_id"])
+                writer = getattr(self.broker, "write_history", None)
+                if connector is not None and writer is not None:
+                    writer(
+                        "save_status_notification", self.org_name, self.charger_id,
+                        connector_id=connector.connector_id, status=connector.status,
+                        error_code=connector.error_code, info=connector.info, timestamp=connector.updated_at,
+                    )
             if kind == "charger.boot" and self.state.boot is not None:
                 note = getattr(self.broker, "note_presence", None)
                 if note is not None:
@@ -205,7 +233,7 @@ class ChargerSession:
         """Write one frame to the charger; any failure surfaces as ConnectionError."""
         try:
             await locked_send(self._send_lock, self.websocket.send_text, message)
-            self.state.note_sent()
+            self._note_outbound(message)
         except asyncio.TimeoutError as exc:
             logger.error("Charger %s did not accept a frame in time; dropping the connection", self.charger_id)
             try:
@@ -633,7 +661,7 @@ class ChargerSession:
             self.websocket,
             send_lock=self._send_lock,
             on_receive=self._observe,
-            on_send=self.state.note_sent,
+            on_send=self._note_outbound,
         )
         self.charge_point = BrokerChargePoint(
             charge_point_id=self.charger_id,
@@ -642,8 +670,6 @@ class ChargerSession:
             org_name=self.org_name,
             response_timeout=COMMAND_MAX_TIMEOUT,
         )
-        # Store reference to charge_point in adapter for MongoDB saving
-        adapter._charge_point = self.charge_point
         try:
             await self.charge_point.start()
         except WebSocketDisconnect:

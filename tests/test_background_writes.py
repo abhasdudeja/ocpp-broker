@@ -11,6 +11,7 @@ import pytest
 
 from ocpp_broker import broker as broker_module
 from ocpp_broker import server
+from ocpp_broker.history import HistoryConfig
 from ocpp_broker.write_behind import WriteBehind
 
 from .fakes import AUTH_HEADERS, BOOT_PAYLOAD, ScriptedBackend, ScriptedCharger
@@ -216,10 +217,12 @@ async def test_a_burst_of_heartbeats_is_stored_once_per_charger_not_once_each(ru
 
 @pytest.mark.asyncio
 async def test_a_slow_database_does_not_hold_up_what_a_relay_backend_sends_to_the_charger(run_server, monkeypatch):
+    """With the message log on, every frame is a write of its own; none of them is waited for."""
     mongo = SlowMongo(delay=1.0)
     monkeypatch.setattr(server.broker, "mongodb_service", mongo, raising=False)
     backend = await ScriptedBackend().start()
     port = await run_server({"organizations": [{"name": "Fleet", "connect_to_backend": True, "backends": [{"id": "lead", "url": backend.url, "leader": True}]}]})
+    monkeypatch.setattr(server.broker, "history", HistoryConfig(messages=True))
     charger = await ScriptedCharger.connect(port, "Fleet", "CP1")
     try:
         for _ in range(100):
@@ -231,7 +234,7 @@ async def test_a_slow_database_does_not_hold_up_what_a_relay_backend_sends_to_th
         frame = await charger.recv(timeout=3)
         assert frame[2] == "Reset" and time.monotonic() - started < 0.5, "forwarded at once, saved afterwards"
         await stored(10)
-        assert "save_ocpp_message" in mongo.methods()
+        assert "save_message" in mongo.methods()
     finally:
         await charger.close()
         await backend.stop()
@@ -253,7 +256,7 @@ async def test_a_rest_command_is_not_delayed_by_a_slow_database(run_server, tags
             assert (await request).json()["status"] == "success"
             assert time.monotonic() - started < 1.0
         await stored(10)
-        assert mongo.methods().count("save_ocpp_message") >= 2, "the command and its result are both recorded"
+        assert mongo.methods().count("save_command") == 1, "the command is recorded once, with its outcome"
     finally:
         await charger.close()
 

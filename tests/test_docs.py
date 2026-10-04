@@ -168,7 +168,12 @@ ORG = {
 }
 TOP = {
     "broker": {"host": None, "port": None},
-    "mongodb": {"enabled": None, "connection_string": None, "database_name": None},
+    "mongodb": {
+        "enabled": None, "connection_string": None, "database_name": None,
+        "history": {"messages": None, "heartbeats": None, "retention_days": {
+            "messages": None, "commands": None, "statuses": None, "meter_values": None, "transactions": None,
+        }},
+    },
     "ocpp": {"commands": {"core": {"heartbeat_interval": None}}},
     "security": {
         "api_key": None,

@@ -9,8 +9,9 @@ from .backend_manager import BackendConnection
 from .registry import ChargerRegistry
 from .config import load_config
 from .events import EventBus
+from .history import HistoryConfig, history_config
 from .local_transactions import LocalTransactions
-from .write_behind import WriteBehind, background
+from .write_behind import WriteBehind
 from .tag_manager import TagManager
 from .session import ChargerSession
 from .transaction_ids import TransactionIdTable, backend_keys, table_for_org
@@ -47,6 +48,9 @@ class OcppBroker:
         self.local_transactions: Dict[Tuple[str, str], LocalTransactions] = {}
         # Writes of what chargers say go to MongoDB from here, after the charger has been answered (write_behind.py)
         self.writes = WriteBehind()
+        # What is kept of the traffic besides the records the handlers write (history.py)
+        self.history = HistoryConfig()
+        self._history_tasks: set = set()
         self._mongo_retry: Optional[asyncio.Future] = None
         self._presence_indexed = False
         self._presence_tasks: set = set()
@@ -68,6 +72,7 @@ class OcppBroker:
     async def load_config(self, config=None):
         """Use ``config`` (already loaded, as the server does) or read the configuration file."""
         self.config_data = config if config is not None else load_config(self._cfg_path)
+        self.history = history_config(self.config_data.get("mongodb"))
         logger.info(
             "Loaded configuration for %s organizations.",
             len(self.config_data.get("organizations", [])),
@@ -240,6 +245,15 @@ class OcppBroker:
                     logger.info("Restored %d transaction id record(s) for %s/%s", restored, org_name, charger_id)
         return table
 
+    def write_history(self, method: str, org_name: str, charger_id: str, **fields: Any) -> None:
+        """Queue one history record (``method`` is a MongoDBService save method); never waits, never raises."""
+        service = getattr(self, "mongodb_service", None)
+        if service is None or not service.is_connected():
+            return
+        self.writes.submit(
+            lambda: getattr(service, method)(org_name=org_name, charger_id=charger_id, **fields), label=method, shard=(org_name, charger_id)
+        )
+
     def note_presence(self, org_name: str, charger_id: str, **fields: Any) -> None:
         """
         Remember in MongoDB that a charger connected, booted or left, so the console can list chargers that
@@ -347,34 +361,6 @@ class OcppBroker:
             return
         message = frames[0]
 
-        # Save command to MongoDB when broker is leader (a local leader's commands are saved by the API)
-        try:
-            import json
-            parsed = json.loads(message) if getattr(backend_conn, "local", False) is not True else None
-            if isinstance(parsed, list) and len(parsed) >= 3:
-                message_type = parsed[0]
-                action = parsed[2] if len(parsed) > 2 else None
-                payload = parsed[3] if len(parsed) > 3 else {}
-                
-                # Only save CALL messages (type 2) - commands from Central System to Charge Point
-                if message_type == 2 and action:
-                    mongodb = background(self)
-                    if mongodb and mongodb.is_connected():
-                        try:
-                            await mongodb.save_ocpp_message(
-                                org_name=session.org_name,
-                                charger_id=backend_conn.id,
-                                message_type="call",
-                                action=action,
-                                payload=payload,
-                                direction="broker_to_charger",
-                                message_id=parsed[1] if len(parsed) > 1 else None
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to save command {action} to MongoDB: {e}")
-        except Exception as e:
-            logger.debug(f"Could not parse message for MongoDB saving: {e}")
-        
         try:
             for frame in frames:
                 await session.send_to_charger(frame)
@@ -440,8 +426,17 @@ class OcppBroker:
             return False
         self.mongodb_service = service
         self._presence_indexed = False
+        task = asyncio.ensure_future(self._ensure_history_indexes(service))  # not waited for: a first build can be slow
+        self._history_tasks.add(task)
+        task.add_done_callback(self._history_tasks.discard)
         logger.info("✅ MongoDB service initialized and connected")
         return True
+
+    async def _ensure_history_indexes(self, service) -> None:
+        try:
+            await service.ensure_history_indexes(self.history.retention_days)
+        except Exception as exc:
+            logger.warning("Could not set up the history indexes in MongoDB (history still works, more slowly): %s", exc)
 
     async def _retry_mongodb(self, connection_string: str, database_name: str) -> None:
         """MongoDB was down at startup: keep trying (2 s, doubling up to 60 s) and switch it on when it answers."""
@@ -462,6 +457,9 @@ class OcppBroker:
                 logger.warning("Could not sync tags with MongoDB after it came back: %s", exc)
 
     def stop_mongodb_retry(self) -> None:
+        """Stop what runs in the background around MongoDB: the connection retry and the index set-up."""
         task, self._mongo_retry = self._mongo_retry, None
         if task is not None and not task.done():
             task.cancel()
+        for pending in list(self._history_tasks):
+            pending.cancel()

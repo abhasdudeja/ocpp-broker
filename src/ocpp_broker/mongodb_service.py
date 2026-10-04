@@ -2,7 +2,7 @@
 MongoDB service for saving OCPP messages, statuses, metervalues, and configurations.
 Organizes data by organization and charger.
 
-Also provides REST API endpoints for external systems to save OCPP data to MongoDB.
+History is written by the broker itself; there are no REST routes that write records.
 """
 import asyncio
 import logging
@@ -11,7 +11,8 @@ from typing import Any, Dict, Optional, List
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from pymongo import ReturnDocument
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
-from pydantic import BaseModel, Field
+
+from .history import INDEXES, RETENTION
 
 logger = logging.getLogger("ocpp_broker.mongodb")
 
@@ -156,6 +157,97 @@ class MongoDBService:
     async def load_transaction_map_docs(self, org_name: str, charger_id: str) -> List[Dict[str, Any]]:
         cursor = self._get_collection(self.TRANSACTION_MAP).find({"org_name": org_name, "charger_id": charger_id})
         return [row["data"] for row in await cursor.to_list(length=None)]
+
+    # ------------------------------------------------------------------
+    # History (see history.py): indexes, commands, messages and the queries behind /api/history
+    # ------------------------------------------------------------------
+    async def ensure_history_indexes(self, retention_days: Dict[str, Optional[int]]) -> None:
+        """
+        Idempotent. The indexes the history queries use, and a TTL index per collection that has a
+        retention limit. Raises on failure (the caller logs it; history still works, only slower).
+        A limit that is changed is applied with ``collMod``; a limit that is removed does not drop the
+        TTL index: drop it by hand (docs/mongodb-integration.md).
+        """
+        from pymongo.errors import OperationFailure
+
+        for collection, keys in INDEXES:
+            await self._get_collection(collection).create_index(keys)
+        for name, days in retention_days.items():
+            if days is None or name not in RETENTION:
+                continue
+            collection, key = RETENTION[name]
+            seconds = days * 86400
+            try:
+                await self._get_collection(collection).create_index([(key, 1)], expireAfterSeconds=seconds)
+            except OperationFailure as exc:
+                if exc.code not in (85, 86):  # an index on that key exists with another lifetime
+                    raise
+                await self.db.command(  # type: ignore[union-attr]
+                    {"collMod": collection, "index": {"keyPattern": {key: 1}, "expireAfterSeconds": seconds}}
+                )
+
+    async def save_command(self, org_name: str, charger_id: str, **fields: Any) -> None:
+        """One command sent through the API or the console, with its outcome."""
+        if not self._connected:
+            return
+        try:
+            await self._get_collection("commands").insert_one({"org_name": org_name, "charger_id": charger_id, **fields})
+        except Exception as e:
+            logger.error(f"Error saving command: {e}", exc_info=True)
+
+    async def save_message(self, org_name: str, charger_id: str, **fields: Any) -> None:
+        """One OCPP frame (history.message_document)."""
+        if not self._connected:
+            return
+        try:
+            await self._get_collection("ocpp_messages").insert_one({"org_name": org_name, "charger_id": charger_id, **fields})
+        except Exception as e:
+            logger.error(f"Error saving message: {e}", exc_info=True)
+
+    async def history_page(
+        self,
+        collection: str,
+        query: Dict[str, Any],
+        time_field: str,
+        limit: int,
+        cursor: Optional[tuple] = None,
+    ) -> tuple[List[Dict[str, Any]], Optional[tuple]]:
+        """
+        Newest first, ``limit`` rows after ``cursor`` (a ``(time, id string)`` from ``history.decode_cursor``).
+        Returns the rows (with ``_id``) and the cursor for the next page, None on the last page. Raises on failure.
+        """
+        from bson import ObjectId
+        from bson.errors import InvalidId
+
+        flt = dict(query)
+        if cursor is not None:
+            when, row_id = cursor
+            try:
+                oid: Any = ObjectId(row_id)
+            except InvalidId:
+                oid = row_id
+            flt = {"$and": [flt, {"$or": [{time_field: {"$lt": when}}, {time_field: when, "_id": {"$lt": oid}}]}]}
+        rows = await (
+            self._get_collection(collection).find(flt).sort([(time_field, -1), ("_id", -1)]).limit(limit + 1).to_list(length=limit + 1)
+        )
+        more = len(rows) > limit
+        rows = rows[:limit]
+        last = rows[-1] if more else None
+        return rows, ((last[time_field], str(last["_id"])) if last is not None else None)
+
+    async def history_get(self, collection: str, query: Dict[str, Any], time_field: str, limit: int, ascending: bool = True) -> List[Dict[str, Any]]:
+        """Up to ``limit`` rows matching ``query`` ordered by time (a transaction's meter readings, for one)."""
+        direction = 1 if ascending else -1
+        return await (
+            self._get_collection(collection).find(query).sort([(time_field, direction), ("_id", direction)]).limit(limit).to_list(length=limit)
+        )
+
+    async def history_counts(self) -> Dict[str, int]:
+        """Roughly how many records each history collection holds (the server's own estimate; cheap)."""
+        counts = {}
+        for name in ("transactions", "charger_statuses", "meter_values", "commands", "ocpp_messages"):
+            counts[name] = await self._get_collection(name).estimated_document_count()
+        return counts
 
     def _get_collection_name_for_action(self, action: str) -> str:
         """
@@ -306,7 +398,9 @@ class MongoDBService:
                 "status": status,
                 "error_code": error_code,
                 "info": info,
+                # When it happened (the charger's own time, if it gave one); history sorts on this
                 "timestamp": timestamp or datetime.now(timezone.utc),
+                "received_at": datetime.now(timezone.utc),
                 "vendor_id": vendor_id,
                 "vendor_error_code": vendor_error_code
             }
@@ -497,7 +591,8 @@ class MongoDBService:
                     "meter_start": meter_start,
                     "reservation_id": reservation_id,
                     "transaction_type": "start",
-                    "timestamp": event_time
+                    "timestamp": event_time,  # the charger's own time, if it gave one
+                    "received_at": datetime.now(timezone.utc),
                 })
             else:
                 stop_fields: Dict[str, Any] = {
@@ -516,7 +611,8 @@ class MongoDBService:
                         "charger_id": charger_id,
                         "transaction_id": transaction_id
                     },
-                    {"$set": stop_fields},
+                    # A stop with no start on record still gets a time, or the history lists would skip it
+                    {"$set": stop_fields, "$setOnInsert": {"timestamp": event_time}},
                     upsert=True
                 )
 
@@ -793,94 +889,3 @@ class MongoDBService:
         except Exception as e:
             logger.error(f"Error updating tag list version: {e}", exc_info=True)
             return False
-
-
-# ============================================================================
-# REST API Request Models
-# ============================================================================
-# Note: API endpoints are now in api_server.py
-# These models are kept here for backward compatibility and for use by api_server.py
-
-# Request models
-class StatusNotificationRequest(BaseModel):
-    org_name: str = Field(..., description="Organization name")
-    charger_id: str = Field(..., description="Charger ID")
-    connector_id: int = Field(..., description="Connector ID")
-    status: str = Field(..., description="Status (Available, Preparing, Charging, etc.)")
-    error_code: Optional[str] = Field(None, description="Error code")
-    info: Optional[str] = Field(None, description="Info message")
-    vendor_id: Optional[str] = Field(None, description="Vendor ID")
-    vendor_error_code: Optional[str] = Field(None, description="Vendor error code")
-    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
-
-
-class MeterValuesRequest(BaseModel):
-    org_name: str = Field(..., description="Organization name")
-    charger_id: str = Field(..., description="Charger ID")
-    connector_id: int = Field(..., description="Connector ID")
-    transaction_id: Optional[int] = Field(None, description="Transaction ID")
-    meter_value: List[Dict[str, Any]] = Field(..., description="List of meter value readings")
-    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
-
-
-class BootNotificationRequest(BaseModel):
-    org_name: str = Field(..., description="Organization name")
-    charger_id: str = Field(..., description="Charger ID")
-    charge_point_model: str = Field(..., description="Charger model")
-    charge_point_vendor: str = Field(..., description="Charger vendor")
-    firmware_version: Optional[str] = Field(None, description="Firmware version")
-    iccid: Optional[str] = Field(None, description="ICCID")
-    imsi: Optional[str] = Field(None, description="IMSI")
-    meter_type: Optional[str] = Field(None, description="Meter type")
-    meter_serial_number: Optional[str] = Field(None, description="Meter serial number")
-    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
-
-
-class TransactionRequest(BaseModel):
-    org_name: str = Field(..., description="Organization name")
-    charger_id: str = Field(..., description="Charger ID")
-    transaction_id: int = Field(..., description="Transaction ID")
-    connector_id: int = Field(..., description="Connector ID")
-    id_tag: str = Field(..., description="ID tag")
-    meter_start: Optional[int] = Field(None, description="Meter start value (start only)")
-    meter_stop: Optional[int] = Field(None, description="Meter stop value (stop only)")
-    stop_reason: Optional[str] = Field(None, description="StopTransaction reason (stop only)")
-    reservation_id: Optional[int] = Field(None, description="Reservation ID")
-    transaction_type: str = Field("start", description="Transaction type: 'start' or 'stop'")
-    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
-
-
-class AuthorizationRequest(BaseModel):
-    org_name: str = Field(..., description="Organization name")
-    charger_id: str = Field(..., description="Charger ID")
-    id_tag: str = Field(..., description="ID tag")
-    status: str = Field(..., description="Authorization status")
-    expiry_date: Optional[str] = Field(None, description="Expiry date")
-    parent_id_tag: Optional[str] = Field(None, description="Parent ID tag")
-    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
-
-
-class DataTransferRequest(BaseModel):
-    org_name: str = Field(..., description="Organization name")
-    charger_id: str = Field(..., description="Charger ID")
-    vendor_id: str = Field(..., description="Vendor ID")
-    message_id: Optional[str] = Field(None, description="Message ID")
-    data: Optional[str] = Field(None, description="Data payload")
-    status: Optional[str] = Field(None, description="Status response")
-    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
-
-
-class OCPPMessageRequest(BaseModel):
-    org_name: str = Field(..., description="Organization name")
-    charger_id: str = Field(..., description="Charger ID")
-    message_type: str = Field(..., description="Message type: 'call', 'call_result', 'call_error'")
-    action: str = Field(..., description="OCPP action name")
-    payload: Dict[str, Any] = Field(..., description="Message payload")
-    direction: str = Field("charger_to_broker", description="Message direction")
-    message_id: Optional[str] = Field(None, description="Message ID")
-    timestamp: Optional[datetime] = Field(None, description="Timestamp (defaults to now)")
-
-
-# Note: API endpoints (create_mongodb_api function) have been moved to api_server.py
-# to consolidate all API endpoints in a single file.
-

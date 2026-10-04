@@ -407,7 +407,7 @@ curl -H "X-API-Key: $OCPP_BROKER_API_KEY" $BASE/api/mongodb/health
 
 Collections written: `charger_statuses` and `charger_statuses_latest` (StatusNotification), `meter_values`, `charger_configurations` (BootNotification), `charger_heartbeats_latest` (latest heartbeat only), `transactions` (start inserts, stop updates the same document), `authorizations`, `data_transfers`, `tags`, `tag_list_versions`, `counters` (one transaction id counter per org) and a raw-message collection per action for REST commands and some charger messages. Transaction ids start at 1 per organization.
 
-The `/api/mongodb/*` routes (`status-notification`, `meter-values`, `boot-notification`, `transaction`, `authorization`, `data-transfer`, `ocpp-message`) let an external system write the same records. They return 503 when MongoDB is not connected.
+Read them back with `GET /api/history/transactions`, `/meter-values`, `/statuses`, `/commands` and `/messages` (see the API reference). Nothing can write records through the API.
 
 ## 8. REST API settings and several organizations
 

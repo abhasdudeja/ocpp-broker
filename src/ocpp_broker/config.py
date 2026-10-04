@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from .history import validate_history_config
 from .transaction_ids import leader_index, local_index
 
 logger = logging.getLogger("ocpp_broker.config")
@@ -389,6 +390,8 @@ def _validate_config(cfg):
     ):
         logger.warning("Global tag management enabled but no organizations have tag management enabled")
     
+    validate_history_config(cfg.get("mongodb") or {})
+
     level = (cfg.get("logging") or {}).get("level", "INFO")
     if str(level).upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         raise ValueError(f"logging.level must be DEBUG, INFO, WARNING, ERROR or CRITICAL, not {level!r}")

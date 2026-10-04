@@ -28,6 +28,10 @@ mongodb:                     # optional; see mongodb-integration.md
   enabled: false             # default false
   connection_string: "mongodb://localhost:27017"
   database_name: "ocpp_broker"
+  history:                   # what is kept of the traffic; see mongodb-integration.md#history
+    messages: false          # true: every OCPP frame goes to ocpp_messages (one write each)
+    heartbeats: false
+    retention_days: {messages: 30, commands: 365}   # TTL per collection; null = for ever
 
 ocpp:
   commands:
@@ -206,6 +210,23 @@ mongodb:
 ```
 
 MongoDB is optional. Without it nothing is persisted, tags live only in memory and transaction ids come from a non-durable counter (a warning is logged). See [MongoDB Integration](mongodb-integration.md).
+
+`mongodb.history` chooses what is kept of the traffic and for how long:
+
+```yaml
+mongodb:
+  history:
+    messages: false          # record every OCPP frame in ocpp_messages (large)
+    heartbeats: false        # with messages on, also heartbeats and their replies
+    retention_days:          # TTL per collection; omit or null: for ever
+      messages: 30           # default 30
+      commands: 365          # default 365
+      statuses: null
+      meter_values: null
+      transactions: null
+```
+
+Unknown names, non-boolean switches and retentions that are not a whole number of days (1 or more) stop the broker at startup. See [History](mongodb-integration.md#history).
 
 ## Security section
 

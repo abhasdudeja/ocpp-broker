@@ -117,60 +117,141 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/mongodb/authorization": {
+    "/api/history/commands": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
         /**
-         * Save Authorization to MongoDB
-         * @description Save Authorization to MongoDB.
+         * Commands
+         * @description Commands sent through the API or the console, newest first, with the outcome.
          */
-        post: operations["save_authorization_api_mongodb_authorization_post"];
+        get: operations["commands_api_history_commands_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/mongodb/boot-notification": {
+    "/api/history/info": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
         /**
-         * Save BootNotification to MongoDB
-         * @description Save BootNotification to MongoDB.
+         * Info
+         * @description Whether history is available, what is being recorded and for how long it is kept.
          */
-        post: operations["save_boot_notification_api_mongodb_boot_notification_post"];
+        get: operations["info_api_history_info_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/mongodb/data-transfer": {
+    "/api/history/messages": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
         /**
-         * Save DataTransfer to MongoDB
-         * @description Save DataTransfer to MongoDB.
+         * Messages
+         * @description The OCPP frames to and from chargers, newest first. Empty unless `mongodb.history.messages` is on
+         *     (see `GET /api/history/info`). Payloads are stored as sent: they can hold id tags.
          */
-        post: operations["save_data_transfer_api_mongodb_data_transfer_post"];
+        get: operations["messages_api_history_messages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history/meter-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Meter Values
+         * @description Meter readings, one row per measured value, newest message first.
+         */
+        get: operations["meter_values_api_history_meter_values_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history/statuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Statuses
+         * @description Connector status changes, newest first (the charger's own timestamp when it gave one).
+         */
+        get: operations["statuses_api_history_statuses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Transactions
+         * @description Charging sessions, newest first. Recorded when the broker answers the charger (broker mode, local leader).
+         */
+        get: operations["transactions_api_history_transactions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history/transactions/{org}/{charger_id}/{transaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Transaction
+         * @description One transaction and the meter readings recorded for it, oldest first.
+         */
+        get: operations["transaction_api_history_transactions__org___charger_id___transaction_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -191,86 +272,6 @@ export interface paths {
         get: operations["mongodb_health_api_mongodb_health_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/mongodb/meter-values": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Save MeterValues to MongoDB
-         * @description Save MeterValues to MongoDB.
-         */
-        post: operations["save_meter_values_api_mongodb_meter_values_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/mongodb/ocpp-message": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Save generic OCPP message to MongoDB
-         * @description Save a generic OCPP message to MongoDB.
-         */
-        post: operations["save_ocpp_message_api_mongodb_ocpp_message_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/mongodb/status-notification": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Save StatusNotification to MongoDB
-         * @description Save a StatusNotification to MongoDB.
-         */
-        post: operations["save_status_notification_api_mongodb_status_notification_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/mongodb/transaction": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Save Transaction to MongoDB
-         * @description Save StartTransaction or StopTransaction to MongoDB.
-         */
-        post: operations["save_transaction_api_mongodb_transaction_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1068,44 +1069,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** AuthorizationRequest */
-        AuthorizationRequest: {
-            /**
-             * Charger Id
-             * @description Charger ID
-             */
-            charger_id: string;
-            /**
-             * Expiry Date
-             * @description Expiry date
-             */
-            expiry_date?: string | null;
-            /**
-             * Id Tag
-             * @description ID tag
-             */
-            id_tag: string;
-            /**
-             * Org Name
-             * @description Organization name
-             */
-            org_name: string;
-            /**
-             * Parent Id Tag
-             * @description Parent ID tag
-             */
-            parent_id_tag?: string | null;
-            /**
-             * Status
-             * @description Authorization status
-             */
-            status: string;
-            /**
-             * Timestamp
-             * @description Timestamp (defaults to now)
-             */
-            timestamp?: string | null;
-        };
         /**
          * BackendLink
          * @description One backend as one charger's session sees it.
@@ -1205,59 +1168,6 @@ export interface components {
             serial_number: string | null;
             /** Vendor */
             vendor: string | null;
-        };
-        /** BootNotificationRequest */
-        BootNotificationRequest: {
-            /**
-             * Charge Point Model
-             * @description Charger model
-             */
-            charge_point_model: string;
-            /**
-             * Charge Point Vendor
-             * @description Charger vendor
-             */
-            charge_point_vendor: string;
-            /**
-             * Charger Id
-             * @description Charger ID
-             */
-            charger_id: string;
-            /**
-             * Firmware Version
-             * @description Firmware version
-             */
-            firmware_version?: string | null;
-            /**
-             * Iccid
-             * @description ICCID
-             */
-            iccid?: string | null;
-            /**
-             * Imsi
-             * @description IMSI
-             */
-            imsi?: string | null;
-            /**
-             * Meter Serial Number
-             * @description Meter serial number
-             */
-            meter_serial_number?: string | null;
-            /**
-             * Meter Type
-             * @description Meter type
-             */
-            meter_type?: string | null;
-            /**
-             * Org Name
-             * @description Organization name
-             */
-            org_name: string;
-            /**
-             * Timestamp
-             * @description Timestamp (defaults to now)
-             */
-            timestamp?: string | null;
         };
         /** BulkTagItemResult */
         BulkTagItemResult: {
@@ -1545,6 +1455,51 @@ export interface components {
              */
             status: "pending" | "success" | "error" | "timeout" | "cancelled";
         };
+        /** CommandPage */
+        CommandPage: {
+            /** Available */
+            available: boolean;
+            /** Items */
+            items: components["schemas"]["CommandRecord"][];
+            /**
+             * Next Cursor
+             * @description Pass it as `cursor` for the next (older) page; null on the last page
+             */
+            next_cursor: string | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /** CommandRecord */
+        CommandRecord: {
+            /** Action */
+            action: string;
+            /** Charger Id */
+            charger_id: string;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Error */
+            error: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Message Id */
+            message_id: string;
+            /** Org */
+            org: string;
+            /**
+             * Payload
+             * @description As sent, with secrets such as an AuthorizationKey replaced by ***
+             */
+            payload: unknown;
+            /** Response */
+            response: unknown;
+            /** Sent At */
+            sent_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "success" | "error" | "timeout" | "cancelled" | "pending";
+        };
         /** CommandSpecInfo */
         CommandSpecInfo: {
             /** Action */
@@ -1618,6 +1573,24 @@ export interface components {
              */
             type: "charger.connected" | "charger.disconnected" | "charger.replaced" | "charger.boot" | "charger.status" | "backend.link" | "backend.failover" | "transaction.started" | "transaction.stopped" | "command.result";
         };
+        /** DataTransferRequest */
+        DataTransferRequest: {
+            /**
+             * Data
+             * @description Data to transfer
+             */
+            data?: string | null;
+            /**
+             * Message Id
+             * @description Message identifier
+             */
+            message_id?: string | null;
+            /**
+             * Vendor Id
+             * @description Vendor identifier
+             */
+            vendor_id: string;
+        };
         /** GetCompositeScheduleRequest */
         GetCompositeScheduleRequest: {
             /**
@@ -1677,6 +1650,81 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HistoryInfo */
+        HistoryInfo: {
+            /** Available */
+            available: boolean;
+            /**
+             * Counts
+             * @description Roughly how many records each collection holds
+             */
+            counts: {
+                [key: string]: number;
+            };
+            /**
+             * Heartbeats Enabled
+             * @description Heartbeats are recorded too, with the message log on
+             */
+            heartbeats_enabled: boolean;
+            /**
+             * Messages Enabled
+             * @description Every OCPP frame is being recorded (mongodb.history.messages)
+             */
+            messages_enabled: boolean;
+            /**
+             * Reason
+             * @description Why history is not available, when it is not
+             */
+            reason: string | null;
+            /**
+             * Retention Days
+             * @description Days each kind of record is kept; null: for ever
+             */
+            retention_days: {
+                [key: string]: number | null;
+            };
+        };
+        /** HistoryTransaction */
+        HistoryTransaction: {
+            /** Charger Id */
+            charger_id: string;
+            /** Connector Id */
+            connector_id: number | null;
+            /**
+             * Energy Wh
+             * @description meter_stop - meter_start, when both are known
+             */
+            energy_wh: number | null;
+            /** Id Tag */
+            id_tag: string | null;
+            /**
+             * Meter Start
+             * @description Wh
+             */
+            meter_start: number | null;
+            /**
+             * Meter Stop
+             * @description Wh
+             */
+            meter_stop: number | null;
+            /**
+             * Open
+             * @description No stop has been recorded
+             */
+            open: boolean;
+            /** Org */
+            org: string;
+            /** Started At */
+            started_at: string | null;
+            /** Stop Id Tag */
+            stop_id_tag: string | null;
+            /** Stop Reason */
+            stop_reason: string | null;
+            /** Stopped At */
+            stopped_at: string | null;
+            /** Transaction Id */
+            transaction_id: number;
+        };
         /**
          * IdObject
          * @description A reservation or charging profile the charger holds.
@@ -1700,40 +1748,109 @@ export interface components {
              */
             id: number;
         };
-        /** MeterValuesRequest */
-        MeterValuesRequest: {
+        /** MessageError */
+        MessageError: {
+            /** Code */
+            code: string | null;
+            /** Description */
+            description: string | null;
+        };
+        /** MessagePage */
+        MessagePage: {
+            /** Available */
+            available: boolean;
+            /** Items */
+            items: components["schemas"]["MessageRecord"][];
             /**
-             * Charger Id
-             * @description Charger ID
+             * Next Cursor
+             * @description Pass it as `cursor` for the next (older) page; null on the last page
              */
+            next_cursor: string | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /** MessageRecord */
+        MessageRecord: {
+            /**
+             * Action
+             * @description Null for a reply whose request was not seen (for example after a restart)
+             */
+            action: string | null;
+            /** Charger Id */
             charger_id: string;
             /**
-             * Connector Id
-             * @description Connector ID
+             * Direction
+             * @description in: from the charger; out: to it
+             * @enum {string}
              */
-            connector_id: number;
+            direction: "in" | "out";
+            error: components["schemas"]["MessageError"] | null;
+            /** Message Id */
+            message_id: string;
+            /** Org */
+            org: string;
             /**
-             * Meter Value
-             * @description List of meter value readings
+             * Payload
+             * @description Null when it was too large to keep (see `truncated`)
              */
-            meter_value: {
-                [key: string]: unknown;
-            }[];
+            payload: unknown;
             /**
-             * Org Name
-             * @description Organization name
+             * Size
+             * @description Size in bytes of a payload that was not kept
              */
-            org_name: string;
+            size: number | null;
+            /** Timestamp */
+            timestamp: string | null;
+            /** Truncated */
+            truncated: boolean;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "call" | "result" | "error";
+        };
+        /** MeterReading */
+        MeterReading: {
+            /** Connector Id */
+            connector_id: number | null;
+            /** Context */
+            context: string | null;
+            /** Location */
+            location: string | null;
+            /** Measurand */
+            measurand: string;
+            /** Phase */
+            phase: string | null;
+            /** Raw Value */
+            raw_value: string | null;
             /**
              * Timestamp
-             * @description Timestamp (defaults to now)
+             * @description When the meter was read (the charger's time), as the charger sent it
              */
-            timestamp?: string | null;
+            timestamp: string | null;
+            /** Transaction Id */
+            transaction_id: number | null;
+            /** Unit */
+            unit: string;
             /**
-             * Transaction Id
-             * @description Transaction ID
+             * Value
+             * @description Null when the charger sent something that is not a number
              */
-            transaction_id?: number | null;
+            value: number | null;
+        };
+        /** MeterReadingPage */
+        MeterReadingPage: {
+            /** Available */
+            available: boolean;
+            /** Items */
+            items: components["schemas"]["MeterReading"][];
+            /**
+             * Next Cursor
+             * @description Pass it as `cursor` for the next (older) page; null on the last page
+             */
+            next_cursor: string | null;
+            /** Reason */
+            reason: string | null;
         };
         /** MongoInfo */
         MongoInfo: {
@@ -1803,52 +1920,6 @@ export interface components {
              * @default 30
              */
             timeout: number | null;
-        };
-        /** OCPPMessageRequest */
-        OCPPMessageRequest: {
-            /**
-             * Action
-             * @description OCPP action name
-             */
-            action: string;
-            /**
-             * Charger Id
-             * @description Charger ID
-             */
-            charger_id: string;
-            /**
-             * Direction
-             * @description Message direction
-             * @default charger_to_broker
-             */
-            direction: string;
-            /**
-             * Message Id
-             * @description Message ID
-             */
-            message_id?: string | null;
-            /**
-             * Message Type
-             * @description Message type: 'call', 'call_result', 'call_error'
-             */
-            message_type: string;
-            /**
-             * Org Name
-             * @description Organization name
-             */
-            org_name: string;
-            /**
-             * Payload
-             * @description Message payload
-             */
-            payload: {
-                [key: string]: unknown;
-            };
-            /**
-             * Timestamp
-             * @description Timestamp (defaults to now)
-             */
-            timestamp?: string | null;
         };
         /**
          * OCPPTag
@@ -2097,53 +2168,40 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /** StatusNotificationRequest */
-        StatusNotificationRequest: {
+        /** StatusPage */
+        StatusPage: {
+            /** Available */
+            available: boolean;
+            /** Items */
+            items: components["schemas"]["StatusRecord"][];
             /**
-             * Charger Id
-             * @description Charger ID
+             * Next Cursor
+             * @description Pass it as `cursor` for the next (older) page; null on the last page
              */
+            next_cursor: string | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /** StatusRecord */
+        StatusRecord: {
+            /** Charger Id */
             charger_id: string;
-            /**
-             * Connector Id
-             * @description Connector ID
-             */
-            connector_id: number;
-            /**
-             * Error Code
-             * @description Error code
-             */
-            error_code?: string | null;
-            /**
-             * Info
-             * @description Info message
-             */
-            info?: string | null;
-            /**
-             * Org Name
-             * @description Organization name
-             */
-            org_name: string;
-            /**
-             * Status
-             * @description Status (Available, Preparing, Charging, etc.)
-             */
+            /** Connector Id */
+            connector_id: number | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Info */
+            info: string | null;
+            /** Org */
+            org: string;
+            /** Status */
             status: string;
-            /**
-             * Timestamp
-             * @description Timestamp (defaults to now)
-             */
-            timestamp?: string | null;
-            /**
-             * Vendor Error Code
-             * @description Vendor error code
-             */
-            vendor_error_code?: string | null;
-            /**
-             * Vendor Id
-             * @description Vendor ID
-             */
-            vendor_id?: string | null;
+            /** Timestamp */
+            timestamp: string | null;
+            /** Vendor Error Code */
+            vendor_error_code: string | null;
+            /** Vendor Id */
+            vendor_id: string | null;
         };
         /** SystemInfo */
         SystemInfo: {
@@ -2368,64 +2426,37 @@ export interface components {
             /** Warnings */
             warnings?: string[];
         };
-        /** TransactionRequest */
-        TransactionRequest: {
+        /** TransactionDetail */
+        TransactionDetail: {
+            /** Available */
+            available: boolean;
             /**
-             * Charger Id
-             * @description Charger ID
+             * Readings
+             * @description Oldest first
              */
-            charger_id: string;
+            readings: components["schemas"]["MeterReading"][];
             /**
-             * Connector Id
-             * @description Connector ID
+             * Readings Truncated
+             * @description There are more readings than were returned
              */
-            connector_id: number;
+            readings_truncated: boolean;
+            /** Reason */
+            reason: string | null;
+            transaction: components["schemas"]["HistoryTransaction"] | null;
+        };
+        /** TransactionPage */
+        TransactionPage: {
+            /** Available */
+            available: boolean;
+            /** Items */
+            items: components["schemas"]["HistoryTransaction"][];
             /**
-             * Id Tag
-             * @description ID tag
+             * Next Cursor
+             * @description Pass it as `cursor` for the next (older) page; null on the last page
              */
-            id_tag: string;
-            /**
-             * Meter Start
-             * @description Meter start value (start only)
-             */
-            meter_start?: number | null;
-            /**
-             * Meter Stop
-             * @description Meter stop value (stop only)
-             */
-            meter_stop?: number | null;
-            /**
-             * Org Name
-             * @description Organization name
-             */
-            org_name: string;
-            /**
-             * Reservation Id
-             * @description Reservation ID
-             */
-            reservation_id?: number | null;
-            /**
-             * Stop Reason
-             * @description StopTransaction reason (stop only)
-             */
-            stop_reason?: string | null;
-            /**
-             * Timestamp
-             * @description Timestamp (defaults to now)
-             */
-            timestamp?: string | null;
-            /**
-             * Transaction Id
-             * @description Transaction ID
-             */
-            transaction_id: number;
-            /**
-             * Transaction Type
-             * @description Transaction type: 'start' or 'stop'
-             * @default start
-             */
-            transaction_type: string;
+            next_cursor: string | null;
+            /** Reason */
+            reason: string | null;
         };
         /** TransactionRow */
         TransactionRow: {
@@ -2508,62 +2539,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-        };
-        /** DataTransferRequest */
-        ocpp_broker__api_server__DataTransferRequest: {
-            /**
-             * Data
-             * @description Data to transfer
-             */
-            data?: string | null;
-            /**
-             * Message Id
-             * @description Message identifier
-             */
-            message_id?: string | null;
-            /**
-             * Vendor Id
-             * @description Vendor identifier
-             */
-            vendor_id: string;
-        };
-        /** DataTransferRequest */
-        ocpp_broker__mongodb_service__DataTransferRequest: {
-            /**
-             * Charger Id
-             * @description Charger ID
-             */
-            charger_id: string;
-            /**
-             * Data
-             * @description Data payload
-             */
-            data?: string | null;
-            /**
-             * Message Id
-             * @description Message ID
-             */
-            message_id?: string | null;
-            /**
-             * Org Name
-             * @description Organization name
-             */
-            org_name: string;
-            /**
-             * Status
-             * @description Status response
-             */
-            status?: string | null;
-            /**
-             * Timestamp
-             * @description Timestamp (defaults to now)
-             */
-            timestamp?: string | null;
-            /**
-             * Vendor Id
-             * @description Vendor ID
-             */
-            vendor_id: string;
         };
     };
     responses: never;
@@ -2778,18 +2753,24 @@ export interface operations {
             };
         };
     };
-    save_authorization_api_mongodb_authorization_post: {
+    commands_api_history_commands_get: {
         parameters: {
-            query?: never;
+            query?: {
+                org?: string | null;
+                charger_id?: string | null;
+                /** @description For example Reset */
+                action?: string | null;
+                status?: string | null;
+                since?: string | null;
+                until?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AuthorizationRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2797,7 +2778,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CommandPage"];
                 };
             };
             /** @description Validation Error */
@@ -2811,18 +2792,14 @@ export interface operations {
             };
         };
     };
-    save_boot_notification_api_mongodb_boot_notification_post: {
+    info_api_history_info_get: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BootNotificationRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2830,7 +2807,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["HistoryInfo"];
+                };
+            };
+        };
+    };
+    messages_api_history_messages_get: {
+        parameters: {
+            query?: {
+                org?: string | null;
+                charger_id?: string | null;
+                /** @description For example StatusNotification (replies carry the action they answer) */
+                action?: string | null;
+                direction?: string | null;
+                /** @description A request and its reply share an id */
+                message_id?: string | null;
+                since?: string | null;
+                until?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagePage"];
                 };
             };
             /** @description Validation Error */
@@ -2844,18 +2853,28 @@ export interface operations {
             };
         };
     };
-    save_data_transfer_api_mongodb_data_transfer_post: {
+    meter_values_api_history_meter_values_get: {
         parameters: {
-            query?: never;
+            query?: {
+                org?: string | null;
+                charger_id?: string | null;
+                transaction_id?: number | null;
+                connector_id?: number | null;
+                /** @description Only this measurand, for example Power.Active.Import */
+                measurand?: string | null;
+                /** @description Received at or after this time */
+                since?: string | null;
+                /** @description Received before this time */
+                until?: string | null;
+                /** @description MeterValues messages per page; each holds several readings */
+                limit?: number;
+                cursor?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ocpp_broker__mongodb_service__DataTransferRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2863,7 +2882,120 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MeterReadingPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    statuses_api_history_statuses_get: {
+        parameters: {
+            query?: {
+                org?: string | null;
+                charger_id?: string | null;
+                connector_id?: number | null;
+                /** @description For example Charging or Faulted */
+                status?: string | null;
+                since?: string | null;
+                until?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transactions_api_history_transactions_get: {
+        parameters: {
+            query?: {
+                org?: string | null;
+                charger_id?: string | null;
+                id_tag?: string | null;
+                /** @description Only transactions still running, or only ended ones */
+                state?: string | null;
+                /** @description Started at or after this time (ISO 8601; no zone means UTC) */
+                since?: string | null;
+                /** @description Started before this time */
+                until?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transaction_api_history_transactions__org___charger_id___transaction_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+                charger_id: string;
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2893,138 +3025,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-        };
-    };
-    save_meter_values_api_mongodb_meter_values_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MeterValuesRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    save_ocpp_message_api_mongodb_ocpp_message_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OCPPMessageRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    save_status_notification_api_mongodb_status_notification_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StatusNotificationRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    save_transaction_api_mongodb_transaction_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TransactionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3351,7 +3351,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ocpp_broker__api_server__DataTransferRequest"];
+                "application/json": components["schemas"]["DataTransferRequest"];
             };
         };
         responses: {

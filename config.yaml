@@ -141,3 +141,8 @@ mongodb:
   enabled: true
   connection_string: "mongodb://localhost:27017"
   database_name: "ocpp_broker"
+  # What is kept of the traffic (see docs/mongodb-integration.md#history). Defaults shown.
+  # history:
+  #   messages: false        # true: every OCPP frame goes to ocpp_messages (one write each)
+  #   heartbeats: false
+  #   retention_days: {messages: 30, commands: 365}   # TTL per collection; null = for ever

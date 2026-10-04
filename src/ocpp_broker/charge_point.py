@@ -26,13 +26,11 @@ class StarletteWebSocketAdapter:
         websocket,
         send_lock: Optional[asyncio.Lock] = None,
         on_receive: Optional[Callable[[str], None]] = None,
-        on_send: Optional[Callable[[], None]] = None,
+        on_send: Optional[Callable[[str], None]] = None,
     ):
         self._ws = websocket
         # Shared with ChargerSession so every writer to this socket is serialised.
         self._send_lock = send_lock or asyncio.Lock()
-        # Set by ChargerSession once the charge point exists; used when saving call results.
-        self._charge_point: Optional[Any] = None
         # Let the session watch the traffic (its charger state); they never change a frame.
         self._on_receive = on_receive
         self._on_send = on_send
@@ -45,54 +43,9 @@ class StarletteWebSocketAdapter:
         return message
 
     async def send(self, message: str):
-        # Save call results/errors to MongoDB when broker is leader
-        try:
-            import json
-            parsed = json.loads(message)
-            if isinstance(parsed, list) and len(parsed) >= 2:
-                message_type = parsed[0]
-                # Type 3 = CALLRESULT, Type 4 = CALLERROR
-                if message_type in [3, 4]:
-                    # Get charge_point from the websocket adapter context
-                    # We need to find which charge_point this adapter belongs to
-                    charge_point = getattr(self, "_charge_point", None)
-                    if charge_point:
-                        mongodb = background(charge_point.broker)
-                        if mongodb and mongodb.is_connected():
-                            try:
-                                # For call results, we need to track which action this is a response to
-                                # This is tricky - we'd need to maintain a mapping of message_id -> action
-                                # For now, save with a generic action name
-                                action = "CallResult" if message_type == 3 else "CallError"
-                                payload = parsed[2] if len(parsed) > 2 else {}
-                                
-                                if message_type == 4:  # CALLERROR
-                                    error_code = parsed[2] if len(parsed) > 2 else "Unknown"
-                                    error_description = parsed[3] if len(parsed) > 3 else ""
-                                    error_details = parsed[4] if len(parsed) > 4 else {}
-                                    payload = {
-                                        "error_code": error_code,
-                                        "error_description": error_description,
-                                        "error_details": error_details
-                                    }
-                                
-                                await mongodb.save_ocpp_message(
-                                    org_name=charge_point.org_name,
-                                    charger_id=charge_point.id,
-                                    message_type="call_result" if message_type == 3 else "call_error",
-                                    action=action,
-                                    payload=payload,
-                                    direction="broker_to_charger",
-                                    message_id=parsed[1] if len(parsed) > 1 else None
-                                )
-                            except Exception as e:
-                                logger.debug(f"Failed to save call result/error to MongoDB: {e}")
-        except Exception:
-            pass  # Ignore parsing errors
-        
         await locked_send(self._send_lock, self._ws.send_text, message)
         if self._on_send is not None:
-            self._on_send()
+            self._on_send(message)
 
     async def close(self, code: int = 1000, reason: str | None = None):
         await self._ws.close(code=code, reason=reason)
@@ -266,6 +219,7 @@ class BrokerChargePoint(OcppChargePoint):
                 status=status,
                 error_code=payload.get("error_code"),
                 info=payload.get("info"),
+                timestamp=self._parse_timestamp(payload.get("timestamp")),
                 vendor_id=payload.get("vendor_id"),
                 vendor_error_code=payload.get("vendor_error_code")
             )
@@ -294,7 +248,7 @@ class BrokerChargePoint(OcppChargePoint):
                         meter_value_list.append({"value": str(mv)})
             else:
                 meter_value_list = [{"value": str(meter_value)}]
-            
+
             await mongodb.save_meter_values(
                 org_name=self.org_name,
                 charger_id=self.id,
@@ -341,6 +295,7 @@ class BrokerChargePoint(OcppChargePoint):
                 connector_id=connector_id,
                 id_tag=id_tag,
                 meter_start=payload.get("meter_start"),
+                timestamp=self._parse_timestamp(payload.get("timestamp")),
                 reservation_id=payload.get("reservation_id"),
                 transaction_type="start"
             )

@@ -29,7 +29,7 @@ The broker connects at startup and pings the server (5 second timeout). If that 
 
 If MongoDB is disabled, the broker logs `MongoDB not configured or disabled: transaction ids will come from a non-durable in-memory counter and nothing will be persisted.`
 
-The broker creates indexes for one collection only, `transaction_id_map` (see below). Add indexes for the queries you run on the others (for example on `org_name` and `charger_id`) and your own retention policy for the high-volume collections.
+The broker creates the indexes it needs when it connects: for `transaction_id_map` (see below), `charger_presence`, and the [history](#history) collections (queries by charger and time). Creating them does not wait for or block anything; if it fails a warning is logged and history still works, more slowly. Retention is set with `mongodb.history.retention_days` ([below](#retention)).
 
 ## Writes happen after the reply
 
@@ -40,31 +40,31 @@ What a charger says is stored **after the charger has been answered**, by a back
 - **Bounded.** At most 10,000 records wait per worker. Beyond that the newest are **dropped and counted**; a lost status record is better than a broker out of memory.
 - **An outage is waited out.** A write that gets no answer within 5 seconds is kept and tried again; after three failures in a row the writer tries once every 5 seconds instead of hammering the server, and stores the backlog in order when it answers again. A cut-off write may have reached the database, so after an outage a record can be stored **twice**. A record MongoDB keeps *rejecting* is dropped after 3 tries so it cannot block the rest.
 - **At shutdown** the broker waits up to 5 seconds for what is waiting, and logs how many records it did not store. A crash loses what was waiting.
-- **What is still in line.** The transaction id counter (the charger needs the number in its `StartTransaction` reply) is read from MongoDB with a 3 second limit; after that the broker uses its in-memory counter, as it does when MongoDB is down ([Transaction ids](#transaction-ids)). Tag changes made through the REST API and the REST data routes under `/api/mongodb` also wait for the database, because the caller is waiting for the outcome.
+- **What is still in line.** The transaction id counter (the charger needs the number in its `StartTransaction` reply) is read from MongoDB with a 3 second limit; after that the broker uses its in-memory counter, as it does when MongoDB is down ([Transaction ids](#transaction-ids)). Tag changes made through the REST API also wait for the database, because the caller is waiting for the outcome.
 - **See it.** `GET /api/system/info` reports `mongodb.pending_writes`, `written`, `failed_writes`, `dropped_writes` and `writes_degraded` (true while recent writes keep failing), and the console's overview warns about the last two.
 
 ## What is stored, and when
 
-Data is written for chargers served in **broker mode**, for commands sent through the REST API, and for commands a backend sends in **relay mode**. Frames a charger sends in relay mode are forwarded to the backend and are not stored.
+Data is written for chargers served in **broker mode** (and by a local leader), and for commands sent through the REST API or the console. In **relay mode** the backend answers the charger, so its transactions and meter values are the backend's to store; the broker records the connector status changes it sees (`charger_statuses`) and, if switched on, the message log ([History](#history)). Nothing writes to these collections but the broker: there are no REST routes that add records.
 
 | Collection | Written when | Contents |
 |------------|--------------|----------|
 | `charger_configurations` | `BootNotification` (broker mode) | One document per charger, updated on each boot: model, vendor, firmware, ICCID, IMSI, meter details, `last_boot_time`, `updated_at` |
 | `charger_heartbeats_latest` | `Heartbeat` | One document per charger: `last_heartbeat`, `updated_at`. Individual heartbeats are not stored. |
-| `charger_statuses` | `StatusNotification` | Every notification: connector, status, error code, info, vendor fields, `timestamp` |
+| `charger_statuses` | `StatusNotification` (broker mode); each status change seen in relay mode | Every notification: connector, status, error code, info, vendor fields, `timestamp` (the charger's own time when it sent one), `received_at` |
 | `charger_statuses_latest` | `StatusNotification` | One document per connector with its latest status |
 | `meter_values` | `MeterValues` | Connector, `transaction_id`, the readings (`meter_value`), `timestamp` |
 | `transactions` | `StartTransaction`, `StopTransaction` | One document per transaction (see below) |
 | `authorizations` | `Authorize` | Each authorization: `id_tag`, `status`, `expiry_date`, `parent_id_tag`, `timestamp` |
 | `data_transfers` | `DataTransfer` | Vendor, message id, data, the status the broker answered |
 | `diagnostics_status_notifications`, `firmware_status_notifications` | those two messages | The raw message in `payload` |
-| `call_results`, `call_errors` | every CALLRESULT / CALLERROR the broker sends to a charger in broker mode | `message_id`, `payload`, `direction: broker_to_charger`; the action is the generic `CallResult` / `CallError` |
-| one per command action (`resets`, `change_availabilities`, `remote_start_transactions`, `get_configurations`, ...) | a command sent from the broker to a charger | the command (`message_type: call`, `direction: broker_to_charger`); for REST commands the charger's reply is stored in the same collection (`call_result` or `call_error`, `direction: charger_to_broker`) |
+| `commands` | a command sent through the API or the console, when it finishes | the command, its (redacted) payload and what came back: see [History](#history) |
+| `ocpp_messages` | every OCPP frame, **only if** `mongodb.history.messages` is on | see [History](#history) |
 | `tags`, `tag_list_versions` | tag changes | the tags of every organization and a list version per organization |
 | `counters` | `StartTransaction` | transaction id counters |
 | `transaction_id_map` | relay mode with several backends | the transaction id table: one document per transaction (see below) |
 
-The `call_results` / `call_errors` log grows by one document for every reply the broker sends, including every heartbeat answer. It carries no action name, so it is of limited use; expect it to be the largest collection and set a retention policy on it.
+Earlier versions also wrote a `call_results` / `call_errors` collection (one document for every reply, with no action name) and one collection per command action (`resets`, `get_configurations`, ...). They are no longer written, and are replaced by `commands` and `ocpp_messages`. Existing ones are left alone; drop them when you no longer need them.
 
 Raw per-message collections for incoming requests (for example `start_transactions`, `status_notifications`, `boot_notifications`) are **not** written: the structured collections above replace them.
 
@@ -100,12 +100,7 @@ Every document has `org_name`, `charger_id` and a `timestamp` (UTC) unless noted
 {"org_name": "orgA", "charger_id": "CP001", "last_heartbeat": "2026-01-01T12:00:00Z", "updated_at": "2026-01-01T12:00:00Z"}
 ```
 
-**Command documents** (one collection per action, for example `resets`)
-
-```json
-{"org_name": "orgA", "charger_id": "CP001", "message_type": "call", "action": "Reset",
- "payload": {"type": "Soft"}, "direction": "broker_to_charger", "message_id": "fbaecb17-...", "timestamp": "..."}
-```
+**`transactions`** also have `received_at`, when the broker stored the start. `timestamp` is the charger's own start time, so a start that arrives late (a charger that was offline) is still listed where it happened.
 
 ## Transaction ids
 
@@ -131,21 +126,42 @@ Tags (see [Tag Management](tag-management.md)) are kept in memory and mirrored t
 - Tags from `config.yaml` are only in memory until pushed to MongoDB by a sync.
 - `POST /api/tags/sync` makes MongoDB authoritative: for each organization that has stored tags the in-memory list is replaced with what is stored (a tag removed in MongoDB disappears). An organization that has tags in memory but none stored is pushed to MongoDB instead. Without MongoDB the call returns `503`.
 
-## REST data API
+## History
 
-External systems can write OCPP records straight into the same collections:
+What the broker recorded is read back with `GET /api/history/...` (see the [API Reference](api-reference.md#history-apihistory)) and in the console's History page. It is **written by the broker only**: earlier versions had `POST /api/mongodb/...` routes that let anyone holding the API key add records; they are gone, so the records can be trusted as a log.
 
-```bash
-curl -X POST http://localhost:8765/api/mongodb/status-notification \
-  -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/json" \
-  -d '{"org_name": "orgA", "charger_id": "CP001", "connector_id": 1, "status": "Charging"}'
+| Kind | Collection | Recorded |
+|------|------------|----------|
+| Transactions | `transactions` | broker mode and local leader |
+| Connector status changes | `charger_statuses` | broker mode; in relay mode each change the broker sees |
+| Meter readings | `meter_values` | broker mode and local leader |
+| Commands | `commands` | every command sent through the API or the console, with its outcome |
+| OCPP messages | `ocpp_messages` | every frame to and from a charger, in every mode, **if switched on** |
+
+**Commands.** One document per command, written when it finishes: `message_id`, `action`, `payload`, `status` (`success`, `error`, `timeout`, `cancelled`), `response`, `error`, `sent_at`, `finished_at`, `duration_ms`. Secrets are replaced by `***` before they are stored, as in the console (an `AuthorizationKey`). A command the broker refuses as invalid (`422`) was never sent and is not recorded.
+
+**Messages.** Off by default, because it is one write per frame. With `mongodb.history.messages: true` every OCPP frame is stored as it passes, in both directions and in every mode: `direction` (`in` from the charger, `out` to it), `type` (`call`, `result`, `error`), `action`, `message_id`, `payload`, `timestamp`. A reply carries only a message id on the wire; the broker remembers each request (200 per charger) to put the action on its reply, and a reply it cannot match (after a restart) has `action: null`. Heartbeats and their replies are left out unless `mongodb.history.heartbeats: true`. A payload over 64 KB is not stored, only its size (`truncated: true`). Payloads are stored as sent and can hold id tags: restrict who can read them (`GET /api/history/messages` needs the API key, like every route) and use a retention.
+
+### Retention
+
+```yaml
+mongodb:
+  history:
+    messages: false
+    heartbeats: false
+    retention_days:          # a MongoDB TTL index per collection; omit or null: kept for ever
+      messages: 30           # default 30
+      commands: 365          # default 365
+      statuses: null
+      meter_values: null
+      transactions: null
 ```
 
-```json
-{"status": "success", "message": "StatusNotification saved"}
-```
+MongoDB deletes records older than the limit in the background (its TTL monitor runs about once a minute). `statuses`, `meter_values` and `transactions` are measured from the record's `timestamp`, `commands` from `sent_at`. An open transaction older than its limit is deleted too. A limit that is changed is applied to the existing index when the broker connects. **A limit that is removed does not remove the TTL index** MongoDB already has: drop it yourself (`db.ocpp_messages.dropIndex("timestamp_1")`). `retention_days` rejects unknown names, zero and non-integers at startup.
 
-Routes: `status-notification`, `meter-values`, `boot-notification`, `transaction`, `authorization`, `data-transfer`, `ocpp-message` (all `POST`) and `GET /health`. The fields are listed in the [API Reference](api-reference.md#mongodb-data-api-apimongodb). Every route needs the API key and returns `503` when MongoDB is not connected. `POST /transaction` follows the same start/stop rules as above (`transaction_type`, `meter_stop`, `stop_reason`).
+### Reading
+
+All lists are newest first, paged with an opaque `cursor` (pass the `next_cursor` of one page to get the next), and filtered by organization, charger and time. Without MongoDB, or while it does not answer, each answers `available: false` with a `reason` instead of an error. `GET /api/history/info` says whether history is available, what is switched on, the retention and roughly how many records each collection holds.
 
 ## Failure handling
 

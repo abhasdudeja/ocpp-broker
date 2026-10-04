@@ -24,26 +24,17 @@ from .commands import catalog as command_catalog_data
 from .commands import new_entry
 from .console_api import create_console_api
 from .events_api import create_events_api
+from .history_api import create_history_api
 from .schemas.console import CommandCatalog
 from .session import CommandRejected
 from .system_api import create_system_api
 from .tag_manager import TagSyncUnavailable
-from .write_behind import background
 
 # Import schemas and services
 from .schemas.tags import (
     BulkTagRequest, BulkTagResult, OCPPTag, TagAck, TagExportRequest, TagImportRequest, TagImportResult,
     TagManagementStatus, TagOrganizations, TagSearchRequest, TagSearchResponse, TagStatistics, TagStatus,
     TagSyncResult, TagType, TagValidationResult,
-)
-from .mongodb_service import (
-    StatusNotificationRequest,
-    MeterValuesRequest,
-    BootNotificationRequest,
-    TransactionRequest as MongoDBTransactionRequest,
-    AuthorizationRequest as MongoDBAuthorizationRequest,
-    DataTransferRequest as MongoDBDataTransferRequest,
-    OCPPMessageRequest
 )
 
 logger = logging.getLogger("ocpp_broker.api")
@@ -511,14 +502,6 @@ def create_ocpp_command_api(broker) -> APIRouter:
         while len(pending_responses) > MAX_REMEMBERED_COMMANDS:
             pending_responses.popitem(last=False)
 
-    async def _save_to_mongodb(**fields) -> None:
-        mongodb = background(broker)
-        if mongodb and mongodb.is_connected():
-            try:
-                await mongodb.save_ocpp_message(**fields)
-            except Exception as e:
-                ocpp_logger.warning(f"Failed to save {fields.get('action')} to MongoDB: {e}")
-
     async def send_ocpp_command(org_name: str, charger_id: str, action: str, payload: Dict[str, Any], timeout: int = 30):
         """
         Send an OCPP command to a charger and return the charger's actual reply.
@@ -545,17 +528,20 @@ def create_ocpp_command_api(broker) -> APIRouter:
         }
         _remember(message_id, record)
 
-        await _save_to_mongodb(
-            org_name=org_name, charger_id=charger_id, message_type="call", action=action,
-            payload=payload, direction="broker_to_charger", message_id=message_id,
-        )
-
         # What the console shows as this charger's command history (kept while it stays connected)
         entry = new_entry(message_id, action, payload)
         session.command_log.append(entry)
 
         def _finished(status: str, response: Any = None, error: Optional[str] = None) -> None:
             entry.finish(status, response, error)
+            writer = getattr(broker, "write_history", None)
+            if writer is not None:  # the redacted copy, never the raw payload (a key in ChangeConfiguration)
+                writer(
+                    "save_command", org_name, charger_id,
+                    message_id=message_id, action=action, payload=entry.payload, status=entry.status,
+                    response=entry.response, error=entry.error, sent_at=entry.sent_at,
+                    finished_at=entry.finished_at, duration_ms=entry.duration_ms,
+                )
             events = getattr(broker, "events", None)
             if events is not None:
                 events.publish(
@@ -591,14 +577,6 @@ def create_ocpp_command_api(broker) -> APIRouter:
         ocpp_logger.info(
             f"OCPP command {action} to {org_name}/{charger_id} finished: {result.status} (message_id: {message_id})"
         )
-        if result.status != "timeout":
-            await _save_to_mongodb(
-                org_name=org_name, charger_id=charger_id,
-                message_type="call_result" if result.status == "success" else "call_error",
-                action=action,
-                payload=result.response if result.response is not None else {"error": result.error},
-                direction="charger_to_broker", message_id=message_id,
-            )
         if result.status == "timeout":
             return JSONResponse(status_code=504, content=record)
         return record
@@ -930,179 +908,10 @@ def create_ocpp_command_api(broker) -> APIRouter:
 
 def create_mongodb_api(broker) -> APIRouter:
     """
-    Create FastAPI router for MongoDB OCPP data APIs.
-    These APIs allow external systems to send OCPP data to MongoDB.
+    Create the FastAPI router for the MongoDB status route.
+    Nothing writes through it: history is written by the broker itself and cannot be forged over REST.
     """
     router = APIRouter(prefix="/api/mongodb", tags=["MongoDB OCPP Data"])
-    
-    @router.post("/status-notification", summary="Save StatusNotification to MongoDB")
-    async def save_status_notification(request: StatusNotificationRequest = Body(...)):
-        """Save a StatusNotification to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_status_notification(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                connector_id=request.connector_id,
-                status=request.status,
-                error_code=request.error_code,
-                info=request.info,
-                timestamp=request.timestamp,
-                vendor_id=request.vendor_id,
-                vendor_error_code=request.vendor_error_code
-            )
-            return {"status": "success", "message": "StatusNotification saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving status notification: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/meter-values", summary="Save MeterValues to MongoDB")
-    async def save_meter_values(request: MeterValuesRequest = Body(...)):
-        """Save MeterValues to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_meter_values(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                connector_id=request.connector_id,
-                transaction_id=request.transaction_id,
-                meter_value=request.meter_value,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "MeterValues saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving meter values: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/boot-notification", summary="Save BootNotification to MongoDB")
-    async def save_boot_notification(request: BootNotificationRequest = Body(...)):
-        """Save BootNotification to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_boot_notification(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                charge_point_model=request.charge_point_model,
-                charge_point_vendor=request.charge_point_vendor,
-                firmware_version=request.firmware_version,
-                iccid=request.iccid,
-                imsi=request.imsi,
-                meter_type=request.meter_type,
-                meter_serial_number=request.meter_serial_number,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "BootNotification saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving boot notification: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/transaction", summary="Save Transaction to MongoDB")
-    async def save_transaction(request: MongoDBTransactionRequest = Body(...)):
-        """Save StartTransaction or StopTransaction to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        if request.transaction_type not in ["start", "stop"]:
-            raise HTTPException(status_code=400, detail="transaction_type must be 'start' or 'stop'")
-        
-        try:
-            await mongodb.save_transaction(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                transaction_id=request.transaction_id,
-                connector_id=request.connector_id,
-                id_tag=request.id_tag,
-                meter_start=request.meter_start,
-                timestamp=request.timestamp,
-                reservation_id=request.reservation_id,
-                transaction_type=request.transaction_type,
-                meter_stop=request.meter_stop,
-                stop_reason=request.stop_reason
-            )
-            return {"status": "success", "message": f"{request.transaction_type.capitalize()}Transaction saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving transaction: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/authorization", summary="Save Authorization to MongoDB")
-    async def save_authorization(request: MongoDBAuthorizationRequest = Body(...)):
-        """Save Authorization to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_authorization(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                id_tag=request.id_tag,
-                status=request.status,
-                expiry_date=request.expiry_date,
-                parent_id_tag=request.parent_id_tag,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "Authorization saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving authorization: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/data-transfer", summary="Save DataTransfer to MongoDB")
-    async def save_data_transfer(request: MongoDBDataTransferRequest = Body(...)):
-        """Save DataTransfer to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        try:
-            await mongodb.save_data_transfer(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                vendor_id=request.vendor_id,
-                message_id=request.message_id,
-                data=request.data,
-                status=request.status,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "DataTransfer saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving data transfer: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/ocpp-message", summary="Save generic OCPP message to MongoDB")
-    async def save_ocpp_message(request: OCPPMessageRequest = Body(...)):
-        """Save a generic OCPP message to MongoDB."""
-        mongodb = getattr(broker, "mongodb_service", None)
-        if not mongodb or not mongodb.is_connected():
-            raise HTTPException(status_code=503, detail="MongoDB service not available")
-        
-        if request.message_type not in ["call", "call_result", "call_error"]:
-            raise HTTPException(status_code=400, detail="message_type must be 'call', 'call_result', or 'call_error'")
-        
-        try:
-            await mongodb.save_ocpp_message(
-                org_name=request.org_name,
-                charger_id=request.charger_id,
-                message_type=request.message_type,
-                action=request.action,
-                payload=request.payload,
-                direction=request.direction,
-                message_id=request.message_id,
-                timestamp=request.timestamp
-            )
-            return {"status": "success", "message": "OCPP message saved"}
-        except Exception as e:
-            mongodb_logger.error(f"Error saving OCPP message: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
     
     @router.get("/health", summary="Check MongoDB connection status")
     async def mongodb_health():
@@ -1165,6 +974,7 @@ def mount_api_routers(app: FastAPI, broker) -> None:
     app.include_router(create_system_api(broker), dependencies=protect)
     app.include_router(create_console_api(broker), dependencies=protect)
     app.include_router(create_events_api(broker), dependencies=protect)
+    app.include_router(create_history_api(broker), dependencies=protect)
 
 
 def create_api(broker):

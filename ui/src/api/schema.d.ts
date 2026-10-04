@@ -1750,10 +1750,35 @@ export interface components {
             /** Database */
             database?: string | null;
             /**
+             * Dropped Writes
+             * @description Records thrown away because too many were waiting; not stored
+             */
+            dropped_writes: number;
+            /**
+             * Failed Writes
+             * @description Write attempts that failed or timed out (a timed-out write is tried again)
+             */
+            failed_writes: number;
+            /**
+             * Pending Writes
+             * @description Records waiting to be written to MongoDB (they are written after the charger has been answered)
+             */
+            pending_writes: number;
+            /**
              * Reachable
              * @description The server answered a ping just now
              */
             reachable: boolean;
+            /**
+             * Writes Degraded
+             * @description Recent writes keep failing: MongoDB looks to be down or unreachable
+             */
+            writes_degraded: boolean;
+            /**
+             * Written
+             * @description Records written since the broker started
+             */
+            written: number;
         };
         /**
          * OCPPCommandRequest

@@ -47,6 +47,7 @@ BROKER mode (connect_to_backend: false)        RELAY mode (connect_to_backend: t
 | `events_api.py` | `GET /api/events`: the event bus as Server-Sent Events. |
 | `commands.py` | The catalog of the 19 commands the console can send (schemas read from the `ocpp` library) and the per-charger command log with secret redaction. |
 | `charger_state.py` | `ChargerState`: what the console shows about a connected charger, learned by watching its frames; `observe` also returns what changed, which becomes events. |
+| `write_behind.py` | `WriteBehind`: the background writer for MongoDB. A handler's `save_*` call is queued and the charger is answered first; one worker stores the records in order, merges heartbeats per charger, bounds the queue, waits out an outage and is flushed at shutdown. |
 | `local_backend.py` | `LocalBackend`: this broker itself as one of a charger's backends (`local: true`). It runs the `ocpp` library on a loopback queue and offers what the session uses of a `BackendConnection`, so a local leader, a local standby and external backends are handled alike by the relay loop, the id table and failover. |
 | `local_transactions.py` | `LocalTransactions`: what the broker itself numbered for one charger (broker mode and the local leader). Recognises a retried `StartTransaction` and a repeated `StopTransaction` and lists open transactions for the console. In memory, bounded. |
 | `registry.py` | `ChargerRegistry`: a per-organization set of charger ids, written on BootNotification in broker mode. Nothing reads it. |

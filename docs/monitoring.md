@@ -16,6 +16,7 @@ export OCPP_BROKER_API_KEY="your-key"   # the same value the broker runs with
 |---|---|---|
 | `GET /health` (also `HEAD`) | none | The process is up and serving HTTP. Always `{"status":"ok"}`. |
 | `GET /api/mongodb/health` | API key | Whether MongoDB was configured and connected. |
+| `GET /api/system/info` | API key | Version, uptime, instance id, MongoDB reachability (pinged now) and the state of the background writes: records waiting, written, failed, dropped, and whether MongoDB looks to be down. |
 | `GET /api/tags/status` | API key | Whether MongoDB persistence is active for tags, and which orgs have tag lists. |
 | `GET /api/ocpp/organizations/{org}/chargers` | API key | Chargers currently connected for an org. |
 | `GET /api/ocpp/organizations/{org}/chargers/{id}/status` | API key | One charger: mode and whether it has a backend link. |
@@ -99,7 +100,12 @@ Texts are quoted from the source; `X` is a charger id and `Y` an organization.
 | WARNING | `MongoDB not configured or disabled: transaction ids will come from a non-durable in-memory counter and nothing will be persisted.` | No MongoDB. |
 | ERROR | `Failed to initialize MongoDB service: ...` (usually preceded by `Failed to connect to MongoDB: ...`) | MongoDB was enabled but unreachable at startup (5 s timeout). The broker keeps running without it. |
 | WARNING | `!!! TRANSACTION IDS FOR ORG 'Y' ARE NOT DURABLE !!!` | Logged once per org when the first transaction id is allocated without MongoDB. Ids restart with the broker. |
-| ERROR | `Could not allocate transaction id from MongoDB for org 'Y': ...` | MongoDB was connected but the counter failed; the fallback counter is used. |
+| ERROR | `Could not allocate transaction id from MongoDB for org 'Y': ...` | MongoDB was connected but the counter failed or did not answer within 3 s (`TimeoutError`); the fallback counter is used. |
+| WARNING | `A MongoDB write (...) did not finish within 5 s; it will be tried again` | MongoDB is not answering. The write is kept; charger replies are not affected. At most one such line every 30 s. |
+| WARNING | `A MongoDB write (...) failed: ...` | A write failed for another reason; it is tried 3 times, then dropped. |
+| WARNING | `MongoDB writes are backing up (N waiting): dropping the newest (...)` | The background queue is full (an outage or a database far slower than the traffic); records are being lost. `dropped_writes` counts them. |
+| INFO | `MongoDB answers again; writing the N waiting record(s)` | The backlog is being stored after an outage. |
+| WARNING | `Stopping with N MongoDB write(s) not yet stored` | The broker stopped with records still waiting for MongoDB. |
 | WARNING | `Transaction id mapping is memory-only: without MongoDB it is lost when the broker restarts, and followers lose track of transactions already running.` | Relay organization with several backends and no MongoDB. Logged once per process. |
 | INFO | `Restored N transaction id record(s) for Y/X` | A charger's stored transaction id table was loaded after a restart. |
 | WARNING | `Stored transaction N names backend(s) no longer configured (...); their ids are dropped` | A backend was renamed or removed since the record was stored. |

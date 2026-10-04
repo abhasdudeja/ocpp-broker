@@ -28,6 +28,7 @@ from .schemas.console import CommandCatalog
 from .session import CommandRejected
 from .system_api import create_system_api
 from .tag_manager import TagSyncUnavailable
+from .write_behind import background
 
 # Import schemas and services
 from .schemas.tags import (
@@ -511,7 +512,7 @@ def create_ocpp_command_api(broker) -> APIRouter:
             pending_responses.popitem(last=False)
 
     async def _save_to_mongodb(**fields) -> None:
-        mongodb = getattr(broker, "mongodb_service", None)
+        mongodb = background(broker)
         if mongodb and mongodb.is_connected():
             try:
                 await mongodb.save_ocpp_message(**fields)

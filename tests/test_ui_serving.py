@@ -171,7 +171,7 @@ def test_system_info_describes_the_process(client, monkeypatch):
     assert body["organizations"] == 0
     assert body["connected_chargers"] == 0
     assert body["uptime_seconds"] >= 0
-    assert body["mongodb"] == {"configured": False, "connected": False, "reachable": False, "database": None}
+    assert {k: body["mongodb"][k] for k in ("configured", "connected", "reachable", "database")} == {"configured": False, "connected": False, "reachable": False, "database": None}
 
 
 def test_system_info_counts_organizations_and_sessions(client, monkeypatch):
@@ -186,7 +186,21 @@ def test_system_info_counts_organizations_and_sessions(client, monkeypatch):
 def test_system_info_pings_mongodb_instead_of_trusting_the_startup_flag(client, monkeypatch, connected, reachable):
     monkeypatch.setattr(server.broker, "mongodb_service", FakeMongo(connected, reachable))
     mongo = client.get("/api/system/info", headers=AUTH_HEADERS).json()["mongodb"]
-    assert mongo == {"configured": True, "connected": connected, "reachable": reachable, "database": "ocpp_test"}
+    assert {k: mongo[k] for k in ("configured", "connected", "reachable", "database")} == {"configured": True, "connected": connected, "reachable": reachable, "database": "ocpp_test"}
+
+
+def test_system_info_reports_what_is_waiting_to_be_written_to_mongodb(client, monkeypatch):
+    from ocpp_broker.write_behind import WriteBehind
+
+    writes = WriteBehind(max_pending=1)
+    monkeypatch.setattr(server.broker, "writes", writes)
+    monkeypatch.setattr(server.broker, "mongodb_service", FakeMongo(True, True))
+    mongo = client.get("/api/system/info", headers=AUTH_HEADERS).json()["mongodb"]
+    assert (mongo["pending_writes"], mongo["written"], mongo["failed_writes"], mongo["dropped_writes"], mongo["writes_degraded"]) == (0, 0, 0, 0, False)
+    lane = writes._lanes[0]
+    lane.written, lane.failed, lane.dropped, lane._consecutive_failures = 5, 2, 3, 9
+    mongo = client.get("/api/system/info", headers=AUTH_HEADERS).json()["mongodb"]
+    assert (mongo["written"], mongo["failed_writes"], mongo["dropped_writes"], mongo["writes_degraded"]) == (5, 2, 3, True)
 
 
 def test_system_info_reports_ui_state(client, dist, monkeypatch):

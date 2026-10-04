@@ -255,6 +255,8 @@ class BrokerServer(uvicorn.Server):
     async def shutdown(self, *args, **kwargs) -> None:
         broker.events.close()
         await super().shutdown(*args, **kwargs)
+        # What chargers said just before the end is still waiting to be written to MongoDB
+        await broker.writes.close()
 
 
 def build_uvicorn_config(application: FastAPI, cfg: dict) -> uvicorn.Config:

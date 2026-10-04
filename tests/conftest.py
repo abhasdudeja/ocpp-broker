@@ -6,6 +6,7 @@ import pytest_asyncio
 
 from ocpp_broker import server
 from ocpp_broker.events import EventBus
+from ocpp_broker.write_behind import WriteBehind
 
 from .fakes import API_KEY, wait_for
 
@@ -29,6 +30,7 @@ async def run_server(monkeypatch):
     async def start(config_data, ping_interval=20, ping_timeout=20):
         monkeypatch.setattr(server.broker, "config_data", config_data)
         monkeypatch.setattr(server.broker, "events", EventBus())  # a test sees only its own events
+        monkeypatch.setattr(server.broker, "writes", WriteBehind())  # and its own queue of background writes
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]

@@ -13,7 +13,10 @@ const REFRESH_MS = 10_000
 
 function mongoLabel(mongo: SystemInfo['mongodb']): { text: string; tone: 'ok' | 'warn' | 'off' } {
   if (!mongo.configured) return { text: 'Not configured', tone: 'off' }
-  if (mongo.connected && mongo.reachable) return { text: `Connected (${mongo.database ?? 'database'})`, tone: 'ok' }
+  if (mongo.connected && mongo.reachable) {
+    const waiting = mongo.pending_writes > 0 ? ` · ${mongo.pending_writes} record${mongo.pending_writes === 1 ? '' : 's'} waiting to be written` : ''
+    return { text: `Connected (${mongo.database ?? 'database'})${waiting}`, tone: 'ok' }
+  }
   if (mongo.reachable) return { text: 'Reachable now, but the broker did not connect at startup', tone: 'warn' }
   return { text: 'Not answering', tone: 'warn' }
 }
@@ -25,6 +28,13 @@ function warnings(info: SystemInfo): string[] {
   }
   if (info.mongodb.configured && !info.mongodb.reachable) {
     found.push('MongoDB is configured but not answering: data is not being stored until it is back.')
+  }
+  const { writes_degraded: degraded, pending_writes: pending, dropped_writes: dropped } = info.mongodb
+  if (degraded) {
+    found.push(`MongoDB is not accepting writes: ${pending} record${pending === 1 ? '' : 's'} ${pending === 1 ? 'is' : 'are'} waiting and will be stored when it answers again.`)
+  }
+  if (dropped > 0) {
+    found.push(`${dropped} record${dropped === 1 ? ' was' : 's were'} dropped because too many were waiting for MongoDB; ${dropped === 1 ? 'it is' : 'they are'} not stored.`)
   }
   return found
 }

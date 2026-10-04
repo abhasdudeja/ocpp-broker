@@ -2,7 +2,7 @@ import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import { API_KEY, info, mockApi, mockFetch, org, renderApp, respond, signedIn } from '../test-utils'
+import { API_KEY, info, mockApi, mockFetch, mongo, org, renderApp, respond, signedIn } from '../test-utils'
 
 async function overview(body = info()) {
   signedIn()
@@ -28,9 +28,9 @@ describe('overview', () => {
   })
 
   it.each([
-    [{ configured: false, connected: false, reachable: false, database: null }, 'Not configured'],
-    [{ configured: true, connected: true, reachable: false, database: 'x' }, 'Not answering'],
-    [{ configured: true, connected: false, reachable: true, database: 'x' }, 'did not connect at startup'],
+    [mongo({ configured: false, connected: false, reachable: false, database: null }), 'Not configured'],
+    [mongo({ reachable: false, database: 'x' }), 'Not answering'],
+    [mongo({ connected: false, database: 'x' }), 'did not connect at startup'],
   ])('describes MongoDB as %j', async (mongodb, text) => {
     await overview(info({ mongodb }))
     expect(screen.getByText(new RegExp(text))).toBeInTheDocument()
@@ -38,7 +38,7 @@ describe('overview', () => {
 
   it('warns when MongoDB is configured but not answering, and when the API is open', async () => {
     await overview(
-      info({ api_auth: 'none', mongodb: { configured: true, connected: true, reachable: false, database: 'x' } }),
+      info({ api_auth: 'none', mongodb: mongo({ reachable: false, database: 'x' }) }),
     )
     expect(screen.getByText(/MongoDB is configured but not answering/)).toBeInTheDocument()
     expect(screen.getByText(/accepts requests without a key/)).toBeInTheDocument()
@@ -46,8 +46,26 @@ describe('overview', () => {
   })
 
   it('does not warn about MongoDB when it is simply not configured', async () => {
-    await overview(info({ mongodb: { configured: false, connected: false, reachable: false, database: null } }))
+    await overview(info({ mongodb: mongo({ configured: false, connected: false, reachable: false, database: null }) }))
     expect(screen.queryByText(/MongoDB is configured/)).not.toBeInTheDocument()
+  })
+
+  it('says how many records are waiting to be written to MongoDB, and warns when writes keep failing', async () => {
+    await overview(info({ mongodb: mongo({ pending_writes: 42, writes_degraded: true, failed_writes: 9 }) }))
+    expect(screen.getByText(/42 records waiting to be written/)).toBeInTheDocument()
+    expect(screen.getByText(/MongoDB is not accepting writes: 42 records are waiting and will be stored when it answers again/)).toBeInTheDocument()
+  })
+
+  it('warns, with the number, when records were thrown away because too many were waiting', async () => {
+    await overview(info({ mongodb: mongo({ dropped_writes: 1 }) }))
+    expect(screen.getByText(/1 record was dropped because too many were waiting for MongoDB/)).toBeInTheDocument()
+    expect(screen.queryByText(/not accepting writes/)).not.toBeInTheDocument()
+  })
+
+  it('says nothing about writes when none are waiting, failing or lost', async () => {
+    await overview(info({ mongodb: mongo({ written: 5000 }) }))
+    expect(screen.queryByText(/waiting to be written/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/dropped|not accepting writes/)).not.toBeInTheDocument()
   })
 
   it('refreshes on its own every ten seconds and stops when it goes away', async () => {

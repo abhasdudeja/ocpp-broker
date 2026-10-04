@@ -9,6 +9,22 @@ import commandCatalog from './test-fixtures/command-catalog.json'
 
 export const API_KEY = 'test-key'
 
+/** MongoDB as the overview reports it, with nothing waiting to be written. */
+export function mongo(overrides: Partial<SystemInfo['mongodb']> = {}): SystemInfo['mongodb'] {
+  return {
+    configured: true,
+    connected: true,
+    reachable: true,
+    database: 'ocpp_broker',
+    pending_writes: 0,
+    written: 0,
+    failed_writes: 0,
+    dropped_writes: 0,
+    writes_degraded: false,
+    ...overrides,
+  }
+}
+
 export function info(overrides: Partial<SystemInfo> = {}): SystemInfo {
   return {
     version: '0.5',
@@ -20,7 +36,7 @@ export function info(overrides: Partial<SystemInfo> = {}): SystemInfo {
     ui_built: true,
     organizations: 2,
     connected_chargers: 14,
-    mongodb: { configured: true, connected: true, reachable: true, database: 'ocpp_broker' },
+    mongodb: mongo(),
     ...overrides,
   }
 }

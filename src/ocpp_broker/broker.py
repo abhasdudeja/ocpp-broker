@@ -10,10 +10,13 @@ from .registry import ChargerRegistry
 from .config import load_config
 from .events import EventBus
 from .local_transactions import LocalTransactions
+from .write_behind import WriteBehind, background
 from .tag_manager import TagManager
 from .session import ChargerSession
 from .transaction_ids import TransactionIdTable, backend_keys, table_for_org
 from .transaction_store import TransactionStore
+
+COUNTER_TIMEOUT = 3.0  # seconds the MongoDB transaction counter may take before the in-memory fallback is used
 
 logger = logging.getLogger("ocpp_broker.broker")
 
@@ -40,6 +43,8 @@ class OcppBroker:
         self.transaction_tables: Dict[Tuple[str, str], TransactionIdTable] = {}
         # What the broker itself numbered for each charger (broker mode and the local leader); see local_transactions.py
         self.local_transactions: Dict[Tuple[str, str], LocalTransactions] = {}
+        # Writes of what chargers say go to MongoDB from here, after the charger has been answered (write_behind.py)
+        self.writes = WriteBehind()
         self._presence_indexed = False
         self._presence_tasks: set = set()
         self._tx_store: Optional[TransactionStore] = None
@@ -284,14 +289,15 @@ class OcppBroker:
         mongodb = getattr(self, "mongodb_service", None)
         if mongodb is not None and mongodb.is_connected():
             try:
-                value = await mongodb.next_sequence(f"transaction_id:{org_name}")
+                # The charger is waiting for this number, so it cannot be a background write; but it must not wait for long
+                value = await asyncio.wait_for(mongodb.next_sequence(f"transaction_id:{org_name}"), COUNTER_TIMEOUT)
                 self._fallback_warned.discard(org_name)
                 return value
             except Exception as exc:
                 logger.error(
                     "Could not allocate transaction id from MongoDB for org '%s': %s",
                     org_name,
-                    exc,
+                    exc.__class__.__name__ if isinstance(exc, asyncio.TimeoutError) else exc,
                 )
         return self._next_fallback_transaction_id(org_name)
 
@@ -350,7 +356,7 @@ class OcppBroker:
                 
                 # Only save CALL messages (type 2) - commands from Central System to Charge Point
                 if message_type == 2 and action:
-                    mongodb = getattr(self, "mongodb_service", None)
+                    mongodb = background(self)
                     if mongodb and mongodb.is_connected():
                         try:
                             await mongodb.save_ocpp_message(

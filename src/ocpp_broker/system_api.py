@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from ._version import __version__
 from .auth import configured_api_key
 from .ui import ui_built, ui_enabled
+from .write_behind import WriteBehind
 
 
 class MongoInfo(BaseModel):
@@ -23,6 +24,11 @@ class MongoInfo(BaseModel):
     connected: bool = Field(description="The connection made at startup succeeded")
     reachable: bool = Field(description="The server answered a ping just now")
     database: Optional[str] = None
+    pending_writes: int = Field(description="Records waiting to be written to MongoDB (they are written after the charger has been answered)")
+    written: int = Field(description="Records written since the broker started")
+    failed_writes: int = Field(description="Write attempts that failed or timed out (a timed-out write is tried again)")
+    dropped_writes: int = Field(description="Records thrown away because too many were waiting; not stored")
+    writes_degraded: bool = Field(description="Recent writes keep failing: MongoDB looks to be down or unreachable")
 
 
 class SystemInfo(BaseModel):
@@ -48,6 +54,8 @@ def create_system_api(broker) -> APIRouter:
         config = getattr(broker, "config_data", None) or {}
         mongodb = getattr(broker, "mongodb_service", None)
         now = datetime.now(timezone.utc)
+        writes = getattr(broker, "writes", None)
+        counts = writes.stats() if isinstance(writes, WriteBehind) else {}
         return SystemInfo(
             version=__version__,
             instance_id=broker.instance_id,
@@ -63,6 +71,11 @@ def create_system_api(broker) -> APIRouter:
                 connected=bool(mongodb and mongodb.is_connected()),
                 reachable=bool(mongodb and await mongodb.ping()),
                 database=mongodb.database_name if mongodb else None,
+                pending_writes=counts.get("pending", 0),
+                written=counts.get("written", 0),
+                failed_writes=counts.get("failed", 0),
+                dropped_writes=counts.get("dropped", 0),
+                writes_degraded=bool(counts.get("degraded", False)),
             ),
         )
 

@@ -17,7 +17,7 @@ What the sign-in does:
 
 ## The overview
 
-Figures from `GET /api/system/info`, refreshed every 10 seconds: broker version, instance id, uptime, organizations, chargers connected to **this instance** (sessions are per process), whether the API needs a key, whether MongoDB answers right now, and whether the console is built into this installation. It warns when the API accepts requests without a key, or when MongoDB is configured but not answering. If a refresh fails it keeps the last figures on screen and says so.
+Figures from `GET /api/system/info`, refreshed every 10 seconds: broker version, instance id, uptime, organizations, chargers connected to **this instance** (sessions are per process), whether the API needs a key, whether MongoDB answers right now, and whether the console is built into this installation. It warns when the API accepts requests without a key, when MongoDB is configured but not answering, when MongoDB is not accepting writes (with how many records are waiting to be stored, see [Writes happen after the reply](mongodb-integration.md#writes-happen-after-the-reply)), and when records were dropped because too many were waiting. The MongoDB figure also says how many records are waiting to be written. If a refresh fails it keeps the last figures on screen and says so.
 
 The overview also lists **recent events** (see [Live updates](#live-updates)).
 

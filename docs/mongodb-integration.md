@@ -25,11 +25,23 @@ Connection strings are standard MongoDB URIs: `mongodb://user:password@host:2701
 
 ### Startup behaviour
 
-The broker connects once at startup and pings the server (5 second timeout). If that fails, an error `Failed to initialize MongoDB service` is logged and the broker **continues without MongoDB until it is restarted**; it does not retry. Start MongoDB first. If the connection is lost later, writes are skipped or logged as errors and OCPP processing continues; a failed write never fails a charger request.
+The broker connects once at startup and pings the server (5 second timeout). If that fails, an error `Failed to initialize MongoDB service` is logged and the broker **continues without MongoDB until it is restarted**; it does not retry. Start MongoDB first. If MongoDB goes away later, charger traffic carries on and what is waiting to be stored is kept and tried again ([below](#writes-happen-after-the-reply)).
 
 If MongoDB is disabled, the broker logs `MongoDB not configured or disabled: transaction ids will come from a non-durable in-memory counter and nothing will be persisted.`
 
 The broker creates indexes for one collection only, `transaction_id_map` (see below). Add indexes for the queries you run on the others (for example on `org_name` and `charger_id`) and your own retention policy for the high-volume collections.
+
+## Writes happen after the reply
+
+What a charger says is stored **after the charger has been answered**, by a background writer, never before. A database that is slow (a cloud cluster a few hundred milliseconds away) or not answering therefore does not slow or stall the charger's replies: with the database in line, a reply took 150 to 250 ms against a remote cluster and would have waited for the driver's timeout (30 s) during an outage.
+
+- **In order, side by side.** Records are stored by eight workers; one charger's records always go to the same worker, one after another, so a transaction's start is stored before its stop, while different chargers' records are written at the same time. (Over a link with 100 ms latency one worker would store about ten records a second.)
+- **Heartbeats are merged.** A heartbeat time is stored once per charger however many heartbeats arrive while a write is waiting.
+- **Bounded.** At most 10,000 records wait per worker. Beyond that the newest are **dropped and counted**; a lost status record is better than a broker out of memory.
+- **An outage is waited out.** A write that gets no answer within 5 seconds is kept and tried again; after three failures in a row the writer tries once every 5 seconds instead of hammering the server, and stores the backlog in order when it answers again. A cut-off write may have reached the database, so after an outage a record can be stored **twice**. A record MongoDB keeps *rejecting* is dropped after 3 tries so it cannot block the rest.
+- **At shutdown** the broker waits up to 5 seconds for what is waiting, and logs how many records it did not store. A crash loses what was waiting.
+- **What is still in line.** The transaction id counter (the charger needs the number in its `StartTransaction` reply) is read from MongoDB with a 3 second limit; after that the broker uses its in-memory counter, as it does when MongoDB is down ([Transaction ids](#transaction-ids)). Tag changes made through the REST API and the REST data routes under `/api/mongodb` also wait for the database, because the caller is waiting for the outcome.
+- **See it.** `GET /api/system/info` reports `mongodb.pending_writes`, `written`, `failed_writes`, `dropped_writes` and `writes_degraded` (true while recent writes keep failing), and the console's overview warns about the last two.
 
 ## What is stored, and when
 
@@ -137,7 +149,7 @@ Routes: `status-notification`, `meter-values`, `boot-notification`, `transaction
 
 ## Failure handling
 
-- A failing write is logged (`Error saving ...`) and skipped; it never delays or fails the charger's request.
+- A write never delays or fails a charger's request: it is queued and written after the reply ([above](#writes-happen-after-the-reply)). A write that fails is logged (`Error saving ...`, or a warning from the writer, at most one every 30 s) and counted in `GET /api/system/info`.
 - A broker started without a reachable MongoDB runs without persistence until restarted.
 - `GET /api/mongodb/health` reports `not_configured`, `connected` or `disconnected`.
 

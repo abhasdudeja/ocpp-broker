@@ -93,11 +93,12 @@ GET /api/system/info
   "ui_built": true,
   "organizations": 2,
   "connected_chargers": 14,
-  "mongodb": {"configured": true, "connected": true, "reachable": true, "database": "ocpp_broker"}
+  "mongodb": {"configured": true, "connected": true, "reachable": true, "database": "ocpp_broker",
+              "pending_writes": 0, "written": 1832, "failed_writes": 0, "dropped_writes": 0, "writes_degraded": false}
 }
 ```
 
-Needs the API key, so it is also the cheapest call to check a key with (`401` wrong or missing key, `503` no key configured). `instance_id` is random per process. `connected_chargers` counts this process only, because sessions are not shared between instances. Unlike the other MongoDB health route, `mongodb.reachable` pings the server on every call (2 second limit), while `connected` is the startup result.
+Needs the API key, so it is also the cheapest call to check a key with (`401` wrong or missing key, `503` no key configured). `instance_id` is random per process. `connected_chargers` counts this process only, because sessions are not shared between instances. Unlike the other MongoDB health route, `mongodb.reachable` pings the server on every call (2 second limit), while `connected` is the startup result. The write counters describe the [background writer](mongodb-integration.md#writes-happen-after-the-reply) since the broker started: `pending_writes` records waiting for MongoDB, `written` stored, `failed_writes` attempts that failed or timed out (a timed-out write is tried again), `dropped_writes` records thrown away because too many were waiting, and `writes_degraded`, true while recent writes keep failing, which is when MongoDB looks to be down.
 
 ## Console endpoints (organizations and chargers)
 

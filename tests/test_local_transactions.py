@@ -169,6 +169,7 @@ async def test_a_retried_start_gets_the_same_transaction_and_is_stored_once(run_
         assert again[2]["transactionId"] == first[2]["transactionId"]
         assert again[2]["idTagInfo"]["status"] == "Accepted"
         assert len(numbers) == 1, "only one id was taken from the counter"
+        await server.broker.writes.flush(3)  # stored in the background, after the reply
         starts = [c for c in mongo.save_transaction.await_args_list if c.kwargs["transaction_type"] == "start"]
         assert len(starts) == 1, "one transaction stored, not two"
 
@@ -200,6 +201,7 @@ async def test_a_repeated_stop_is_answered_and_stored_once(run_server, tags, mon
         stop = {"transactionId": tx, "idTag": "TAG1", "meterStop": 900, "timestamp": "2026-10-04T11:00:00Z", "reason": "Local"}
         first, again = await exchange(charger, "StopTransaction", stop), await exchange(charger, "StopTransaction", stop)
         assert first[0] == again[0] == 3 and first[2] == again[2] == {"idTagInfo": {"status": "Accepted"}}
+        await server.broker.writes.flush(3)  # stored in the background, after the reply
         stops = [c for c in mongo.save_transaction.await_args_list if c.kwargs["transaction_type"] == "stop"]
         assert len(stops) == 1
     finally:
@@ -215,6 +217,7 @@ async def test_a_stop_for_a_transaction_the_broker_did_not_start_is_answered_and
             reply = await exchange(charger, "StopTransaction", {"transactionId": 4242, "idTag": "TAG1", "meterStop": 1, "timestamp": "2026-10-04T11:00:00Z"})
         assert reply[0] == 3, "a central system cannot refuse a stop"
         assert "4242" in caplog.text and "did not start" in caplog.text
+        await server.broker.writes.flush(3)  # stored in the background, after the reply
         assert any(c.kwargs["transaction_id"] == 4242 for c in mongo.save_transaction.await_args_list), "it is still recorded"
     finally:
         await charger.close()
@@ -228,6 +231,7 @@ async def test_the_meter_readings_sent_with_a_stop_are_stored(run_server, tags, 
         tx = (await exchange(charger, "StartTransaction", START))[2]["transactionId"]
         data = [{"timestamp": "2026-10-04T10:30:00Z", "sampledValue": [{"value": "55", "unit": "Wh"}]}]
         await exchange(charger, "StopTransaction", {"transactionId": tx, "meterStop": 900, "timestamp": "2026-10-04T11:00:00Z", "transactionData": data})
+        await server.broker.writes.flush(3)  # stored in the background, after the reply
         [stop] = [c for c in mongo.save_transaction.await_args_list if c.kwargs["transaction_type"] == "stop"]
         # plain dicts, in the library's snake_case like the other stored readings (MeterValues)
         assert stop.kwargs["transaction_data"] == [{"timestamp": "2026-10-04T10:30:00Z", "sampled_value": [{"value": "55", "unit": "Wh"}]}]

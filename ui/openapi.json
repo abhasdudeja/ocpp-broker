@@ -1550,16 +1550,46 @@
             ],
             "title": "Database"
           },
+          "dropped_writes": {
+            "description": "Records thrown away because too many were waiting; not stored",
+            "title": "Dropped Writes",
+            "type": "integer"
+          },
+          "failed_writes": {
+            "description": "Write attempts that failed or timed out (a timed-out write is tried again)",
+            "title": "Failed Writes",
+            "type": "integer"
+          },
+          "pending_writes": {
+            "description": "Records waiting to be written to MongoDB (they are written after the charger has been answered)",
+            "title": "Pending Writes",
+            "type": "integer"
+          },
           "reachable": {
             "description": "The server answered a ping just now",
             "title": "Reachable",
             "type": "boolean"
+          },
+          "writes_degraded": {
+            "description": "Recent writes keep failing: MongoDB looks to be down or unreachable",
+            "title": "Writes Degraded",
+            "type": "boolean"
+          },
+          "written": {
+            "description": "Records written since the broker started",
+            "title": "Written",
+            "type": "integer"
           }
         },
         "required": [
           "configured",
           "connected",
-          "reachable"
+          "reachable",
+          "pending_writes",
+          "written",
+          "failed_writes",
+          "dropped_writes",
+          "writes_degraded"
         ],
         "title": "MongoInfo",
         "type": "object"

@@ -9,6 +9,7 @@ from ocpp.v16 import ChargePoint as OcppChargePoint, call_result, datatypes
 
 from .local_transactions import LocalTransactions, start_key
 from .sockets import locked_send
+from .write_behind import background
 
 logger = logging.getLogger("ocpp_broker.charge_point")
 
@@ -56,7 +57,7 @@ class StarletteWebSocketAdapter:
                     # We need to find which charge_point this adapter belongs to
                     charge_point = getattr(self, "_charge_point", None)
                     if charge_point:
-                        mongodb = getattr(charge_point.broker, "mongodb_service", None)
+                        mongodb = background(charge_point.broker)
                         if mongodb and mongodb.is_connected():
                             try:
                                 # For call results, we need to track which action this is a response to
@@ -153,7 +154,7 @@ class BrokerChargePoint(OcppChargePoint):
         )
 
         # Save boot notification data
-        mongodb = getattr(self.broker, "mongodb_service", None)
+        mongodb = background(self.broker)
         if mongodb and mongodb.is_connected():
             await mongodb.save_boot_notification(
                 org_name=self.org_name,
@@ -179,7 +180,7 @@ class BrokerChargePoint(OcppChargePoint):
         self.logger.info("Authorize for %s → %s", id_tag, tag_info.status)
         
         # Save authorization data
-        mongodb = getattr(self.broker, "mongodb_service", None)
+        mongodb = background(self.broker)
         if mongodb and mongodb.is_connected():
             # Handle expiry_date - it might be a datetime object or string
             expiry_date_str = None
@@ -203,7 +204,7 @@ class BrokerChargePoint(OcppChargePoint):
     @on("Heartbeat")
     async def on_heartbeat(self):
         # Update latest heartbeat timestamp (don't save individual messages)
-        mongodb = getattr(self.broker, "mongodb_service", None)
+        mongodb = background(self.broker)
         if mongodb and mongodb.is_connected():
             await mongodb.update_heartbeat_timestamp(
                 org_name=self.org_name,
@@ -256,7 +257,7 @@ class BrokerChargePoint(OcppChargePoint):
         )
         
         # Save status notification
-        mongodb = getattr(self.broker, "mongodb_service", None)
+        mongodb = background(self.broker)
         if mongodb and mongodb.is_connected():
             await mongodb.save_status_notification(
                 org_name=self.org_name,
@@ -279,7 +280,7 @@ class BrokerChargePoint(OcppChargePoint):
         )
         
         # Save meter values
-        mongodb = getattr(self.broker, "mongodb_service", None)
+        mongodb = background(self.broker)
         if mongodb and mongodb.is_connected():
             # Convert meter_value to dict if needed
             meter_value_list = []
@@ -331,7 +332,7 @@ class BrokerChargePoint(OcppChargePoint):
         tag_info = await self._authorize_tag(id_tag)
 
         # Save transaction (once: a repeated start is the same transaction)
-        mongodb = getattr(self.broker, "mongodb_service", None)
+        mongodb = background(self.broker)
         if earlier is None and mongodb and mongodb.is_connected():
             await mongodb.save_transaction(
                 org_name=self.org_name,
@@ -370,7 +371,7 @@ class BrokerChargePoint(OcppChargePoint):
 
         # Save transaction stop. StopTransaction carries no connector_id and the
         # start-side fields are already stored, so only stop data is written.
-        mongodb = getattr(self.broker, "mongodb_service", None)
+        mongodb = background(self.broker)
         if not repeated and mongodb and mongodb.is_connected():
             await mongodb.save_transaction(
                 org_name=self.org_name,
@@ -457,7 +458,7 @@ class BrokerChargePoint(OcppChargePoint):
             )
             
             # Save data transfer
-            mongodb = getattr(self.broker, "mongodb_service", None)
+            mongodb = background(self.broker)
             if mongodb and mongodb.is_connected():
                 await mongodb.save_data_transfer(
                     org_name=self.org_name,
@@ -544,7 +545,7 @@ class BrokerChargePoint(OcppChargePoint):
         Persist a charger call verbatim. Only for actions with no dedicated
         ``save_*`` method; everything else is stored once, structured.
         """
-        mongodb = getattr(self.broker, "mongodb_service", None)
+        mongodb = background(self.broker)
         if mongodb and mongodb.is_connected():
             try:
                 await mongodb.save_ocpp_message(

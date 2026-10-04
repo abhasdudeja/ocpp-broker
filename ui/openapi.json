@@ -1,6 +1,766 @@
 {
   "components": {
     "schemas": {
+      "AdminApplied": {
+        "properties": {
+          "applied_at": {
+            "format": "date-time",
+            "title": "Applied At",
+            "type": "string"
+          },
+          "backup": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file as it was before, kept next to it",
+            "title": "Backup"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/AdminChangeLine"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "dropped_connections": {
+            "title": "Dropped Connections",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "revision",
+          "backup",
+          "changes",
+          "warnings",
+          "dropped_connections",
+          "applied_at"
+        ],
+        "title": "AdminApplied",
+        "type": "object"
+      },
+      "AdminApplyRequest": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/AdminChange"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Changes",
+            "type": "array"
+          },
+          "drop_connections": {
+            "description": "Organizations whose connected chargers are disconnected now (they reconnect and get the new settings)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Drop Connections",
+            "type": "array"
+          },
+          "revision": {
+            "description": "The revision of the configuration these changes were made from",
+            "title": "Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "changes"
+        ],
+        "title": "AdminApplyRequest",
+        "type": "object"
+      },
+      "AdminBackend": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Names the backend in the transaction id table; set it when there are several",
+            "title": "Id"
+          },
+          "leader": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Marked as the leader. With a local backend, false makes it a standby that takes over",
+            "title": "Leader"
+          },
+          "local": {
+            "default": false,
+            "description": "This broker itself acts as the backend",
+            "title": "Local",
+            "type": "boolean"
+          },
+          "ocpp_subprotocol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to the organization's",
+            "title": "Ocpp Subprotocol"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The backend's WebSocket address; none for the local backend (this broker)",
+            "title": "Url"
+          }
+        },
+        "title": "AdminBackend",
+        "type": "object"
+      },
+      "AdminChange": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For delete: the organization to remove",
+            "title": "Name"
+          },
+          "op": {
+            "enum": [
+              "upsert",
+              "delete"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "org": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminOrgInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For upsert: the organization to add, or the new settings of the one with that name"
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "title": "AdminChange",
+        "type": "object"
+      },
+      "AdminChangeLine": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "added",
+              "removed",
+              "changed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lines": {
+            "description": "What changes, never a password or a hash",
+            "items": {
+              "type": "string"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "org": {
+            "title": "Org",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org",
+          "kind",
+          "lines"
+        ],
+        "title": "AdminChangeLine",
+        "type": "object"
+      },
+      "AdminConfig": {
+        "properties": {
+          "keeps_backups": {
+            "title": "Keeps Backups",
+            "type": "integer"
+          },
+          "modified": {
+            "format": "date-time",
+            "title": "Modified",
+            "type": "string"
+          },
+          "organizations": {
+            "items": {
+              "$ref": "#/components/schemas/AdminOrg"
+            },
+            "title": "Organizations",
+            "type": "array"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "revision": {
+            "description": "Names the file as it is; changes must say which revision they were made from",
+            "title": "Revision",
+            "type": "string"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          },
+          "writable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Writable Reason"
+          }
+        },
+        "required": [
+          "path",
+          "revision",
+          "modified",
+          "writable",
+          "writable_reason",
+          "keeps_backups",
+          "organizations"
+        ],
+        "title": "AdminConfig",
+        "type": "object"
+      },
+      "AdminCredential": {
+        "properties": {
+          "charger_id": {
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "storage": {
+            "description": "How the broker holds the password; plaintext should be replaced",
+            "enum": [
+              "hash",
+              "plaintext"
+            ],
+            "title": "Storage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "charger_id",
+          "storage"
+        ],
+        "title": "AdminCredential",
+        "type": "object"
+      },
+      "AdminCredentialInput": {
+        "properties": {
+          "charger_id": {
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set or replace the password; leave out to keep the one the broker has",
+            "title": "Password"
+          }
+        },
+        "required": [
+          "charger_id"
+        ],
+        "title": "AdminCredentialInput",
+        "type": "object"
+      },
+      "AdminOrg": {
+        "description": "An organization as the broker reads it (defaults filled in). Settings the console does not edit, such as tags, are kept as they are.",
+        "properties": {
+          "backend_buffer_size": {
+            "title": "Backend Buffer Size",
+            "type": "integer"
+          },
+          "backend_outage_timeout": {
+            "title": "Backend Outage Timeout",
+            "type": "integer"
+          },
+          "backends": {
+            "items": {
+              "$ref": "#/components/schemas/AdminBackend"
+            },
+            "title": "Backends",
+            "type": "array"
+          },
+          "charger_auth_required": {
+            "title": "Charger Auth Required",
+            "type": "boolean"
+          },
+          "connect_to_backend": {
+            "title": "Connect To Backend",
+            "type": "boolean"
+          },
+          "credentials": {
+            "items": {
+              "$ref": "#/components/schemas/AdminCredential"
+            },
+            "title": "Credentials",
+            "type": "array"
+          },
+          "leader_failover_timeout": {
+            "title": "Leader Failover Timeout",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ocpp_subprotocol": {
+            "title": "Ocpp Subprotocol",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Tags in the file for this organization (edited on the Tags page, not here)",
+            "title": "Tags",
+            "type": "integer"
+          },
+          "transaction_ids": {
+            "$ref": "#/components/schemas/AdminTransactionIds"
+          }
+        },
+        "required": [
+          "name",
+          "connect_to_backend",
+          "ocpp_subprotocol",
+          "backends",
+          "backend_buffer_size",
+          "backend_outage_timeout",
+          "leader_failover_timeout",
+          "transaction_ids",
+          "charger_auth_required",
+          "credentials",
+          "tags"
+        ],
+        "title": "AdminOrg",
+        "type": "object"
+      },
+      "AdminOrgInput": {
+        "properties": {
+          "backend_buffer_size": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend Buffer Size"
+          },
+          "backend_outage_timeout": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend Outage Timeout"
+          },
+          "backends": {
+            "items": {
+              "$ref": "#/components/schemas/AdminBackend"
+            },
+            "title": "Backends",
+            "type": "array"
+          },
+          "charger_auth_required": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Chargers must send credentials; by default they must when any are listed",
+            "title": "Charger Auth Required"
+          },
+          "connect_to_backend": {
+            "default": true,
+            "title": "Connect To Backend",
+            "type": "boolean"
+          },
+          "credentials": {
+            "description": "Every charger that may connect. One left out is removed.",
+            "items": {
+              "$ref": "#/components/schemas/AdminCredentialInput"
+            },
+            "title": "Credentials",
+            "type": "array"
+          },
+          "leader_failover_timeout": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leader Failover Timeout"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ocpp_subprotocol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ocpp Subprotocol"
+          },
+          "transaction_ids": {
+            "$ref": "#/components/schemas/AdminTransactionIds"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "AdminOrgInput",
+        "type": "object"
+      },
+      "AdminPlan": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/AdminChangeLine"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "conflict": {
+            "description": "The configuration file is not the revision the changes were made from",
+            "title": "Conflict",
+            "type": "boolean"
+          },
+          "connected_chargers": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Chargers connected now, for each organization the changes touch",
+            "title": "Connected Chargers",
+            "type": "object"
+          },
+          "current_revision": {
+            "title": "Current Revision",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "errors",
+          "warnings",
+          "changes",
+          "conflict",
+          "current_revision",
+          "connected_chargers"
+        ],
+        "title": "AdminPlan",
+        "type": "object"
+      },
+      "AdminRequest": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/AdminChange"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Changes",
+            "type": "array"
+          },
+          "revision": {
+            "description": "The revision of the configuration these changes were made from",
+            "title": "Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "changes"
+        ],
+        "title": "AdminRequest",
+        "type": "object"
+      },
+      "AdminTransactionIds": {
+        "properties": {
+          "dedupe_start": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Start"
+          },
+          "follower_wait": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds",
+            "title": "Follower Wait"
+          },
+          "mapping": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mapping"
+          },
+          "retain_closed": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds",
+            "title": "Retain Closed"
+          },
+          "retain_open": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds",
+            "title": "Retain Open"
+          }
+        },
+        "title": "AdminTransactionIds",
+        "type": "object"
+      },
+      "AuditEntry": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a change was refused or failed",
+            "title": "Detail"
+          },
+          "key_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The label of the API key the call used",
+            "title": "Key Label"
+          },
+          "organizations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Organizations",
+            "type": "array"
+          },
+          "outcome": {
+            "enum": [
+              "applied",
+              "refused",
+              "failed"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision of the file after the change",
+            "title": "Revision"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The address the call came from, as the broker sees it",
+            "title": "Source"
+          },
+          "summary": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Summary",
+            "type": "array"
+          },
+          "time": {
+            "format": "date-time",
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "time",
+          "action",
+          "outcome",
+          "source",
+          "key_label",
+          "organizations",
+          "summary",
+          "detail",
+          "revision"
+        ],
+        "title": "AuditEntry",
+        "type": "object"
+      },
+      "AuditLogPage": {
+        "properties": {
+          "entries": {
+            "description": "Newest first",
+            "items": {
+              "$ref": "#/components/schemas/AuditEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "persisted_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file the log is kept in",
+            "title": "Persisted To"
+          }
+        },
+        "required": [
+          "entries",
+          "persisted_to"
+        ],
+        "title": "AuditLogPage",
+        "type": "object"
+      },
       "BackendLink": {
         "description": "One backend as one charger's session sees it.",
         "properties": {
@@ -2838,6 +3598,11 @@
       },
       "SystemInfo": {
         "properties": {
+          "admin_enabled": {
+            "description": "The admin API (admin.enabled) may change organizations and credentials",
+            "title": "Admin Enabled",
+            "type": "boolean"
+          },
           "api_auth": {
             "description": "'none' only when security.allow_unauthenticated_api is true",
             "enum": [
@@ -2896,6 +3661,7 @@
           "api_auth",
           "ui_enabled",
           "ui_built",
+          "admin_enabled",
           "organizations",
           "connected_chargers",
           "mongodb"
@@ -3574,6 +4340,178 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/audit": {
+      "get": {
+        "description": "What was changed through the admin API, newest first: when, from where, with which key label, and what.",
+        "operationId": "read_audit_api_admin_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Read Audit",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/admin/config": {
+      "get": {
+        "description": "The organizations in the configuration file, as the broker reads them, and the revision to base changes on.",
+        "operationId": "read_config_api_admin_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Read Config",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/admin/config/apply": {
+      "post": {
+        "description": "Write the changes to the configuration file (keeping a copy of it) and use the new organizations from now\non. Refused with `409` if the file is not the revision the changes were made from, and `422` if they would\nnot make a configuration the broker can use.",
+        "operationId": "apply_api_admin_config_apply_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminApplied"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Apply",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/admin/config/validate": {
+      "post": {
+        "description": "Say what the changes would do, and whether they could be applied, without writing anything.",
+        "operationId": "validate_api_admin_config_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Validate",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
     "/api/backends": {
       "get": {
         "description": "Each backend of each organization where the broker has backends, with how its links stand across the connected chargers.",

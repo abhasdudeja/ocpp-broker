@@ -41,6 +41,7 @@ class SystemInfo(BaseModel):
     )
     ui_enabled: bool
     ui_built: bool = Field(description="The console files are present in this installation")
+    admin_enabled: bool = Field(description="The admin API (admin.enabled) may change organizations and credentials")
     organizations: int = Field(description="Organizations in the configuration")
     connected_chargers: int = Field(description="Chargers connected to this instance (sessions are per process)")
     mongodb: MongoInfo
@@ -64,6 +65,7 @@ def create_system_api(broker) -> APIRouter:
             api_auth="api_key" if configured_api_keys(config) else "none",
             ui_enabled=ui_enabled(broker),
             ui_built=ui_built(),
+            admin_enabled=bool((config.get("admin") or {}).get("enabled")),
             organizations=len(config.get("organizations", [])),
             connected_chargers=len(broker.sessions),
             mongodb=MongoInfo(

@@ -288,6 +288,8 @@ def build_uvicorn_config(application: FastAPI, cfg: dict) -> uvicorn.Config:
 
 
 def _log_api_security(cfg: dict) -> None:
+    if (cfg.get("admin") or {}).get("enabled"):
+        logger.warning("Admin API is ON: holders of an API key can change organizations and charger credentials")
     keys = configured_api_keys(cfg)
     if keys:
         logger.info("REST API protected by %d API key%s", len(keys), "" if len(keys) == 1 else "s")

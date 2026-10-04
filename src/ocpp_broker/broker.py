@@ -50,6 +50,9 @@ class OcppBroker:
         self.writes = WriteBehind()
         # What is kept of the traffic besides the records the handlers write (history.py)
         self.history = HistoryConfig()
+        # The admin API changes organizations through these (admin_api.py); made when first used
+        self.admin_store: Any = None
+        self.audit: Any = None
         self._history_tasks: set = set()
         self._mongo_retry: Optional[asyncio.Future] = None
         self._presence_indexed = False
@@ -244,6 +247,27 @@ class OcppBroker:
                 if restored:
                     logger.info("Restored %d transaction id record(s) for %s/%s", restored, org_name, charger_id)
         return table
+
+    def use_organizations(self, organizations: list) -> None:
+        """
+        Run on new organizations from now on: chargers that connect are judged by them. A charger that is connected
+        keeps the settings it connected with until it reconnects. (The configuration is one dict that other parts,
+        such as the tag manager, also hold, so it is changed in place.)
+        """
+        self.config_data["organizations"] = organizations
+
+    async def drop_connections(self, organizations: set) -> int:
+        """Disconnect the chargers of these organizations (they reconnect and get the new settings); how many were."""
+        dropped = 0
+        for (org_name, charger_id), session in list(self.sessions.items()):
+            if org_name not in organizations:
+                continue
+            try:
+                await session.websocket.close(code=1012, reason="Configuration changed")
+                dropped += 1
+            except Exception as exc:
+                logger.warning("Could not disconnect %s/%s after a configuration change: %s", org_name, charger_id, exc)
+        return dropped
 
     def write_history(self, method: str, org_name: str, charger_id: str, **fields: Any) -> None:
         """Queue one history record (``method`` is a MongoDBService save method); never waits, never raises."""

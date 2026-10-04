@@ -234,6 +234,17 @@ mongodb:
 
 Unknown names, non-boolean switches and retentions that are not a whole number of days (1 or more) stop the broker at startup. See [History](mongodb-integration.md#history).
 
+## Admin section
+
+```yaml
+admin:
+  enabled: false             # true: the admin API may change organizations and credentials
+  audit_log: /var/log/ocpp-broker/admin-audit.jsonl   # default: <configuration file>.audit.jsonl
+  keep_backups: 10           # copies of the configuration file kept when it is rewritten
+```
+
+See [Changing organizations while the broker runs](admin.md). Unknown names, a non-boolean `enabled` and a `keep_backups` that is not a whole number of 1 or more stop the broker at startup.
+
 ## Security section
 
 | Setting | Default | Meaning |

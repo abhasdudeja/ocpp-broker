@@ -184,6 +184,7 @@ TOP = {
         "websocket": {"ping_interval": None, "ping_timeout": None},
     },
     "ui": {"enabled": None},
+    "admin": {"enabled": None, "audit_log": None, "keep_backups": None},
     "data_transfer": {
         "enabled": None, "known_vendors": None, "known_message_ids": None,
         "validate_vendors": None, "validate_message_ids": None, "vendors": None, "vendor_messages": None,

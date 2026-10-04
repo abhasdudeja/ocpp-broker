@@ -555,6 +555,36 @@ Every list is **newest first** and answers
 
 The transactions and meter readings are the ones the broker stored itself (broker mode, local leader); in relay mode the backend has them. `GET /api/mongodb/health` (see [Health](#health)) is the only route left under `/api/mongodb`.
 
+## Admin (`/api/admin`)
+
+Change organizations, backends and charger credentials while the broker runs. **Off by default**: every route answers `403` `{"detail": "The admin API is disabled: set admin.enabled: true in the configuration to use it"}` unless `admin.enabled` is true. Read [Changing organizations while the broker runs](admin.md) first: what is written, what connected chargers keep, the audit log.
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/admin/config` | `path`, `revision`, `modified`, `writable` (and why not), `keeps_backups`, and `organizations`: each with its settings as the broker reads them (defaults filled in), its `backends`, `credentials` (charger id and `storage`: `hash` or `plaintext`, never a password or a hash) and `tags` (a count) |
+| `POST /api/admin/config/validate` | Body `{"revision", "changes": [...]}`. Answers `ok`, `errors`, `warnings`, `changes` (per organization: `kind` `added`, `removed` or `changed`, and `lines` saying what), `conflict` (the file is not that revision), `current_revision` and `connected_chargers` per touched organization. Writes nothing. |
+| `POST /api/admin/config/apply` | Same body plus `drop_connections` (organizations whose connected chargers are disconnected now). Writes the file (keeping a copy), switches the broker to the new organizations, answers `revision`, `backup`, `changes`, `warnings`, `dropped_connections`, `applied_at`. `409` if the file is not that revision or cannot be written, `422` if the result would not be a configuration the broker can use, or `drop_connections` names an organization the changes do not touch. |
+| `GET /api/admin/audit?limit=` | The audit log, newest first (1 to 500, default 100): `time`, `action`, `outcome` (`applied`, `refused`, `failed`), `source`, `key_label`, `organizations`, `summary`, `detail`, `revision`; and the file it is kept in. |
+
+A change is `{"op": "upsert", "org": {...}}` or `{"op": "delete", "name": "..."}`. An organization is
+
+```json
+{
+  "name": "Fleet",
+  "connect_to_backend": true,
+  "ocpp_subprotocol": "ocpp1.6",
+  "backends": [{"id": "primary", "url": "ws://backend.example.com/ocpp", "leader": true}, {"id": "mine", "local": true, "leader": false}],
+  "backend_buffer_size": 200,
+  "backend_outage_timeout": 30,
+  "leader_failover_timeout": 15,
+  "transaction_ids": {"mapping": true, "follower_wait": 5},
+  "charger_auth_required": true,
+  "credentials": [{"charger_id": "CP001", "password": "set-or-replace-it"}, {"charger_id": "CP002"}]
+}
+```
+
+A setting left out (or `null`) is removed from the file, so the default applies. `credentials` lists every charger that may connect: one with a `password` is set or replaced (hashed before it is written), one without keeps what the file has, one not listed is removed. Anything the organization holds that is not in this list, such as `tags`, is kept as it is. A request the broker cannot read is answered with `422` and where the problem is, without repeating what was sent.
+
 ## Backends (`/orgs`)
 
 ```http
@@ -567,7 +597,7 @@ GET /orgs/{org}/backends
 
 One entry per backend link of every charger currently connected in relay mode (the leader and each follower). `url` is the configured base URL; `connected` says whether that link is up right now. An organization that has had no relay-mode charger since the broker started is `404` `{"detail": "Organization not found"}`; once its chargers have all left the list is empty.
 
-There are no endpoints to list organizations, add or remove backends, promote a leader or reload the configuration; change `config.yaml` and restart the broker.
+Organizations and backends are changed with the [admin API](#admin-apiadmin) (when it is switched on) or by editing `config.yaml` and restarting the broker. There is no endpoint to promote a leader.
 
 ## Related documentation
 

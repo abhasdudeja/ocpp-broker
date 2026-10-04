@@ -4,6 +4,88 @@
  */
 
 export interface paths {
+    "/api/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Audit
+         * @description What was changed through the admin API, newest first: when, from where, with which key label, and what.
+         */
+        get: operations["read_audit_api_admin_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Config
+         * @description The organizations in the configuration file, as the broker reads them, and the revision to base changes on.
+         */
+        get: operations["read_config_api_admin_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/config/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply
+         * @description Write the changes to the configuration file (keeping a copy of it) and use the new organizations from now
+         *     on. Refused with `409` if the file is not the revision the changes were made from, and `422` if they would
+         *     not make a configuration the broker can use.
+         */
+        post: operations["apply_api_admin_config_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/config/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate
+         * @description Say what the changes would do, and whether they could be applied, without writing anything.
+         */
+        post: operations["validate_api_admin_config_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backends": {
         parameters: {
             query?: never;
@@ -1069,6 +1151,315 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminApplied */
+        AdminApplied: {
+            /**
+             * Applied At
+             * Format: date-time
+             */
+            applied_at: string;
+            /**
+             * Backup
+             * @description The file as it was before, kept next to it
+             */
+            backup: string | null;
+            /** Changes */
+            changes: components["schemas"]["AdminChangeLine"][];
+            /** Dropped Connections */
+            dropped_connections: number;
+            /** Revision */
+            revision: string;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** AdminApplyRequest */
+        AdminApplyRequest: {
+            /** Changes */
+            changes: components["schemas"]["AdminChange"][];
+            /**
+             * Drop Connections
+             * @description Organizations whose connected chargers are disconnected now (they reconnect and get the new settings)
+             */
+            drop_connections?: string[];
+            /**
+             * Revision
+             * @description The revision of the configuration these changes were made from
+             */
+            revision: string;
+        };
+        /** AdminBackend */
+        AdminBackend: {
+            /**
+             * Id
+             * @description Names the backend in the transaction id table; set it when there are several
+             */
+            id?: string | null;
+            /**
+             * Leader
+             * @description Marked as the leader. With a local backend, false makes it a standby that takes over
+             */
+            leader?: boolean | null;
+            /**
+             * Local
+             * @description This broker itself acts as the backend
+             * @default false
+             */
+            local: boolean;
+            /**
+             * Ocpp Subprotocol
+             * @description Defaults to the organization's
+             */
+            ocpp_subprotocol?: string | null;
+            /**
+             * Url
+             * @description The backend's WebSocket address; none for the local backend (this broker)
+             */
+            url?: string | null;
+        };
+        /** AdminChange */
+        AdminChange: {
+            /**
+             * Name
+             * @description For delete: the organization to remove
+             */
+            name?: string | null;
+            /**
+             * Op
+             * @enum {string}
+             */
+            op: "upsert" | "delete";
+            /** @description For upsert: the organization to add, or the new settings of the one with that name */
+            org?: components["schemas"]["AdminOrgInput"] | null;
+        };
+        /** AdminChangeLine */
+        AdminChangeLine: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "added" | "removed" | "changed";
+            /**
+             * Lines
+             * @description What changes, never a password or a hash
+             */
+            lines: string[];
+            /** Org */
+            org: string;
+        };
+        /** AdminConfig */
+        AdminConfig: {
+            /** Keeps Backups */
+            keeps_backups: number;
+            /**
+             * Modified
+             * Format: date-time
+             */
+            modified: string;
+            /** Organizations */
+            organizations: components["schemas"]["AdminOrg"][];
+            /** Path */
+            path: string;
+            /**
+             * Revision
+             * @description Names the file as it is; changes must say which revision they were made from
+             */
+            revision: string;
+            /** Writable */
+            writable: boolean;
+            /** Writable Reason */
+            writable_reason: string | null;
+        };
+        /** AdminCredential */
+        AdminCredential: {
+            /** Charger Id */
+            charger_id: string;
+            /**
+             * Storage
+             * @description How the broker holds the password; plaintext should be replaced
+             * @enum {string}
+             */
+            storage: "hash" | "plaintext";
+        };
+        /** AdminCredentialInput */
+        AdminCredentialInput: {
+            /** Charger Id */
+            charger_id: string;
+            /**
+             * Password
+             * @description Set or replace the password; leave out to keep the one the broker has
+             */
+            password?: string | null;
+        };
+        /**
+         * AdminOrg
+         * @description An organization as the broker reads it (defaults filled in). Settings the console does not edit, such as tags, are kept as they are.
+         */
+        AdminOrg: {
+            /** Backend Buffer Size */
+            backend_buffer_size: number;
+            /** Backend Outage Timeout */
+            backend_outage_timeout: number;
+            /** Backends */
+            backends: components["schemas"]["AdminBackend"][];
+            /** Charger Auth Required */
+            charger_auth_required: boolean;
+            /** Connect To Backend */
+            connect_to_backend: boolean;
+            /** Credentials */
+            credentials: components["schemas"]["AdminCredential"][];
+            /** Leader Failover Timeout */
+            leader_failover_timeout: number;
+            /** Name */
+            name: string;
+            /** Ocpp Subprotocol */
+            ocpp_subprotocol: string;
+            /**
+             * Tags
+             * @description Tags in the file for this organization (edited on the Tags page, not here)
+             */
+            tags: number;
+            transaction_ids: components["schemas"]["AdminTransactionIds"];
+        };
+        /** AdminOrgInput */
+        AdminOrgInput: {
+            /** Backend Buffer Size */
+            backend_buffer_size?: number | null;
+            /** Backend Outage Timeout */
+            backend_outage_timeout?: number | null;
+            /** Backends */
+            backends?: components["schemas"]["AdminBackend"][];
+            /**
+             * Charger Auth Required
+             * @description Chargers must send credentials; by default they must when any are listed
+             */
+            charger_auth_required?: boolean | null;
+            /**
+             * Connect To Backend
+             * @default true
+             */
+            connect_to_backend: boolean;
+            /**
+             * Credentials
+             * @description Every charger that may connect. One left out is removed.
+             */
+            credentials?: components["schemas"]["AdminCredentialInput"][];
+            /** Leader Failover Timeout */
+            leader_failover_timeout?: number | null;
+            /** Name */
+            name: string;
+            /** Ocpp Subprotocol */
+            ocpp_subprotocol?: string | null;
+            transaction_ids?: components["schemas"]["AdminTransactionIds"];
+        };
+        /** AdminPlan */
+        AdminPlan: {
+            /** Changes */
+            changes: components["schemas"]["AdminChangeLine"][];
+            /**
+             * Conflict
+             * @description The configuration file is not the revision the changes were made from
+             */
+            conflict: boolean;
+            /**
+             * Connected Chargers
+             * @description Chargers connected now, for each organization the changes touch
+             */
+            connected_chargers: {
+                [key: string]: number;
+            };
+            /** Current Revision */
+            current_revision: string;
+            /** Errors */
+            errors: string[];
+            /** Ok */
+            ok: boolean;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** AdminRequest */
+        AdminRequest: {
+            /** Changes */
+            changes: components["schemas"]["AdminChange"][];
+            /**
+             * Revision
+             * @description The revision of the configuration these changes were made from
+             */
+            revision: string;
+        };
+        /** AdminTransactionIds */
+        AdminTransactionIds: {
+            /** Dedupe Start */
+            dedupe_start?: boolean | null;
+            /**
+             * Follower Wait
+             * @description Seconds
+             */
+            follower_wait?: number | null;
+            /** Mapping */
+            mapping?: boolean | null;
+            /**
+             * Retain Closed
+             * @description Seconds
+             */
+            retain_closed?: number | null;
+            /**
+             * Retain Open
+             * @description Seconds
+             */
+            retain_open?: number | null;
+        };
+        /** AuditEntry */
+        AuditEntry: {
+            /** Action */
+            action: string;
+            /**
+             * Detail
+             * @description Why a change was refused or failed
+             */
+            detail: string | null;
+            /**
+             * Key Label
+             * @description The label of the API key the call used
+             */
+            key_label: string | null;
+            /** Organizations */
+            organizations: string[];
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "applied" | "refused" | "failed";
+            /**
+             * Revision
+             * @description The revision of the file after the change
+             */
+            revision: string | null;
+            /**
+             * Source
+             * @description The address the call came from, as the broker sees it
+             */
+            source: string | null;
+            /** Summary */
+            summary: string[];
+            /**
+             * Time
+             * Format: date-time
+             */
+            time: string;
+        };
+        /** AuditLogPage */
+        AuditLogPage: {
+            /**
+             * Entries
+             * @description Newest first
+             */
+            entries: components["schemas"]["AuditEntry"][];
+            /**
+             * Persisted To
+             * @description The file the log is kept in
+             */
+            persisted_to: string | null;
+        };
         /**
          * BackendLink
          * @description One backend as one charger's session sees it.
@@ -2206,6 +2597,11 @@ export interface components {
         /** SystemInfo */
         SystemInfo: {
             /**
+             * Admin Enabled
+             * @description The admin API (admin.enabled) may change organizations and credentials
+             */
+            admin_enabled: boolean;
+            /**
              * Api Auth
              * @description 'none' only when security.allow_unauthenticated_api is true
              * @enum {string}
@@ -2549,6 +2945,123 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    read_audit_api_admin_audit_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_config_api_admin_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminConfig"];
+                };
+            };
+        };
+    };
+    apply_api_admin_config_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminApplied"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_api_admin_config_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPlan"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     backends_api_backends_get: {
         parameters: {
             query?: {

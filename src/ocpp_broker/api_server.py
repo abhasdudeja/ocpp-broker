@@ -15,6 +15,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from fastapi import Body, Depends, FastAPI, HTTPException, APIRouter, Path, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -24,6 +25,7 @@ from .commands import catalog as command_catalog_data
 from .commands import new_entry
 from .console_api import create_console_api
 from .events_api import create_events_api
+from .admin_api import create_admin_api, validation_error_without_input
 from .history_api import create_history_api
 from .schemas.console import CommandCatalog
 from .session import CommandRejected
@@ -975,6 +977,9 @@ def mount_api_routers(app: FastAPI, broker) -> None:
     app.include_router(create_console_api(broker), dependencies=protect)
     app.include_router(create_events_api(broker), dependencies=protect)
     app.include_router(create_history_api(broker), dependencies=protect)
+    app.include_router(create_admin_api(broker), dependencies=protect)
+    # A rejected request to the admin API must not echo what was sent (it holds passwords)
+    app.add_exception_handler(RequestValidationError, validation_error_without_input)
 
 
 def create_api(broker):

@@ -63,15 +63,22 @@ def load_config(path: Optional[str] = None):
             except Exception as e:
                 raise RuntimeError(f"Failed to parse YAML config: {e}")
 
-    # Apply defaults and validate configuration
-    cfg = _apply_defaults(cfg)
-    
-    # Override with environment variables
-    cfg = _apply_env_overrides(cfg)
-    
-    _validate_config(cfg)
-    
+    cfg = build_config(cfg)
     logger.info(f"Loaded unified configuration with {len(cfg.get('organizations', []))} organizations")
+    return cfg
+
+
+def build_config(cfg, apply_env=True):
+    """
+    The configuration the broker runs on, made from what a configuration file holds: defaults applied, the
+    environment's overrides folded in (unless ``apply_env`` is false) and every rule checked. ``cfg`` is changed
+    in place; raises ValueError for a configuration that cannot be used. The admin API checks a changed
+    configuration with this before it writes it.
+    """
+    cfg = _apply_defaults(cfg)
+    if apply_env:
+        cfg = _apply_env_overrides(cfg)
+    _validate_config(cfg)
     return cfg
 
 
@@ -368,6 +375,22 @@ def _check_backend_ids(org):
         )
 
 
+def _validate_admin(admin):
+    """``admin``: whether the admin API may change organizations, where its audit log goes, how many backups are kept."""
+    if not isinstance(admin, dict):
+        raise ValueError("admin must be a mapping")
+    unknown = sorted(set(admin) - {"enabled", "audit_log", "keep_backups"})
+    if unknown:
+        raise ValueError(f"admin.{unknown[0]} is not known; use enabled, audit_log or keep_backups")
+    if "enabled" in admin and not isinstance(admin["enabled"], bool):
+        raise ValueError("admin.enabled must be true or false")
+    if "audit_log" in admin and (not isinstance(admin["audit_log"], str) or not admin["audit_log"].strip()):
+        raise ValueError("admin.audit_log must be a file path")
+    keep = admin.get("keep_backups")
+    if keep is not None and (isinstance(keep, bool) or not isinstance(keep, int) or keep < 1):
+        raise ValueError("admin.keep_backups must be a whole number, 1 or more")
+
+
 def _validate_security(security):
     """``security.api_keys`` (labelled keys) and ``security.api_key_throttle``."""
     keys = security.get("api_keys")
@@ -420,6 +443,7 @@ def _validate_config(cfg):
         logger.warning("Global tag management enabled but no organizations have tag management enabled")
     
     validate_history_config(cfg.get("mongodb") or {})
+    _validate_admin(cfg.get("admin") or {})
     _validate_security(cfg.get("security") or {})
 
     level = (cfg.get("logging") or {}).get("level", "INFO")

@@ -10,7 +10,8 @@ from .registry import ChargerRegistry
 from .config import load_config
 from .tag_manager import TagManager
 from .session import ChargerSession
-from .transaction_ids import TransactionIdTable, table_for_org
+from .transaction_ids import TransactionIdTable, backend_keys, table_for_org
+from .transaction_store import TransactionStore
 
 logger = logging.getLogger("ocpp_broker.broker")
 
@@ -33,6 +34,9 @@ class OcppBroker:
         # Transaction id tables outlive sessions: a charger's socket drops and
         # reconnects in the middle of a charge, and the mapping must survive that.
         self.transaction_tables: Dict[Tuple[str, str], TransactionIdTable] = {}
+        self._tx_store: Optional[TransactionStore] = None
+        self._tx_store_for: Any = None  # the MongoDBService the store was made for
+        self._tx_memory_warned = False
         self.tag_manager: Optional[TagManager] = None
         self.data_transfer_handler = None  # Will be created on first use
         self.mongodb_service = None  # Will be initialized if MongoDB is configured
@@ -149,14 +153,51 @@ class OcppBroker:
     def get_registry(self, org_name: str) -> ChargerRegistry:
         return self.org_registries[org_name]
 
-    def transaction_table(self, org_name: str, charger_id: str, org_entry: Dict[str, Any]) -> Optional[TransactionIdTable]:
-        """The charger's transaction id table (created on first use), or None when mapping is off."""
+    def _transaction_store(self) -> Optional[TransactionStore]:
+        """The store that keeps id tables in MongoDB, or None when MongoDB is not in use."""
+        mongodb = getattr(self, "mongodb_service", None)
+        if mongodb is None:
+            return None
+        if self._tx_store is None or self._tx_store_for is not mongodb:
+            self._tx_store, self._tx_store_for = TransactionStore(mongodb), mongodb
+        return self._tx_store
+
+    async def transaction_table(
+        self, org_name: str, charger_id: str, org_entry: Dict[str, Any]
+    ) -> Optional[TransactionIdTable]:
+        """
+        The charger's transaction id table (created, and restored from MongoDB, on first use),
+        or None when mapping is off.
+        """
         key = (org_name, charger_id)
         table = self.transaction_tables.get(key)
         if table is None:
             table = table_for_org(org_entry)
-            if table is not None:
-                self.transaction_tables[key] = table
+            if table is None:
+                return None
+            self.transaction_tables[key] = table
+            store = self._transaction_store()
+            if store is None:
+                if not self._tx_memory_warned:
+                    self._tx_memory_warned = True
+                    logger.warning(
+                        "Transaction id mapping is memory-only: without MongoDB it is lost when the broker "
+                        "restarts, and followers lose track of transactions already running."
+                    )
+            else:
+                keys = set(backend_keys(org_entry.get("backends") or []))
+
+                def on_change(uid: str, doc: Optional[Dict[str, Any]], expires: Optional[float]) -> None:
+                    if doc is None:
+                        store.delete(uid)
+                    elif expires is not None:
+                        store.save(org_name, charger_id, uid, doc, expires)
+
+                table.on_change = on_change
+                stored = await store.load(org_name, charger_id)
+                restored = table.restore(stored, keys)
+                if restored:
+                    logger.info("Restored %d transaction id record(s) for %s/%s", restored, org_name, charger_id)
         return table
 
     def release_transaction_table(self, org_name: str, charger_id: str) -> None:

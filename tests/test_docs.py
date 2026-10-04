@@ -162,7 +162,9 @@ ORG = {
     "backend_buffer_size": None,
     "backend_outage_timeout": None,
     "leader_failover_timeout": None,
-    "transaction_ids": {"mapping": None, "follower_wait": None, "dedupe_start": None, "retain_closed": None},
+    "transaction_ids": {
+        "mapping": None, "follower_wait": None, "dedupe_start": None, "retain_closed": None, "retain_open": None,
+    },
 }
 TOP = {
     "broker": {"host": None, "port": None},

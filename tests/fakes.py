@@ -92,6 +92,63 @@ class FakeBackend:
         return [json.loads(m) for m in self.received]
 
 
+class FakeMongoCollection:
+    """The few collection operations the broker's MongoDB code uses, over a list of dicts."""
+
+    def __init__(self):
+        self.docs: list[dict] = []
+        self.indexes: list[tuple] = []  # (keys, options) of every create_index call
+
+    @staticmethod
+    def _matches(doc, flt):
+        return all(doc.get(k) == v for k, v in flt.items())
+
+    async def insert_one(self, doc):
+        self.docs.append(dict(doc))
+
+    async def update_one(self, flt, update, upsert=False):
+        for doc in self.docs:
+            if self._matches(doc, flt):
+                doc.update(update.get("$set", {}))
+                return
+        if upsert:
+            self.docs.append({**flt, **update.get("$set", {})})
+
+    async def delete_one(self, flt):
+        for doc in self.docs:
+            if self._matches(doc, flt):
+                self.docs.remove(doc)
+                return
+
+    def find(self, flt=None):
+        rows = [dict(d) for d in self.docs if self._matches(d, flt or {})]
+
+        class _Cursor:
+            async def to_list(self, length=None):
+                return rows
+
+        return _Cursor()
+
+    async def create_index(self, keys, **options):
+        self.indexes.append((keys, options))
+
+
+class FakeMongoDB(dict):
+    def __missing__(self, name):
+        self[name] = FakeMongoCollection()
+        return self[name]
+
+
+def fake_mongo_service():
+    """A real MongoDBService backed by an in-memory database (the same one can be reused by a 'restarted' broker)."""
+    from ocpp_broker.mongodb_service import MongoDBService
+
+    service = MongoDBService("mongodb://unused")
+    service._connected = True
+    service.db = FakeMongoDB()
+    return service
+
+
 class ScriptedBackend(FakeBackend):
     """
     A central system that answers like one, including numbering transactions

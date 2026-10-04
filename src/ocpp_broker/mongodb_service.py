@@ -97,6 +97,42 @@ class MongoDBService:
         )
         return int(doc["seq"])
 
+    # ------------------------------------------------------------------
+    # Transaction id table (see transaction_store.py). Like next_sequence, these raise on
+    # failure: the writer retries, and a lost write would silently drop a mapping.
+    # ------------------------------------------------------------------
+    TRANSACTION_MAP = "transaction_id_map"
+
+    async def ensure_transaction_map_indexes(self) -> None:
+        """Idempotent: a lookup index for one charger's records and a TTL on ``expires_at``."""
+        collection = self._get_collection(self.TRANSACTION_MAP)
+        await collection.create_index([("org_name", 1), ("charger_id", 1)])
+        await collection.create_index("expires_at", expireAfterSeconds=0)
+
+    async def save_transaction_map_doc(
+        self, org_name: str, charger_id: str, document: Dict[str, Any], expires_at: datetime
+    ) -> None:
+        await self._get_collection(self.TRANSACTION_MAP).update_one(
+            {"_id": document["uid"]},
+            {
+                "$set": {
+                    "org_name": org_name,
+                    "charger_id": charger_id,
+                    "data": document,
+                    "updated_at": datetime.now(timezone.utc),
+                    "expires_at": expires_at,
+                }
+            },
+            upsert=True,
+        )
+
+    async def delete_transaction_map_doc(self, uid: str) -> None:
+        await self._get_collection(self.TRANSACTION_MAP).delete_one({"_id": uid})
+
+    async def load_transaction_map_docs(self, org_name: str, charger_id: str) -> List[Dict[str, Any]]:
+        cursor = self._get_collection(self.TRANSACTION_MAP).find({"org_name": org_name, "charger_id": charger_id})
+        return [row["data"] for row in await cursor.to_list(length=None)]
+
     def _get_collection_name_for_action(self, action: str) -> str:
         """
         Get the collection name for a specific OCPP action.

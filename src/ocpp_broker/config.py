@@ -226,6 +226,7 @@ def _apply_defaults(cfg):
             org["backends"][0]["leader"] = True
             first = org["backends"][0]
             logger.info(f"Organization {name}: auto-marked {first.get('id') or first.get('url')} as leader.")
+        _check_backend_ids(org)
 
     return cfg
 
@@ -285,13 +286,43 @@ def _validate_transaction_ids(org):
     for key in ("mapping", "dedupe_start"):
         if section.get(key) is not None and not isinstance(section[key], bool):
             raise ValueError(f"Organization {name}: transaction_ids.{key} must be true or false")
-    for key in ("follower_wait", "retain_closed"):
+    for key in ("follower_wait", "retain_closed", "retain_open"):
         value = section.get(key)
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0):
             raise ValueError(f"Organization {name}: transaction_ids.{key} must be a positive number of seconds")
-    unknown = sorted(set(section) - {"mapping", "follower_wait", "dedupe_start", "retain_closed"})
+    unknown = sorted(set(section) - {"mapping", "follower_wait", "dedupe_start", "retain_closed", "retain_open"})
     if unknown:
         logger.warning("Organization %s: unknown transaction_ids setting(s) %s are ignored", name, ", ".join(unknown))
+
+
+def _check_backend_ids(org):
+    """
+    With several backends the transaction id table names each backend by its ``id`` (else its URL),
+    and keeps those names in MongoDB across restarts. A missing id is fine until the URL changes;
+    two backends sharing an id would be told apart only by order.
+    """
+    backends = org.get("backends") or []
+    settings = org.get("transaction_ids") or {}
+    mapping = settings.get("mapping")
+    if not (mapping if mapping is not None else len(backends) > 1):
+        return
+    name = org["name"]
+    anonymous = [b.get("url") for b in backends if not b.get("id")]
+    if anonymous:
+        logger.warning(
+            "Organization %s: backend(s) without an id (%s) are identified by their URL in the transaction id "
+            "table; set an id so a later URL change does not orphan stored transactions.",
+            name,
+            ", ".join(str(u) for u in anonymous),
+        )
+    ids = [b["id"] for b in backends if b.get("id")]
+    repeated = sorted({i for i in ids if ids.count(i) > 1})
+    if repeated:
+        logger.warning(
+            "Organization %s: backend id(s) %s are used more than once; give each backend its own id.",
+            name,
+            ", ".join(map(str, repeated)),
+        )
 
 
 def _validate_config(cfg):

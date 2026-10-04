@@ -319,7 +319,7 @@ class ChargerSession:
         leader_index = next((i for i, b in enumerate(backends) if b.get("leader")), 0)
         leader_config = backends[leader_index]
         follower_configs = [(keys[i], b) for i, b in enumerate(backends) if i != leader_index]
-        self._ids = self.broker.transaction_table(self.org_name, self.charger_id, self.org_entry)
+        self._ids = await self.broker.transaction_table(self.org_name, self.charger_id, self.org_entry)
 
         # Get subprotocol for leader (backend-specific or org-level or default)
         leader_subprotocol = leader_config.get("ocpp_subprotocol", org_subprotocol)

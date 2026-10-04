@@ -23,6 +23,7 @@ import itertools
 import json
 import logging
 import time
+import uuid
 from collections import Counter, OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeGuard
@@ -84,6 +85,7 @@ class TxRecord:
     """One transaction as the charger and each backend know it."""
 
     start_key: tuple
+    uid: str = field(default_factory=lambda: uuid.uuid4().hex)  # names the record in persistent storage
     tx_id: Optional[int] = None  # the id the charger holds; None until the leader answered
     backend_ids: Dict[str, int] = field(default_factory=dict)  # backend key -> its id
     queued: Set[str] = field(default_factory=set)  # followers with a start copy waiting in their queue, not yet sent
@@ -100,6 +102,8 @@ class TxRecord:
     msgs: Set[str] = field(default_factory=set)  # every start message id registered for this record
     created: float = 0.0
     closed_at: Optional[float] = None
+    touched: float = 0.0  # last time a frame used it
+    saved_at: float = 0.0  # last time it was handed to ``on_change``
 
 
 @dataclass
@@ -135,16 +139,23 @@ class TransactionIdTable:
         follower_wait: float = 5.0,
         dedupe_start: bool = True,
         retain_closed: float = 86400.0,
+        retain_open: float = 2_592_000.0,
         stale_start: float = 60.0,
         max_held: int = 500,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
     ):
         self.follower_wait = follower_wait
         self.dedupe_start = dedupe_start
         self.retain_closed = retain_closed
+        self.retain_open = retain_open
         self.stale_start = stale_start
         self.max_held = max_held
         self._clock = clock
+        self._wall = wall_clock  # records are stored with wall-clock times; the table runs on a monotonic clock
+        # Called as on_change(uid, document, expires_at) when a record worth keeping changes
+        # (document None = forget it). expires_at is wall-clock seconds. Never blocks.
+        self.on_change: Optional[Callable[[str, Optional[Dict[str, Any]], Optional[float]], None]] = None
         self._by_tx: Dict[int, TxRecord] = {}
         self._by_backend: Dict[Tuple[str, int], TxRecord] = {}
         self._by_start: Dict[tuple, TxRecord] = {}
@@ -189,6 +200,8 @@ class TransactionIdTable:
             rec = self._by_tx.get(payload["transactionId"])
 
         if kind == "id":
+            if rec is not None:
+                self._touch(rec)
             plan.to_leader = self._frame_for(leader, parsed, raw, rec, is_leader=True)
             if action == "StopTransaction" and rec is not None and rec.state != "closed":
                 self._close(rec)
@@ -333,6 +346,8 @@ class TransactionIdTable:
         conf = dict(payload)
         conf["transactionId"] = tx_id
         rec.conf = conf
+        rec.touched = self._clock()
+        self._persist(rec)
         return conf
 
     def _learn(self, rec: TxRecord, backend: str, parsed: list) -> None:
@@ -349,6 +364,7 @@ class TransactionIdTable:
         else:
             rec.degraded.add(backend)
             logger.warning("Backend %s gave no transaction id for a start; its copies for it are skipped", backend)
+        self._persist(rec)
         self._collect(rec)
 
     def _attempt_failed(self, rec: TxRecord, msg_id: str, error: list) -> List[str]:
@@ -570,6 +586,7 @@ class TransactionIdTable:
     def _close(self, rec: TxRecord) -> None:
         rec.state, rec.closed_at = "closed", self._clock()
         self._by_start.pop(rec.start_key, None)
+        self._persist(rec)
         self._collect(rec)
 
     def _collect(self, rec: TxRecord) -> None:
@@ -588,6 +605,13 @@ class TransactionIdTable:
         for rec in list(self._by_tx.values()):
             if rec.state == "closed" and rec.closed_at is not None and now - rec.closed_at > self.retain_closed:
                 self._forget(rec)
+            elif rec.state == "open" and now - rec.touched > self.retain_open:
+                logger.warning(
+                    "Transaction %s was never stopped and has been idle for %.0f days; forgetting it",
+                    rec.tx_id,
+                    self.retain_open / 86400,
+                )
+                self._forget(rec)
         stale_pending = max(self.stale_start * 5, 300.0)
         for rec in list(self._by_start.values()):
             if rec.state == "pending" and now - rec.created > stale_pending:
@@ -603,6 +627,119 @@ class TransactionIdTable:
         for msg in list(rec.msgs):
             if self._start_msgs.get(msg) is rec:
                 del self._start_msgs[msg]
+        self._unpersist(rec)
+
+    # ------------------------------------------------------------------
+    # Persistence: export and restore (the I/O lives in transaction_store.py)
+    # ------------------------------------------------------------------
+    def _touch(self, rec: TxRecord) -> None:
+        """A frame used the record. Refresh its stored expiry now and then, not on every meter reading."""
+        now = self._clock()
+        rec.touched = now
+        if now - rec.saved_at > 3600.0:
+            self._persist(rec)
+
+    def _persist(self, rec: TxRecord) -> None:
+        if self.on_change is None or not (rec.tx_id is not None or rec.backend_ids):
+            return  # nothing worth keeping yet
+        now = self._clock()
+        rec.saved_at = now
+        if rec.state == "closed":
+            expires = self._wall_of(rec.closed_at if rec.closed_at is not None else now) + self.retain_closed
+        else:
+            expires = self._wall() + self.retain_open
+        self.on_change(rec.uid, self._export(rec), expires)
+
+    def _unpersist(self, rec: TxRecord) -> None:
+        if self.on_change is not None and rec.saved_at:
+            self.on_change(rec.uid, None, None)
+
+    def _wall_of(self, mono: float) -> float:
+        return self._wall() - (self._clock() - mono)
+
+    def _export(self, rec: TxRecord) -> Dict[str, Any]:
+        """One record as a plain document. Backend keys may contain dots (URLs), so maps become pair lists."""
+        return {
+            "uid": rec.uid,
+            "state": rec.state,
+            "tx_id": rec.tx_id,
+            "start_key": list(rec.start_key),
+            "backend_ids": [[key, issued] for key, issued in rec.backend_ids.items()],
+            "backend_confs": [[key, conf] for key, conf in rec.backend_confs.items()],
+            "conf": rec.conf,
+            "degraded": sorted(rec.degraded),
+            "created_at": self._wall_of(rec.created),
+            "closed_at": None if rec.closed_at is None else self._wall_of(rec.closed_at),
+            "updated_at": self._wall(),
+        }
+
+    def restore(self, documents: Iterable[Dict[str, Any]], known_backends: Optional[Set[str]] = None) -> int:
+        """
+        Load records saved by an earlier run. Expired ones are skipped; ids of backends
+        that are no longer configured are dropped (with a warning). In-flight state (what
+        was sent and not yet answered) is not stored, so it starts empty. Returns how many
+        records were restored.
+        """
+        restored = 0
+        for document in documents:
+            try:
+                if self._import(document, known_backends):
+                    restored += 1
+            except Exception as exc:
+                logger.warning("Skipped an unreadable transaction id record: %s", exc)
+        return restored
+
+    def _import(self, doc: Dict[str, Any], known: Optional[Set[str]]) -> bool:
+        wall_now, mono_now = self._wall(), self._clock()
+        state = doc["state"]
+        updated = float(doc.get("updated_at") or wall_now)
+        closed = doc.get("closed_at")
+        if state == "closed":
+            if closed is not None and wall_now - float(closed) > self.retain_closed:
+                return False
+        elif wall_now - updated > self.retain_open:
+            return False
+        tx_id = doc.get("tx_id")
+        if tx_id is not None and tx_id in self._by_tx:
+            return False  # already known (a live record wins)
+
+        def mono(wall: float) -> float:
+            return mono_now - (wall_now - wall)
+
+        ids = {str(k): v for k, v in doc.get("backend_ids", [])}
+        confs = {str(k): v for k, v in doc.get("backend_confs", [])}
+        if known is not None:
+            gone = sorted(set(ids) - known)
+            if gone:
+                logger.warning(
+                    "Stored transaction %s names backend(s) no longer configured (%s); their ids are dropped",
+                    tx_id,
+                    ", ".join(gone),
+                )
+                self.stats["unknown_backend"] += len(gone)
+            ids = {k: v for k, v in ids.items() if k in known}
+            confs = {k: v for k, v in confs.items() if k in known}
+        rec = TxRecord(
+            start_key=tuple(doc["start_key"]),
+            uid=doc["uid"],
+            tx_id=tx_id,
+            backend_ids=ids,
+            backend_confs=confs,
+            conf=doc.get("conf"),
+            degraded=set(doc.get("degraded", [])),
+            state=state,
+            created=mono(float(doc.get("created_at") or wall_now)),
+            closed_at=None if closed is None else mono(float(closed)),
+            touched=mono(updated),
+        )
+        rec.saved_at = rec.touched
+        if tx_id is not None:
+            self._by_tx[tx_id] = rec
+        for backend, issued in ids.items():
+            self._by_backend[(backend, issued)] = rec
+        if state != "closed" and self.dedupe_start:
+            self._by_start[rec.start_key] = rec
+        return True
 
     def is_idle(self) -> bool:
         """Nothing worth keeping: safe to drop the table."""
@@ -645,6 +782,7 @@ def table_for_org(org_entry: Dict[str, Any]) -> Optional[TransactionIdTable]:
         follower_wait=float(settings.get("follower_wait", 5.0)),
         dedupe_start=bool(settings.get("dedupe_start", True)),
         retain_closed=float(settings.get("retain_closed", 86400.0)),
+        retain_open=float(settings.get("retain_open", 2_592_000.0)),
     )
 
 

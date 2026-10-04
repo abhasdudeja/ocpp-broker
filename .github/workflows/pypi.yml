@@ -31,6 +31,40 @@ jobs:
     - name: Mypy
       run: mypy
 
+  mongo-tests:
+    # The transaction id store against a real MongoDB: index definitions, the TTL index
+    # and BSON round trips, which the in-memory fake used elsewhere cannot show.
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      OCPP_TEST_MONGO_URI: mongodb://localhost:27017
+      OCPP_TEST_MONGO_TTL_WAIT: '180'  # MongoDB's TTL monitor runs about once a minute
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install package with test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[tests]"
+
+    - name: Run the MongoDB tests
+      run: pytest tests/test_transaction_store_mongo.py -v --tb=short
+
   build-and-test:
     runs-on: ubuntu-latest
     strategy:
@@ -75,7 +109,7 @@ jobs:
         retention-days: 1
 
   publish:
-    needs: [lint, build-and-test]
+    needs: [lint, build-and-test, mongo-tests]
     runs-on: ubuntu-latest
     environment: default 
     if: github.event_name == 'release'

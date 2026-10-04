@@ -100,6 +100,21 @@ Texts are quoted from the source; `X` is a charger id and `Y` an organization.
 | ERROR | `Failed to initialize MongoDB service: ...` (usually preceded by `Failed to connect to MongoDB: ...`) | MongoDB was enabled but unreachable at startup (5 s timeout). The broker keeps running without it. |
 | WARNING | `!!! TRANSACTION IDS FOR ORG 'Y' ARE NOT DURABLE !!!` | Logged once per org when the first transaction id is allocated without MongoDB. Ids restart with the broker. |
 | ERROR | `Could not allocate transaction id from MongoDB for org 'Y': ...` | MongoDB was connected but the counter failed; the fallback counter is used. |
+| WARNING | `Transaction id mapping is memory-only: without MongoDB it is lost when the broker restarts, and followers lose track of transactions already running.` | Relay organization with several backends and no MongoDB. Logged once per process. |
+| INFO | `Restored N transaction id record(s) for Y/X` | A charger's stored transaction id table was loaded after a restart. |
+| WARNING | `Stored transaction N names backend(s) no longer configured (...); their ids are dropped` | A backend was renamed or removed since the record was stored. |
+| WARNING | `Organization Y: backend(s) without an id (...) are identified by their URL in the transaction id table; ...` | Give each backend an `id` so a URL change does not orphan stored transactions. |
+| WARNING | `Organization Y: backend id(s) ... are used more than once; ...` | Two backends share an `id`. |
+| WARNING | `Leader X never issued an id for transaction N (it did not see the start); passed through unchanged` | The leader has no id for a running transaction; the charger's own id is sent, which may land on another transaction there. |
+| WARNING | `Leader issued transaction id N, which the charger already holds; the charger will see M instead` | An id collision after a failover was remapped. |
+| WARNING | `Follower X never gave an id for a start; giving up on its copies` | A follower did not answer its copy of a start within `transaction_ids.follower_wait`; it is skipped for that transaction. |
+| WARNING | `Leader answered a repeated StartTransaction with a second transaction of its own; the charger keeps id N` | A retried start (after the 60 s stale limit) was started twice on that backend; the charger keeps the first id. |
+| WARNING | `Transaction N was never stopped and has been idle for D days; forgetting it` | No `StopTransaction` arrived within `transaction_ids.retain_open`. |
+| WARNING | `Transaction id store is waiting for MongoDB (retry in Ns): ...` | MongoDB is unreachable; stored changes wait and are retried. |
+| WARNING | `Could not store a transaction id record (retry in Ns): ...` | A write failed; it is retried. |
+| ERROR | `Giving up on a transaction id record MongoDB keeps rejecting: ...` | One record was refused 5 times and dropped. |
+| WARNING | `Transaction id store is backed up (N changes waiting); dropped the oldest` | MongoDB has been unreachable long enough to fill the queue. |
+| WARNING | `Could not load stored transaction ids for Y/X: ...` | The charger starts with an empty table. |
 | WARNING | `Configuration file not found at ..., using unified defaults.` | Wrong `-c` path or no `config.yaml`. The default config has no organizations, so every charger is rejected. |
 | WARNING | `Rejected charger X from org 'Y': authentication failed` | Bad or missing Basic credentials; the charger got HTTP 401. |
 | ERROR | `Rejected charger X from org 'Y': subprotocol mismatch - expected ..., got ...` | Charger did not offer the org's `ocpp_subprotocol`. |

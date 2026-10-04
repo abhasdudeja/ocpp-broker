@@ -116,6 +116,7 @@ organizations:
       follower_wait: 5       # seconds to hold copies for a follower that has not yet given its id
       dedupe_start: true     # answer a retried StartTransaction from the stored result
       retain_closed: 86400   # seconds a finished transaction stays in the table
+      retain_open: 2592000   # seconds an unfinished transaction is kept without any activity (30 days)
 ```
 
 | Setting | Default | Meaning |
@@ -124,8 +125,9 @@ organizations:
 | `follower_wait` | `5` | Positive number of seconds. |
 | `dedupe_start` | `true` | `false` makes a retried start a second transaction, as without the table. |
 | `retain_closed` | `86400` | Positive number of seconds. |
+| `retain_open` | `2592000` | Positive number of seconds. A transaction that was never stopped is forgotten after this long without any frame for it. |
 
-A wrong type or a value that is not positive is rejected when the file is loaded.
+A wrong type or a value that is not positive is rejected when the file is loaded. With MongoDB enabled the table is stored there and these two retention values also set when MongoDB removes the records ([details](mongodb-integration.md#the-transaction-id-table-transaction_id_map)); `backends[].id` should then be set, because stored records are matched to backends by it.
 
 ### Charger authentication: `charger_auth`
 

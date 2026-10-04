@@ -57,6 +57,7 @@ Keys the code reads for this feature:
 | `transaction_ids.follower_wait` | `5` | Seconds the broker holds copies for a follower that has not yet said which id it issued. |
 | `transaction_ids.dedupe_start` | `true` | Answer a retried `StartTransaction` from the stored result instead of starting a second transaction. |
 | `transaction_ids.retain_closed` | `86400` | Seconds a finished transaction stays in the table, so a retried `StopTransaction` still maps. |
+| `transaction_ids.retain_open` | `2592000` | Seconds an unfinished transaction is kept without any activity. |
 
 The per-charger lists `backends[].chargers`, `chargers:` and similar `id` lists are **not read**. Every charger that connects to the organization gets the same set of backends.
 
@@ -103,7 +104,9 @@ Known limits:
 - **A start whose answer was lost.** The broker only knows a backend has a start once it has seen the backend's answer. If a backend processed a start and the answer never arrived (the link dropped), the charger's retry can reach it again and it may start a second transaction. Once the broker holds the answer it never sends that start to that backend again. A first attempt that has not been answered after 60 seconds is treated as lost, so a retry after that is sent on as well.
 - **Not translated:** reservation ids, charging profile ids, the local authorization list version and configuration values are also chosen by a backend and stored by the charger. `DataTransfer` payloads are vendor-defined and are never inspected.
 
-The table is held in memory only: after a broker restart it is empty. The leader keeps working (its ids are the charger's ids), but followers lose track of transactions that were already running. A transaction that finished is kept for `transaction_ids.retain_closed` seconds so a retried `StopTransaction` still maps; once a charger has disconnected and nothing is left to remember, its table is dropped.
+**Across restarts.** With MongoDB enabled the table is stored in the `transaction_id_map` collection ([details](mongodb-integration.md#the-transaction-id-table-transaction_id_map)) and loaded when a charger connects, so a broker restart, or a second broker instance taking over a charger, keeps every mapping. Backends are matched to stored records by `backends[].id` (the URL if there is none), so keep ids stable. Without MongoDB the table is held in memory only: after a restart it is empty, the leader keeps working (its ids are the charger's ids), but followers lose track of transactions that were already running, and the broker logs a warning at startup.
+
+A transaction that finished is kept for `transaction_ids.retain_closed` seconds so a retried `StopTransaction` still maps. One that was never stopped is forgotten after `transaction_ids.retain_open` seconds without any frame for it. Once a charger has disconnected and nothing is left to remember, its table is dropped from memory (the stored copy stays until it expires).
 
 ## Leader outage: store-and-forward
 

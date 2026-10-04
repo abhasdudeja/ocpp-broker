@@ -29,7 +29,7 @@ The broker connects once at startup and pings the server (5 second timeout). If 
 
 If MongoDB is disabled, the broker logs `MongoDB not configured or disabled: transaction ids will come from a non-durable in-memory counter and nothing will be persisted.`
 
-The broker creates no indexes and no TTL settings. Add indexes for the queries you run (for example on `org_name` and `charger_id`) and your own retention policy for the high-volume collections.
+The broker creates indexes for one collection only, `transaction_id_map` (see below). Add indexes for the queries you run on the others (for example on `org_name` and `charger_id`) and your own retention policy for the high-volume collections.
 
 ## What is stored, and when
 
@@ -50,6 +50,7 @@ Data is written for chargers served in **broker mode**, for commands sent throug
 | one per command action (`resets`, `change_availabilities`, `remote_start_transactions`, `get_configurations`, ...) | a command sent from the broker to a charger | the command (`message_type: call`, `direction: broker_to_charger`); for REST commands the charger's reply is stored in the same collection (`call_result` or `call_error`, `direction: charger_to_broker`) |
 | `tags`, `tag_list_versions` | tag changes | the tags of every organization and a list version per organization |
 | `counters` | `StartTransaction` | transaction id counters |
+| `transaction_id_map` | relay mode with several backends | the transaction id table: one document per transaction (see below) |
 
 The `call_results` / `call_errors` log grows by one document for every reply the broker sends, including every heartbeat answer. It carries no action name, so it is of limited use; expect it to be the largest collection and set a retention policy on it.
 
@@ -99,6 +100,15 @@ Every document has `org_name`, `charger_id` and a `timestamp` (UTC) unless noted
 `StartTransaction` replies carry an id from a **per-organization counter** stored in `counters` (`_id: "transaction_id:<org>"`, field `seq`). It is incremented atomically, so ids are unique and increasing across restarts and across several broker instances sharing the database; the first id is 1.
 
 If MongoDB is unavailable (disabled, or a call fails) the broker uses an in-memory counter seeded from the clock and logs `!!! TRANSACTION IDS FOR ORG '<org>' ARE NOT DURABLE !!!` once per organization per outage. Those ids are only unique within the process.
+
+### The transaction id table (`transaction_id_map`)
+
+In relay mode with several backends the broker keeps a table that maps the transaction id a charger holds to the id each backend issued ([how it works](leader-follower.md#transaction-ids)). With MongoDB enabled the table is stored here so a broker restart does not lose it; without MongoDB it is memory-only.
+
+- One document per transaction, `_id` a random record id. Fields: `org_name`, `charger_id`, `data` (the record: state `pending`/`open`/`closed`, the charger's `tx_id`, `backend_ids` as a list of `[backend, id]` pairs, the start key, the start result sent to the charger, timestamps in epoch seconds), `updated_at` and `expires_at`.
+- The records of one charger are loaded when its first session starts after a restart. Ids of backends that are no longer configured are dropped with a warning.
+- Writes are queued and sent in the background, so a slow or unreachable MongoDB never delays a charger. Repeated changes to one record are merged; during an outage the writes wait and are retried (1 s, doubling up to 30 s); at most 5000 are kept, and a record MongoDB keeps rejecting is dropped after 5 tries. A crash can lose the last few changes.
+- `expires_at` carries a **TTL index** (`expireAfterSeconds: 0`), so MongoDB removes finished transactions `transaction_ids.retain_closed` seconds after they ended and unfinished ones `transaction_ids.retain_open` seconds after their last activity. The index, and one on `org_name` + `charger_id`, are created the first time the collection is used. MongoDB's TTL monitor runs about once a minute, so expired records can linger briefly.
 
 ## Tags
 

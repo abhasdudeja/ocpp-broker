@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/api/chargers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Chargers */
+        get: operations["list_chargers_api_chargers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chargers/{org}/{charger_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Charger Detail */
+        get: operations["charger_detail_api_chargers__org___charger_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/mongodb/authorization": {
         parameters: {
             query?: never;
@@ -624,6 +658,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/orgs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Orgs */
+        get: operations["list_orgs_api_orgs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/info": {
         parameters: {
             query?: never;
@@ -955,6 +1006,65 @@ export interface components {
              */
             timestamp?: string | null;
         };
+        /**
+         * BackendLink
+         * @description One backend as one charger's session sees it.
+         */
+        BackendLink: {
+            /**
+             * Buffered Frames
+             * @description Charger frames waiting for this backend (leader only)
+             */
+            buffered_frames: number;
+            /** Connected */
+            connected: boolean;
+            /**
+             * Down For Seconds
+             * @description How long the link has been down, if it is
+             */
+            down_for_seconds: number | null;
+            /** Key */
+            key: string;
+            /**
+             * Local
+             * @description The broker itself is the backend (broker mode)
+             */
+            local: boolean;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "leader" | "follower";
+            /**
+             * Url
+             * @description Null for the broker itself
+             */
+            url: string | null;
+        };
+        /** BootInfo */
+        BootInfo: {
+            /** Firmware Version */
+            firmware_version: string | null;
+            /** Iccid */
+            iccid: string | null;
+            /** Imsi */
+            imsi: string | null;
+            /** Meter Serial Number */
+            meter_serial_number: string | null;
+            /** Meter Type */
+            meter_type: string | null;
+            /** Model */
+            model: string | null;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /** Serial Number */
+            serial_number: string | null;
+            /** Vendor */
+            vendor: string | null;
+        };
         /** BootNotificationRequest */
         BootNotificationRequest: {
             /**
@@ -1052,6 +1162,152 @@ export interface components {
              */
             value: string;
         };
+        /** ChargerDetail */
+        ChargerDetail: {
+            /**
+             * Backends
+             * @description The leader first, then the followers
+             */
+            backends: components["schemas"]["BackendLink"][];
+            boot: components["schemas"]["BootInfo"] | null;
+            /** Buffered Frames */
+            buffered_frames: number;
+            /** Charger Id */
+            charger_id: string;
+            /** Charging Profiles */
+            charging_profiles: components["schemas"]["IdObject"][];
+            /**
+             * Connected At
+             * Format: date-time
+             */
+            connected_at: string;
+            /**
+             * Connector Statuses
+             * @description Connector id (as text) to its last reported status
+             */
+            connector_statuses: {
+                [key: string]: string;
+            };
+            /** Connectors */
+            connectors: components["schemas"]["ConnectorInfo"][];
+            /**
+             * Degraded Transactions
+             * @description Running transactions in which some backend is skipped
+             */
+            degraded_transactions: number;
+            /** Firmware Version */
+            firmware_version: string | null;
+            /** Followers Connected */
+            followers_connected: number;
+            /** Followers Total */
+            followers_total: number;
+            /** Frames In */
+            frames_in: number;
+            /** Frames Out */
+            frames_out: number;
+            /**
+             * Id Table Stats
+             * @description Counters of what the transaction id table did: rewritten, remapped, skipped, ...
+             */
+            id_table_stats: {
+                [key: string]: number;
+            };
+            /** Last Heartbeat At */
+            last_heartbeat_at: string | null;
+            /** Last Seen */
+            last_seen: string | null;
+            leader: components["schemas"]["BackendLink"];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "broker" | "relay";
+            /** Model */
+            model: string | null;
+            /** Ocpp Version */
+            ocpp_version: string;
+            /**
+             * Online
+             * @default true
+             */
+            online: boolean;
+            /** Open Transactions */
+            open_transactions: number;
+            /** Org */
+            org: string;
+            /** Remote Address */
+            remote_address: string | null;
+            /** Reservations */
+            reservations: components["schemas"]["IdObject"][];
+            /** Transaction Id Mapping */
+            transaction_id_mapping: boolean;
+            /** Transactions */
+            transactions: components["schemas"]["TransactionRow"][];
+            /** Vendor */
+            vendor: string | null;
+        };
+        /** ChargerList */
+        ChargerList: {
+            /** Chargers */
+            chargers: components["schemas"]["ChargerSummary"][];
+            /** Total */
+            total: number;
+        };
+        /** ChargerSummary */
+        ChargerSummary: {
+            /** Buffered Frames */
+            buffered_frames: number;
+            /** Charger Id */
+            charger_id: string;
+            /**
+             * Connected At
+             * Format: date-time
+             */
+            connected_at: string;
+            /**
+             * Connector Statuses
+             * @description Connector id (as text) to its last reported status
+             */
+            connector_statuses: {
+                [key: string]: string;
+            };
+            /**
+             * Degraded Transactions
+             * @description Running transactions in which some backend is skipped
+             */
+            degraded_transactions: number;
+            /** Firmware Version */
+            firmware_version: string | null;
+            /** Followers Connected */
+            followers_connected: number;
+            /** Followers Total */
+            followers_total: number;
+            /** Last Seen */
+            last_seen: string | null;
+            leader: components["schemas"]["BackendLink"];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "broker" | "relay";
+            /** Model */
+            model: string | null;
+            /** Ocpp Version */
+            ocpp_version: string;
+            /**
+             * Online
+             * @default true
+             */
+            online: boolean;
+            /** Open Transactions */
+            open_transactions: number;
+            /** Org */
+            org: string;
+            /** Remote Address */
+            remote_address: string | null;
+            /** Vendor */
+            vendor: string | null;
+        };
         /** ClearChargingProfileRequest */
         ClearChargingProfileRequest: {
             /**
@@ -1074,6 +1330,25 @@ export interface components {
              * @description Stack level
              */
             stack_level?: number | null;
+        };
+        /** ConnectorInfo */
+        ConnectorInfo: {
+            /**
+             * Connector Id
+             * @description 0 is the charger as a whole
+             */
+            connector_id: number;
+            /** Error Code */
+            error_code: string | null;
+            /** Info */
+            info: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** GetCompositeScheduleRequest */
         GetCompositeScheduleRequest: {
@@ -1133,6 +1408,29 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * IdObject
+         * @description A reservation or charging profile the charger holds.
+         */
+        IdObject: {
+            /**
+             * Backend Ids
+             * @description Each backend's own id (empty if made through the REST API)
+             */
+            backend_ids: {
+                [key: string]: number;
+            };
+            /**
+             * Expires
+             * @description Wall-clock seconds; reservations end at their expiry date
+             */
+            expires: number | null;
+            /**
+             * Id
+             * @description The id the charger holds
+             */
+            id: number;
         };
         /** MeterValuesRequest */
         MeterValuesRequest: {
@@ -1283,6 +1581,53 @@ export interface components {
             tag_type: components["schemas"]["TagType"];
             /** Updated At */
             updated_at?: string | null;
+        };
+        /** OrgBackend */
+        OrgBackend: {
+            /**
+             * Key
+             * @description The backend's id from the configuration, or its URL if it has none
+             */
+            key: string;
+            /**
+             * Leader
+             * @description Marked leader in the configuration (a failover can change who leads a charger)
+             */
+            leader: boolean;
+            /** Ocpp Subprotocol */
+            ocpp_subprotocol: string;
+            /** Url */
+            url: string;
+        };
+        /** OrgSummary */
+        OrgSummary: {
+            /**
+             * Backends
+             * @description Empty in broker mode
+             */
+            backends: components["schemas"]["OrgBackend"][];
+            /** Charger Auth Required */
+            charger_auth_required: boolean;
+            /**
+             * Connected Chargers
+             * @description Chargers of this organization connected to this instance
+             */
+            connected_chargers: number;
+            /**
+             * Mode
+             * @description broker: the broker answers chargers itself; relay: it forwards to backends
+             * @enum {string}
+             */
+            mode: "broker" | "relay";
+            /** Name */
+            name: string;
+            /** Ocpp Version */
+            ocpp_version: string;
+            /**
+             * Transaction Id Mapping
+             * @description Transaction ids are translated per backend (relay mode with several backends)
+             */
+            transaction_id_mapping: boolean;
         };
         /** RemoteStartTransactionRequest */
         RemoteStartTransactionRequest: {
@@ -1578,6 +1923,36 @@ export interface components {
              */
             transaction_type: string;
         };
+        /** TransactionRow */
+        TransactionRow: {
+            /**
+             * Awaiting
+             * @description Followers that have not yet said which id they issued
+             */
+            awaiting: string[];
+            /**
+             * Backend Ids
+             * @description Each backend's own id for it, by backend key
+             */
+            backend_ids: {
+                [key: string]: number;
+            };
+            /**
+             * Degraded
+             * @description Backends that never learned an id for it and are skipped
+             */
+            degraded: string[];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "open" | "closed";
+            /**
+             * Transaction Id
+             * @description The id the charger holds; null until the leader has answered the start
+             */
+            transaction_id: number | null;
+        };
         /** TriggerMessageRequest */
         TriggerMessageRequest: {
             /**
@@ -1695,6 +2070,74 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_chargers_api_chargers_get: {
+        parameters: {
+            query?: {
+                /** @description Only this organization */
+                org?: string | null;
+                /** @description Only charger ids containing this text (case-insensitive) */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChargerList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    charger_detail_api_chargers__org___charger_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Organization name */
+                org: string;
+                /** @description Charger id */
+                charger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChargerDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     save_authorization_api_mongodb_authorization_post: {
         parameters: {
             query?: never;
@@ -2792,6 +3235,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_orgs_api_orgs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgSummary"][];
                 };
             };
         };

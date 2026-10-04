@@ -70,6 +70,182 @@
         "title": "AuthorizationRequest",
         "type": "object"
       },
+      "BackendLink": {
+        "description": "One backend as one charger's session sees it.",
+        "properties": {
+          "buffered_frames": {
+            "description": "Charger frames waiting for this backend (leader only)",
+            "title": "Buffered Frames",
+            "type": "integer"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "down_for_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How long the link has been down, if it is",
+            "title": "Down For Seconds"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "local": {
+            "description": "The broker itself is the backend (broker mode)",
+            "title": "Local",
+            "type": "boolean"
+          },
+          "role": {
+            "enum": [
+              "leader",
+              "follower"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for the broker itself",
+            "title": "Url"
+          }
+        },
+        "required": [
+          "key",
+          "url",
+          "role",
+          "local",
+          "connected",
+          "buffered_frames",
+          "down_for_seconds"
+        ],
+        "title": "BackendLink",
+        "type": "object"
+      },
+      "BootInfo": {
+        "properties": {
+          "firmware_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firmware Version"
+          },
+          "iccid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iccid"
+          },
+          "imsi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imsi"
+          },
+          "meter_serial_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meter Serial Number"
+          },
+          "meter_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meter Type"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "serial_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial Number"
+          },
+          "vendor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor"
+          }
+        },
+        "required": [
+          "vendor",
+          "model",
+          "serial_number",
+          "firmware_version",
+          "iccid",
+          "imsi",
+          "meter_type",
+          "meter_serial_number",
+          "received_at"
+        ],
+        "title": "BootInfo",
+        "type": "object"
+      },
       "BootNotificationRequest": {
         "properties": {
           "charge_point_model": {
@@ -255,6 +431,402 @@
         "title": "ChangeConfigurationRequest",
         "type": "object"
       },
+      "ChargerDetail": {
+        "properties": {
+          "backends": {
+            "description": "The leader first, then the followers",
+            "items": {
+              "$ref": "#/components/schemas/BackendLink"
+            },
+            "title": "Backends",
+            "type": "array"
+          },
+          "boot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BootInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "buffered_frames": {
+            "title": "Buffered Frames",
+            "type": "integer"
+          },
+          "charger_id": {
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "charging_profiles": {
+            "items": {
+              "$ref": "#/components/schemas/IdObject"
+            },
+            "title": "Charging Profiles",
+            "type": "array"
+          },
+          "connected_at": {
+            "format": "date-time",
+            "title": "Connected At",
+            "type": "string"
+          },
+          "connector_statuses": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Connector id (as text) to its last reported status",
+            "title": "Connector Statuses",
+            "type": "object"
+          },
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorInfo"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "degraded_transactions": {
+            "description": "Running transactions in which some backend is skipped",
+            "title": "Degraded Transactions",
+            "type": "integer"
+          },
+          "firmware_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firmware Version"
+          },
+          "followers_connected": {
+            "title": "Followers Connected",
+            "type": "integer"
+          },
+          "followers_total": {
+            "title": "Followers Total",
+            "type": "integer"
+          },
+          "frames_in": {
+            "title": "Frames In",
+            "type": "integer"
+          },
+          "frames_out": {
+            "title": "Frames Out",
+            "type": "integer"
+          },
+          "id_table_stats": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Counters of what the transaction id table did: rewritten, remapped, skipped, ...",
+            "title": "Id Table Stats",
+            "type": "object"
+          },
+          "last_heartbeat_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat At"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "leader": {
+            "$ref": "#/components/schemas/BackendLink"
+          },
+          "mode": {
+            "enum": [
+              "broker",
+              "relay"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "ocpp_version": {
+            "title": "Ocpp Version",
+            "type": "string"
+          },
+          "online": {
+            "default": true,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "open_transactions": {
+            "title": "Open Transactions",
+            "type": "integer"
+          },
+          "org": {
+            "title": "Org",
+            "type": "string"
+          },
+          "remote_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Address"
+          },
+          "reservations": {
+            "items": {
+              "$ref": "#/components/schemas/IdObject"
+            },
+            "title": "Reservations",
+            "type": "array"
+          },
+          "transaction_id_mapping": {
+            "title": "Transaction Id Mapping",
+            "type": "boolean"
+          },
+          "transactions": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionRow"
+            },
+            "title": "Transactions",
+            "type": "array"
+          },
+          "vendor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor"
+          }
+        },
+        "required": [
+          "org",
+          "charger_id",
+          "mode",
+          "ocpp_version",
+          "connected_at",
+          "last_seen",
+          "remote_address",
+          "vendor",
+          "model",
+          "firmware_version",
+          "connector_statuses",
+          "leader",
+          "followers_total",
+          "followers_connected",
+          "buffered_frames",
+          "open_transactions",
+          "degraded_transactions",
+          "boot",
+          "last_heartbeat_at",
+          "connectors",
+          "backends",
+          "transaction_id_mapping",
+          "transactions",
+          "reservations",
+          "charging_profiles",
+          "frames_in",
+          "frames_out",
+          "id_table_stats"
+        ],
+        "title": "ChargerDetail",
+        "type": "object"
+      },
+      "ChargerList": {
+        "properties": {
+          "chargers": {
+            "items": {
+              "$ref": "#/components/schemas/ChargerSummary"
+            },
+            "title": "Chargers",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "chargers",
+          "total"
+        ],
+        "title": "ChargerList",
+        "type": "object"
+      },
+      "ChargerSummary": {
+        "properties": {
+          "buffered_frames": {
+            "title": "Buffered Frames",
+            "type": "integer"
+          },
+          "charger_id": {
+            "title": "Charger Id",
+            "type": "string"
+          },
+          "connected_at": {
+            "format": "date-time",
+            "title": "Connected At",
+            "type": "string"
+          },
+          "connector_statuses": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Connector id (as text) to its last reported status",
+            "title": "Connector Statuses",
+            "type": "object"
+          },
+          "degraded_transactions": {
+            "description": "Running transactions in which some backend is skipped",
+            "title": "Degraded Transactions",
+            "type": "integer"
+          },
+          "firmware_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firmware Version"
+          },
+          "followers_connected": {
+            "title": "Followers Connected",
+            "type": "integer"
+          },
+          "followers_total": {
+            "title": "Followers Total",
+            "type": "integer"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "leader": {
+            "$ref": "#/components/schemas/BackendLink"
+          },
+          "mode": {
+            "enum": [
+              "broker",
+              "relay"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "ocpp_version": {
+            "title": "Ocpp Version",
+            "type": "string"
+          },
+          "online": {
+            "default": true,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "open_transactions": {
+            "title": "Open Transactions",
+            "type": "integer"
+          },
+          "org": {
+            "title": "Org",
+            "type": "string"
+          },
+          "remote_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Address"
+          },
+          "vendor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor"
+          }
+        },
+        "required": [
+          "org",
+          "charger_id",
+          "mode",
+          "ocpp_version",
+          "connected_at",
+          "last_seen",
+          "remote_address",
+          "vendor",
+          "model",
+          "firmware_version",
+          "connector_statuses",
+          "leader",
+          "followers_total",
+          "followers_connected",
+          "buffered_frames",
+          "open_transactions",
+          "degraded_transactions"
+        ],
+        "title": "ChargerSummary",
+        "type": "object"
+      },
       "ClearChargingProfileRequest": {
         "properties": {
           "charging_profile_purpose": {
@@ -307,6 +879,55 @@
           }
         },
         "title": "ClearChargingProfileRequest",
+        "type": "object"
+      },
+      "ConnectorInfo": {
+        "properties": {
+          "connector_id": {
+            "description": "0 is the charger as a whole",
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "info": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Info"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_id",
+          "status",
+          "error_code",
+          "info",
+          "updated_at"
+        ],
+        "title": "ConnectorInfo",
         "type": "object"
       },
       "GetCompositeScheduleRequest": {
@@ -435,6 +1056,43 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "IdObject": {
+        "description": "A reservation or charging profile the charger holds.",
+        "properties": {
+          "backend_ids": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Each backend's own id (empty if made through the REST API)",
+            "title": "Backend Ids",
+            "type": "object"
+          },
+          "expires": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wall-clock seconds; reservations end at their expiry date",
+            "title": "Expires"
+          },
+          "id": {
+            "description": "The id the charger holds",
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "backend_ids",
+          "expires"
+        ],
+        "title": "IdObject",
         "type": "object"
       },
       "MeterValuesRequest": {
@@ -731,6 +1389,90 @@
           "status"
         ],
         "title": "OCPPTag",
+        "type": "object"
+      },
+      "OrgBackend": {
+        "properties": {
+          "key": {
+            "description": "The backend's id from the configuration, or its URL if it has none",
+            "title": "Key",
+            "type": "string"
+          },
+          "leader": {
+            "description": "Marked leader in the configuration (a failover can change who leads a charger)",
+            "title": "Leader",
+            "type": "boolean"
+          },
+          "ocpp_subprotocol": {
+            "title": "Ocpp Subprotocol",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "url",
+          "leader",
+          "ocpp_subprotocol"
+        ],
+        "title": "OrgBackend",
+        "type": "object"
+      },
+      "OrgSummary": {
+        "properties": {
+          "backends": {
+            "description": "Empty in broker mode",
+            "items": {
+              "$ref": "#/components/schemas/OrgBackend"
+            },
+            "title": "Backends",
+            "type": "array"
+          },
+          "charger_auth_required": {
+            "title": "Charger Auth Required",
+            "type": "boolean"
+          },
+          "connected_chargers": {
+            "description": "Chargers of this organization connected to this instance",
+            "title": "Connected Chargers",
+            "type": "integer"
+          },
+          "mode": {
+            "description": "broker: the broker answers chargers itself; relay: it forwards to backends",
+            "enum": [
+              "broker",
+              "relay"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ocpp_version": {
+            "title": "Ocpp Version",
+            "type": "string"
+          },
+          "transaction_id_mapping": {
+            "description": "Transaction ids are translated per backend (relay mode with several backends)",
+            "title": "Transaction Id Mapping",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "mode",
+          "ocpp_version",
+          "charger_auth_required",
+          "connected_chargers",
+          "backends",
+          "transaction_id_mapping"
+        ],
+        "title": "OrgSummary",
         "type": "object"
       },
       "RemoteStartTransactionRequest": {
@@ -1242,6 +1984,64 @@
         "title": "TransactionRequest",
         "type": "object"
       },
+      "TransactionRow": {
+        "properties": {
+          "awaiting": {
+            "description": "Followers that have not yet said which id they issued",
+            "items": {
+              "type": "string"
+            },
+            "title": "Awaiting",
+            "type": "array"
+          },
+          "backend_ids": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Each backend's own id for it, by backend key",
+            "title": "Backend Ids",
+            "type": "object"
+          },
+          "degraded": {
+            "description": "Backends that never learned an id for it and are skipped",
+            "items": {
+              "type": "string"
+            },
+            "title": "Degraded",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "open",
+              "closed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "transaction_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The id the charger holds; null until the leader has answered the start",
+            "title": "Transaction Id"
+          }
+        },
+        "required": [
+          "transaction_id",
+          "state",
+          "backend_ids",
+          "degraded",
+          "awaiting"
+        ],
+        "title": "TransactionRow",
+        "type": "object"
+      },
       "TriggerMessageRequest": {
         "properties": {
           "connector_id": {
@@ -1483,6 +2283,140 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/chargers": {
+      "get": {
+        "operationId": "list_chargers_api_chargers_get",
+        "parameters": [
+          {
+            "description": "Only this organization",
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this organization",
+              "title": "Org"
+            }
+          },
+          {
+            "description": "Only charger ids containing this text (case-insensitive)",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only charger ids containing this text (case-insensitive)",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChargerList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Chargers",
+        "tags": [
+          "Console"
+        ]
+      }
+    },
+    "/api/chargers/{org}/{charger_id}": {
+      "get": {
+        "operationId": "charger_detail_api_chargers__org___charger_id__get",
+        "parameters": [
+          {
+            "description": "Organization name",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "Organization name",
+              "title": "Org",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Charger id",
+            "in": "path",
+            "name": "charger_id",
+            "required": true,
+            "schema": {
+              "description": "Charger id",
+              "title": "Charger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChargerDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Charger Detail",
+        "tags": [
+          "Console"
+        ]
+      }
+    },
     "/api/mongodb/authorization": {
       "post": {
         "description": "Save Authorization to MongoDB.",
@@ -3353,6 +4287,36 @@
         "summary": "Get Charger Status",
         "tags": [
           "OCPP Commands"
+        ]
+      }
+    },
+    "/api/orgs": {
+      "get": {
+        "operationId": "list_orgs_api_orgs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OrgSummary"
+                  },
+                  "title": "Response List Orgs Api Orgs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Orgs",
+        "tags": [
+          "Console"
         ]
       }
     },

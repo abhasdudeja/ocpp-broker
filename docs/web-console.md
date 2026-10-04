@@ -1,6 +1,6 @@
 # Web Console
 
-The broker serves a web console at `/ui` on its own port, next to the charger WebSocket and the REST API. It is an early version: today it signs in and shows an **overview** of the running broker. More pages (chargers and their backend links, commands, tags) are planned; see `plans/ui-plan.md` in the repository.
+The broker serves a web console at `/ui` on its own port, next to the charger WebSocket and the REST API. It is an early version. The pages that exist are listed below; more (commands, tags, history) are planned, see `plans/ui-plan.md` in the repository.
 
 ## Opening it
 

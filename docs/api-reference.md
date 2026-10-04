@@ -99,6 +99,69 @@ GET /api/system/info
 
 Needs the API key, so it is also the cheapest call to check a key with (`401` wrong or missing key, `503` no key configured). `instance_id` is random per process. `connected_chargers` counts this process only, because sessions are not shared between instances. Unlike the other MongoDB health route, `mongodb.reachable` pings the server on every call (2 second limit), while `connected` is the startup result.
 
+## Console endpoints (organizations and chargers)
+
+Read-only views of **this process**, used by the [web console](web-console.md). Sessions are per process, so with several broker instances each one answers for its own chargers only. All need the API key.
+
+```http
+GET /api/orgs
+```
+
+One entry per configured organization:
+
+```json
+[
+  {
+    "name": "Fleet", "mode": "relay", "ocpp_version": "1.6",
+    "charger_auth_required": true, "connected_chargers": 14,
+    "backends": [
+      {"key": "lead", "url": "ws://primary.example.com/ocpp", "leader": true, "ocpp_subprotocol": "ocpp1.6"},
+      {"key": "follow", "url": "ws://standby.example.com/ocpp", "leader": false, "ocpp_subprotocol": "ocpp1.6"}
+    ],
+    "transaction_id_mapping": true
+  }
+]
+```
+
+`mode` is `broker` or `relay`; `backends` is empty in broker mode; `leader` is the configured leader (a failover changes who leads a charger, see below). `key` is the backend's `id`, or its URL if it has none.
+
+```http
+GET /api/chargers?org=Fleet&q=cp
+```
+
+The chargers connected to this instance, ordered by organization and id. `org` limits to one organization; `q` keeps ids containing the text (case-insensitive). Only connected chargers exist here: a charger that is not connected is simply absent.
+
+```json
+{
+  "total": 1,
+  "chargers": [
+    {
+      "org": "Fleet", "charger_id": "CP001", "online": true, "mode": "relay", "ocpp_version": "1.6",
+      "connected_at": "2026-10-04T08:12:31Z", "last_seen": "2026-10-04T09:01:07Z", "remote_address": "10.0.0.5:51234",
+      "vendor": "Acme", "model": "Wallbox 7", "firmware_version": "2.1.0",
+      "connector_statuses": {"0": "Available", "1": "Charging"},
+      "leader": {"key": "lead", "url": "ws://primary.example.com/ocpp", "role": "leader", "local": false,
+                 "connected": true, "buffered_frames": 0, "down_for_seconds": null},
+      "followers_total": 1, "followers_connected": 1, "buffered_frames": 0,
+      "open_transactions": 1, "degraded_transactions": 0
+    }
+  ]
+}
+```
+
+- `vendor`, `model`, `firmware_version` and `connector_statuses` come from the charger's own `BootNotification` and `StatusNotification` messages, which the broker watches in both modes. They are empty until the charger has sent them. `connector_statuses` key `0` is the charger as a whole.
+- `remote_address` is the peer address the broker sees: behind a reverse proxy that is the proxy's address.
+- `leader` is the charger's current leader. In broker mode it is the broker itself (`"local": true`, `"url": null`). `buffered_frames` is how many charger frames are waiting for an unreachable leader ([store-and-forward](leader-follower.md#leader-outage-store-and-forward)); `down_for_seconds` is how long a link has been down.
+- `degraded_transactions` counts running transactions in which some backend is being skipped because the broker never learned its transaction id ([details](leader-follower.md#transaction-ids)).
+
+```http
+GET /api/chargers/{org}/{charger_id}
+```
+
+The same fields plus the full picture of one charger: `boot` (vendor, model, serial number, firmware, ICCID, IMSI, meter details, when it arrived), `last_heartbeat_at`, `connectors` (status, error code, info, time), `backends` (the leader first, then the followers, each with `key`, `url`, `role`, `local`, `connected`, `buffered_frames`, `down_for_seconds`), `transaction_id_mapping` (whether ids are translated for this charger), `transactions` (one row per transaction: the id the charger holds, its state `pending`/`open`/`closed`, each backend's own id by key, which backends are skipped, which have not yet answered), `reservations` and `charging_profiles` (the ids the charger holds with each backend's own id), `frames_in` / `frames_out` (messages received from and sent to the charger on this connection) and `id_table_stats` (what the id table has done: `rewritten`, `remapped`, `skipped`, ...).
+
+`404` if the charger is not connected to this instance.
+
 ## Charger WebSocket
 
 ```

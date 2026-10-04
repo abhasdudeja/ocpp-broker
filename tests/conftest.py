@@ -48,3 +48,6 @@ async def run_server(monkeypatch):
         uv.should_exit = True
         await asyncio.wait_for(task, timeout=10)
     server.broker.sessions.clear()
+    # Transaction id tables outlive sessions on purpose (a charger reconnects mid-charge), so a
+    # test must not inherit the previous test's transactions.
+    server.broker.transaction_tables.clear()

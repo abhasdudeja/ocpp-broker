@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as OcppChargePoint, call_result, datatypes
@@ -18,16 +18,28 @@ class StarletteWebSocketAdapter:
     WebSocket instance.
     """
 
-    def __init__(self, websocket, send_lock: Optional[asyncio.Lock] = None):
+    def __init__(
+        self,
+        websocket,
+        send_lock: Optional[asyncio.Lock] = None,
+        on_receive: Optional[Callable[[str], None]] = None,
+        on_send: Optional[Callable[[], None]] = None,
+    ):
         self._ws = websocket
         # Shared with ChargerSession so every writer to this socket is serialised.
         self._send_lock = send_lock or asyncio.Lock()
         # Set by ChargerSession once the charge point exists; used when saving call results.
         self._charge_point: Optional[Any] = None
+        # Let the session watch the traffic (its charger state); they never change a frame.
+        self._on_receive = on_receive
+        self._on_send = on_send
 
     async def recv(self) -> str:
         # Schema validation is the ocpp library's job (route_message / call).
-        return await self._ws.receive_text()
+        message = await self._ws.receive_text()
+        if self._on_receive is not None:
+            self._on_receive(message)
+        return message
 
     async def send(self, message: str):
         # Save call results/errors to MongoDB when broker is leader
@@ -76,6 +88,8 @@ class StarletteWebSocketAdapter:
             pass  # Ignore parsing errors
         
         await locked_send(self._send_lock, self._ws.send_text, message)
+        if self._on_send is not None:
+            self._on_send()
 
     async def close(self, code: int = 1000, reason: str | None = None):
         await self._ws.close(code=code, reason=reason)

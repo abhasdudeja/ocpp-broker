@@ -16,6 +16,7 @@ from .backend_manager import DEFAULT_MAX_BUFFERED, DEFAULT_OUTAGE_TIMEOUT, Backe
 from .middleware import process_charger_to_backend
 from .sockets import locked_send
 from .charge_point import BrokerChargePoint, StarletteWebSocketAdapter
+from .charger_state import ChargerState, remote_address
 from .transaction_ids import TransactionIdTable, backend_keys
 
 logger = logging.getLogger("ocpp_broker.session")
@@ -55,6 +56,9 @@ class ChargerSession:
         self.org_name = org_name
         self.org_entry = org_entry
         self.websocket = websocket
+        # What the console shows: when it connected, boot details, connector statuses, traffic counts.
+        # Filled by watching the charger's frames; see charger_state.py.
+        self.state = ChargerState(remote_address=remote_address(websocket))
         self.mode: SessionMode = (
             SessionMode.RELAY if org_entry.get("connect_to_backend") else SessionMode.BROKER
         )
@@ -155,6 +159,7 @@ class ChargerSession:
         """Write one frame to the charger; any failure surfaces as ConnectionError."""
         try:
             await locked_send(self._send_lock, self.websocket.send_text, message)
+            self.state.note_sent()
         except asyncio.TimeoutError as exc:
             logger.error("Charger %s did not accept a frame in time; dropping the connection", self.charger_id)
             try:
@@ -544,7 +549,12 @@ class ChargerSession:
         logger.info(
             "🎯 Broker acting as backend for charger %s (org: %s)", self.charger_id, self.org_name
         )
-        adapter = StarletteWebSocketAdapter(self.websocket, send_lock=self._send_lock)
+        adapter = StarletteWebSocketAdapter(
+            self.websocket,
+            send_lock=self._send_lock,
+            on_receive=self.state.observe,
+            on_send=self.state.note_sent,
+        )
         self.charge_point = BrokerChargePoint(
             charge_point_id=self.charger_id,
             websocket=adapter,
@@ -582,6 +592,7 @@ class ChargerSession:
         while True:
             try:
                 msg = await self.websocket.receive_text()
+                self.state.observe(msg)
                 msg_out, parsed = await process_charger_to_backend(self.charger_id, msg)
                 if self._resolve_pending_call(parsed):
                     continue  # reply to a broker-issued command; the backend never asked for it

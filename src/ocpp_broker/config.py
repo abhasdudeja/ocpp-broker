@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .transaction_ids import local_index
+from .transaction_ids import leader_index, local_index
 
 logger = logging.getLogger("ocpp_broker.config")
 
@@ -224,9 +224,10 @@ def _apply_defaults(cfg):
         # Validate and fix backend leaders
         leaders = [b for b in org["backends"] if b.get("leader")]
         if local_index(org["backends"]) is not None:
-            # The local backend (this broker) is the leader; the others are observe-only followers
+            # Exactly one leads: the one marked, else the local backend (the broker answers, the others observe)
+            chosen = org["backends"][leader_index(org["backends"])]
             for b in org["backends"]:
-                b["leader"] = bool(b.get("local"))
+                b["leader"] = b is chosen
         elif len(leaders) > 1:
             logger.warning(f"Organization {name} has multiple leaders; using first one only.")
             for b in org["backends"]:
@@ -243,9 +244,9 @@ def _apply_defaults(cfg):
 def _validate_backends(org):
     """
     Check an organization's ``backends``: every external one needs a ``url``, and at most one may be
-    ``local: true``, which means "this broker answers the charger itself" (see docs/leader-follower.md).
-    A local backend is always the leader: the others receive copies of the charger's messages and
-    can take no part in the conversation, so ``leader: true`` on another entry would contradict it.
+    ``local: true``, which means "this broker is a backend" (see docs/leader-follower.md). A local backend
+    leads (the broker answers the charger and the others receive copies) unless another entry is marked
+    ``leader: true``, in which case it is a silent standby that takes over if that leader fails.
     """
     name = org["name"]
     backends = org.get("backends") or []
@@ -261,12 +262,12 @@ def _validate_backends(org):
         if backend.get("local"):
             if backend.get("url"):
                 raise ValueError(f"Organization {name}: a local backend is this broker and has no url")
-            if backend.get("leader") is False:
-                raise ValueError(f"Organization {name}: a local backend is always the leader; a local follower is not supported")
         elif not backend.get("url"):
             raise ValueError(f"Organization {name}: every backend needs a url (or local: true for this broker)")
-        elif locals_ and backend.get("leader"):
-            raise ValueError(f"Organization {name}: the local backend is the leader, so {backend.get('id') or backend['url']} cannot be marked leader")
+    if locals_ and sum(1 for b in backends if b.get("leader")) > 1:
+        raise ValueError(f"Organization {name}: with a local backend, only one backend can be marked leader")
+    if locals_ and len(backends) == 1 and locals_[0].get("leader") is False:
+        raise ValueError(f"Organization {name}: a local backend that is not the leader needs a leader to follow")
     if locals_ and org.get("connect_to_backend") is False:
         logger.warning("Organization %s: connect_to_backend is false, so its backends (including the local one) are ignored", name)
 

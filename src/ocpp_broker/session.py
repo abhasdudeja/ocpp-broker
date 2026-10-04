@@ -19,7 +19,8 @@ from .sockets import locked_send
 from .charge_point import BrokerChargePoint, StarletteWebSocketAdapter
 from .charger_state import ChargerState, remote_address
 from .commands import LOG_SIZE, CommandEntry
-from .transaction_ids import TransactionIdTable, backend_keys, local_index
+from .local_backend import LocalBackend
+from .transaction_ids import TransactionIdTable, backend_keys, leader_index, local_index
 
 logger = logging.getLogger("ocpp_broker.session")
 
@@ -63,17 +64,19 @@ class ChargerSession:
         self.state = ChargerState(remote_address=remote_address(websocket))
         # The commands sent to this charger through the API or the console (see commands.py)
         self.command_log: Deque[CommandEntry] = deque(maxlen=LOG_SIZE)
-        # The broker answers the charger itself (BROKER) or forwards to backends (RELAY). A backend marked
-        # ``local: true`` is the broker itself, as the leader: the broker answers and the other backends
-        # are observe-only followers. That is BROKER mode with followers.
+        # The broker answers the charger itself (BROKER) or a backend does (RELAY). A backend marked
+        # ``local: true`` is the broker itself: as the leader it answers (BROKER mode, the other backends
+        # are observe-only followers); as a follower it is a silent standby, and the mode becomes BROKER
+        # if it is promoted when the external leader fails.
         backends = org_entry.get("backends") or []
         local = local_index(backends) if org_entry.get("connect_to_backend") else None
         self.local_key: Optional[str] = backend_keys(backends)[local] if local is not None else None
+        local_leads = local is not None and leader_index(backends) == local
         self.mode: SessionMode = (
-            SessionMode.RELAY if org_entry.get("connect_to_backend") and local is None else SessionMode.BROKER
+            SessionMode.RELAY if org_entry.get("connect_to_backend") and not local_leads else SessionMode.BROKER
         )
-        self.backend_conn: Optional[BackendConnection] = None
-        self.follower_conns: list[BackendConnection] = []
+        self.backend_conn: Optional[BackendConnection | LocalBackend] = None
+        self.follower_conns: list[BackendConnection | LocalBackend] = []
         self.charge_point: Optional[BrokerChargePoint] = None
         # Set by OcppBroker.handle_charger; lets a newer connection evict this one.
         self.handler_task: Optional[asyncio.Task] = None
@@ -144,17 +147,11 @@ class ChargerSession:
         
         logger.info("✅ Charger %s connected to broker, starting session (mode: %s)", self.charger_id, self.mode.value)
         
-        if self.mode is SessionMode.RELAY:
-            # Only connect to backend if charger is connected AND connect_to_backend is True
-            if not self.org_entry.get("connect_to_backend", False):
-                logger.warning("⚠️ Backend connection disabled for charger %s, switching to broker mode", self.charger_id)
-                await self._run_local_charge_point()
-            else:
-                await self._ensure_backend_connection()
-                await self._relay_loop()
+        if self.org_entry.get("connect_to_backend") and (self.mode is SessionMode.RELAY or self.local_key is not None):
+            # Backends: external ones, and this broker itself when one is marked local
+            await self._ensure_backend_connection()
+            await self._relay_loop()
         else:
-            if self.local_key is not None:
-                await self._ensure_backend_connection()  # connects the followers; the broker is the leader
             await self._run_local_charge_point()
 
     async def close(self):
@@ -363,62 +360,71 @@ class ChargerSession:
         org_subprotocol = self.org_entry.get("ocpp_subprotocol", "ocpp1.6")
         
         keys = backend_keys(backends)
-        leader_index = next((i for i, b in enumerate(backends) if b.get("leader")), 0)
-        leader_config = backends[leader_index]
-        follower_configs = [(keys[i], b) for i, b in enumerate(backends) if i != leader_index]
+        lead = leader_index(backends)
         self._ids = await self.broker.transaction_table(self.org_name, self.charger_id, self.org_entry)
         links = self.broker.org_backends.setdefault(self.org_name, {}).setdefault(self.charger_id, {})
 
-        if self.local_key is None:
-            await self._connect_leader(leader_config, keys[leader_index], org_subprotocol)
-        # else the broker itself is the leader: there is no leader socket, only followers to copy to
+        # The leader first. Do not block the charger on a backend: frames buffer until it is reachable.
+        self.backend_conn = self._member(backends[lead], keys[lead], True, org_subprotocol)
+        await self.backend_conn.connect(wait=False)
+        links["leader"] = self.backend_conn
+        if isinstance(self.backend_conn, LocalBackend):
+            self.charge_point = self.backend_conn.charge_point
 
-        # Follower connections
-        for follower_key, follower_cfg in follower_configs:
-            # Get subprotocol for follower (backend-specific or org-level or default)
-            follower_subprotocol = follower_cfg.get("ocpp_subprotocol", org_subprotocol)
-            follower_conn = BackendConnection(
-                broker=self.broker,
-                charger_id=self.charger_id,
-                url=follower_cfg["url"],
-                org=self.org_name,
-                is_leader=False,
-                subprotocol=follower_subprotocol,
-                max_buffered=0,  # followers are best-effort; never block on them
-                on_disconnected=self._on_backend_link_lost,
-                on_connected=self._on_backend_link_up,
-                key=follower_key,
-            )
-            self.follower_conns.append(follower_conn)
-            logger.info("🔗 Establishing follower backend for charger %s -> %s (subprotocol: %s)", 
-                       self.charger_id, follower_cfg["url"], follower_subprotocol)
-            await follower_conn.connect(wait=False)
+        for index, config in enumerate(backends):
+            if index == lead:
+                continue
+            follower = self._member(config, keys[index], False, org_subprotocol)
+            self.follower_conns.append(follower)
+            await follower.connect(wait=False)
         links["followers"] = self.follower_conns
 
-    async def _connect_leader(self, leader_config: Dict[str, Any], key: str, org_subprotocol: str) -> None:
-        # Get subprotocol for leader (backend-specific or org-level or default)
-        leader_subprotocol = leader_config.get("ocpp_subprotocol", org_subprotocol)
-
-        # Leader connection
-        self.backend_conn = BackendConnection(
+    def _member(self, config: Dict[str, Any], key: str, is_leader: bool, org_subprotocol: str):
+        """One backend of this charger: an external server, or this broker itself (``local: true``)."""
+        role = "leader" if is_leader else "follower"
+        if config.get("local"):
+            logger.info("🏠 Charger %s: this broker is a %s backend (%s)", self.charger_id, role, key)
+            return LocalBackend(
+                broker=self.broker,
+                charger_id=self.charger_id,
+                org=self.org_name,
+                key=key,
+                is_leader=is_leader,
+                response_timeout=COMMAND_MAX_TIMEOUT,
+                on_failed=self._on_local_backend_failed,
+            )
+        subprotocol = config.get("ocpp_subprotocol", org_subprotocol)
+        logger.info("🔗 Establishing %s backend for charger %s -> %s (subprotocol: %s)", role, self.charger_id, config["url"], subprotocol)
+        return BackendConnection(
             broker=self.broker,
             charger_id=self.charger_id,
-            url=leader_config["url"],
+            url=config["url"],
             org=self.org_name,
-            is_leader=True,
-            subprotocol=leader_subprotocol,
-            max_buffered=self.org_entry.get("backend_buffer_size", DEFAULT_MAX_BUFFERED),
+            is_leader=is_leader,
+            subprotocol=subprotocol,
+            # the leader holds charger frames while unreachable; followers are best-effort and never block
+            max_buffered=self.org_entry.get("backend_buffer_size", DEFAULT_MAX_BUFFERED) if is_leader else 0,
             outage_timeout=self.org_entry.get("backend_outage_timeout", DEFAULT_OUTAGE_TIMEOUT),
-            on_undeliverable=self._reject_charger_call,
+            on_undeliverable=self._reject_charger_call if is_leader else None,
             on_disconnected=self._on_backend_link_lost,
             on_connected=self._on_backend_link_up,
             key=key,
         )
-        logger.info("🔗 Establishing leader backend for charger %s -> %s (subprotocol: %s)",
-                   self.charger_id, leader_config["url"], leader_subprotocol)
-        # Do not block the charger on the backend: frames buffer until it is reachable.
-        await self.backend_conn.connect(wait=False)
-        self.broker.org_backends.setdefault(self.org_name, {}).setdefault(self.charger_id, {})["leader"] = self.backend_conn
+
+    def _on_local_backend_failed(self, member: LocalBackend) -> None:
+        """The local backend (the ``ocpp`` library) stopped on an error."""
+        if member is self.backend_conn:
+            # It was answering the charger: end the connection so the charger reconnects to a fresh session
+            logger.error("The local backend of %s failed while it was the leader; closing the charger's connection", self.charger_id)
+            self._spawn(self._close_charger_socket())
+        else:
+            logger.error("The local standby of %s failed; it no longer follows this charger", self.charger_id)
+
+    async def _close_charger_socket(self) -> None:
+        try:
+            await self.websocket.close(code=1011, reason="The local backend failed")
+        except Exception as exc:
+            logger.debug("Error closing socket of %s: %s", self.charger_id, exc)
 
     # ------------------------------------------------------------------ #
     # Followers: observe-only fan-out and leader failover                #
@@ -440,7 +446,7 @@ class ChargerSession:
         for follower in self.follower_conns:
             self._spawn(self._send_to_follower(follower, message))
 
-    async def _send_to_follower(self, follower: BackendConnection, message: str) -> None:
+    async def _send_to_follower(self, follower: Any, message: str) -> None:
         try:
             await follower.send(message)
         except Exception as exc:
@@ -463,7 +469,7 @@ class ChargerSession:
             if follower is not None:
                 self._spawn(self._send_batch_to_follower(follower, frames))
 
-    async def _send_batch_to_follower(self, follower: BackendConnection, frames: list[str]) -> None:
+    async def _send_batch_to_follower(self, follower: Any, frames: list[str]) -> None:
         for frame in frames:
             await self._send_to_follower(follower, frame)
 
@@ -485,53 +491,21 @@ class ChargerSession:
         self._send_to_followers(self._ids.expire_holds())
         self._arm_hold_timer()
 
-    def frames_for_charger(self, conn: BackendConnection, message: str) -> list[str]:
+    def frames_for_charger(self, conn: Any, message: str) -> list[str]:
         """
         What to send the charger for a frame from the leader: the frame itself, or,
         with the id table on, the frame in the charger's transaction ids (plus any
         replies owed to retried starts that were waiting on the same answer).
         """
-        return self._charger_frames(conn.key, message)
-
-    def _charger_frames(self, leader_key: str, message: str) -> list[str]:
         if self._ids is None:
             return [message]
         try:
             parsed = json.loads(message)
         except ValueError:
             return [message]
-        plan = self._ids.from_leader(leader_key, parsed, message)
+        plan = self._ids.from_leader(conn.key, parsed, message)
         frames = [plan.frame, *plan.extra]
         return [f for f in frames if f is not None]  # None: an answer to an observer copy, not for the charger
-
-    # ------------------------------------------------------------------ #
-    # The broker as the leader (local backend) with external followers   #
-    # ------------------------------------------------------------------ #
-    async def _local_incoming(self, message: str) -> Optional[str]:
-        """
-        A frame from the charger on its way to the local backend (the ``ocpp`` library): copy it to the
-        followers, each in its own ids, and return it in the local backend's ids, or None if the library
-        should not see it (a retried start is answered here from the table).
-        """
-        assert self.local_key is not None
-        try:
-            parsed = json.loads(message)
-        except ValueError:
-            return message
-        if self._ids is None:
-            self._fan_out_to_followers(message, parsed)
-            return message
-        plan = self._ids.from_charger(parsed, message, self.local_key, self._follower_states())
-        if plan.reply is not None:
-            await self.send_to_charger(plan.reply)
-        self._send_to_followers(plan.to_followers)
-        self._arm_hold_timer()
-        return plan.to_leader
-
-    def _local_outgoing(self, message: str) -> list[str]:
-        """A frame the local backend (the ``ocpp`` library) sends, as the charger should see it."""
-        assert self.local_key is not None
-        return self._charger_frames(self.local_key, message)
 
     def note_follower_frame(self, conn: BackendConnection, message: str) -> None:
         """A follower spoke. Its answer to a start copy tells the id table which id it issued."""
@@ -574,7 +548,7 @@ class ChargerSession:
                 leader.url,
             )
 
-    def _promote(self, new_leader: BackendConnection) -> None:
+    def _promote(self, new_leader: Any) -> None:
         """Swap roles: ``new_leader`` becomes the leader, the old leader a follower."""
         old_leader = self.backend_conn
         assert old_leader is not None and new_leader in self.follower_conns
@@ -601,6 +575,10 @@ class ChargerSession:
 
         self.follower_conns = [f for f in self.follower_conns if f is not new_leader] + [old_leader]
         self.backend_conn = new_leader
+        if isinstance(new_leader, LocalBackend):
+            # The standby takes over: from now on the broker answers the charger (and commands use its library)
+            self.mode = SessionMode.BROKER
+            self.charge_point = new_leader.charge_point
         if self._ids is not None:
             self._ids.leader_changed(new_leader.key)
             self._arm_hold_timer()
@@ -639,9 +617,6 @@ class ChargerSession:
             send_lock=self._send_lock,
             on_receive=self._observe,
             on_send=self.state.note_sent,
-            # With followers the charger's frames are copied to them and ids are translated per backend
-            filter_in=self._local_incoming if self.local_key is not None else None,
-            filter_out=self._local_outgoing if self.local_key is not None else None,
         )
         self.charge_point = BrokerChargePoint(
             charge_point_id=self.charger_id,

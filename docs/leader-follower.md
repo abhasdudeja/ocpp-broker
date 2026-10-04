@@ -153,14 +153,35 @@ charger <--> broker ------+
 What differs from relay mode:
 
 - The leader is never unreachable and has no outbox, and there is **no failover**: the broker does not hand the charger to a follower. `leader_failover_timeout`, `backend_buffer_size` and `backend_outage_timeout` have no effect.
-- The local backend is always the leader. A local backend marked `leader: false`, a second local backend, a `url` on a local backend, or `leader: true` on another entry is refused when the file is loaded, with a message saying why. A local backend alone behaves like broker mode.
+- The local backend leads unless another backend is marked `leader: true`, in which case it is a standby ([below](#the-broker-as-a-standby-local-follower)). A second local backend, a `url` on a local backend, two entries marked leader, or a local backend marked `leader: false` with nothing else to lead is refused when the file is loaded, with a message saying why. A local backend alone behaves like broker mode.
 - The console and the API show the organization as `mode: broker` with a local leader and its followers; each charger lists `broker` (marked *this broker*) first, then the followers.
 - Transaction ids are translated per backend as in relay mode ([Transaction ids](#transaction-ids)): the charger holds the id the broker issued, and each follower is spoken to in the id it issued itself. `transaction_ids.mapping: false` sends the followers the charger's frames as they are instead. A retried `StartTransaction` is answered from the table and a follower is not given a second transaction.
 - **Commands** (`POST /api/ocpp/...`) work as in broker mode: the broker validates the payload (`422` if invalid), sends it and returns the charger's answer. They are not copied to followers, and neither are the charger's answers to them. A reservation or charging profile the broker sets is numbered like any other leader's ([Reservations and charging profiles](#reservations-and-charging-profiles)).
 - Followers receive copies only while their link is up and are never sent what came before they connected: connect the charger after the followers are reachable, or accept that a follower may miss the first messages (the same as in relay mode).
 - A follower that sends the charger a command is ignored, as in relay mode.
 
-Not available yet: a **local follower** (the broker taking over when an external leader fails, and handing back afterwards). It needs the broker to process every charger message silently so that it already knows the open transactions when it takes over; see `plans/local-leader.md`.
+### The broker as a standby (local follower)
+
+Mark an external backend `leader: true` and add a `local: true` backend that is not the leader: the external backend answers the charger, and **this broker follows silently** and takes over if the external leader fails.
+
+```yaml
+backends:
+  - id: primary
+    url: ws://primary.example.com/ocpp
+    leader: true
+  - id: broker                 # the standby
+    local: true
+  - id: analytics
+    url: ws://analytics.example.com/ocpp
+```
+
+- **While the external leader is healthy** the standby gets a copy of every charger request, as any follower does, and processes it with the same code as broker mode: it numbers the transactions it sees (in its own ids, which the [id table](#transaction-ids) knows), records them, and stores what it would store. Its answers are read by the id table and thrown away. **The charger never hears from it**: with `primary` saying `Accepted` and the broker's own tags saying `Invalid`, the charger is told `Accepted`.
+- **When the external leader stays down for `leader_failover_timeout`** the first healthy follower in the configured order is promoted, as in relay mode. List the local backend before other followers if it should be preferred. From then on the broker answers the charger with its own rules, already knowing the transactions that were running: a running transaction is stopped under the id the charger holds, translated to the broker's own, without a warning about an unknown transaction; a start the old leader never answered is answered once, with the standby's own answer. The old leader becomes an ordinary follower (and receives copies again when it reconnects).
+- **Commands** follow whoever answers: while the external leader leads they are sent to the charger as they are (unchecked, as in relay mode); after the standby is promoted the broker validates them first (`422` if invalid) and sends them itself.
+- **There is no automatic fail-back**: when the external leader returns, the broker keeps answering and the external backend follows. To give the charger back, restart the charger's session (it reconnects and the configured leader leads again).
+- **The console and the API** show the standby as a follower marked *this broker* (connected while its library runs), and after a promotion as the leader. The organization is `relay` mode as long as the *configured* leader is external.
+- If the standby's library fails, the standby is shown as not connected and the charger and the external leader are not affected. If the **local leader's** library fails, the broker closes the charger's connection (code 1011) so the charger reconnects to a fresh session.
+- **Cost:** every charger message is handled twice (by the leader and by the standby), and the standby writes to MongoDB what a leader would, so the database holds the standby's view as well.
 
 ## Leader outage: store-and-forward
 
@@ -216,7 +237,7 @@ Failover and outage events are in the log (`FAILOVER: leader ... unreachable, pr
 
 ## What does not exist
 
-There is no local follower or automatic take-over by the broker itself, no way to add or remove backends at runtime, no manual promotion endpoint, no configuration reload (restart to change the config), no health-check-driven election beyond the connection state described above, no weights or priorities, no comparison or voting between backend responses, and no metrics endpoint. Changing the leader means editing `config.yaml` and restarting, or letting failover choose.
+There is no automatic fail-back, no way to add or remove backends at runtime, no manual promotion endpoint, no configuration reload (restart to change the config), no health-check-driven election beyond the connection state described above, no weights or priorities, no comparison or voting between backend responses, and no metrics endpoint. Changing the leader means editing `config.yaml` and restarting, or letting failover choose.
 
 ## Related Documentation
 

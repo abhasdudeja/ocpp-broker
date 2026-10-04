@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Path, Query
 
-from .backend_manager import BackendConnection
 from .schemas.console import (
     BackendLink,
     BootInfo,
@@ -34,7 +33,8 @@ from .schemas.console import (
     TransactionRow,
 )
 from .session import ChargerSession, SessionMode
-from .transaction_ids import backend_keys, local_index, table_for_org
+from .local_backend import LocalBackend
+from .transaction_ids import backend_keys, leader_index, local_index, table_for_org
 
 BROKER_KEY = "broker"
 OFFLINE_LIMIT = 500
@@ -50,7 +50,7 @@ def _org_entries(broker: Any) -> List[Dict[str, Any]]:
 
 
 def _local(entry: Dict[str, Any]) -> bool:
-    """The organization has a backend that is this broker itself (the broker answers, the others observe)."""
+    """The organization has a backend that is this broker itself."""
     return bool(entry.get("connect_to_backend", True)) and local_index(entry.get("backends") or []) is not None
 
 
@@ -78,10 +78,16 @@ def _offline(doc: Dict[str, Any]) -> OfflineCharger:
 
 
 def _mode(entry: Dict[str, Any]) -> str:
-    return "relay" if entry.get("connect_to_backend", True) and not _local(entry) else "broker"
+    """broker: the broker answers the chargers (a local leader); relay: a backend does (a local standby may take over)."""
+    backends = entry.get("backends") or []
+    local = local_index(backends) if entry.get("connect_to_backend", True) else None
+    local_leads = local is not None and leader_index(backends) == local
+    return "relay" if entry.get("connect_to_backend", True) and not local_leads else "broker"
 
 
-def _link(conn: BackendConnection, role: Literal["leader", "follower"]) -> BackendLink:
+def _link(conn: Any, role: Literal["leader", "follower"]) -> BackendLink:
+    if isinstance(conn, LocalBackend):  # this broker itself
+        return BackendLink(key=conn.key, url=None, role=role, local=True, connected=conn.is_ready(), buffered_frames=0, down_for_seconds=None)
     down = conn.disconnected_since
     ready = conn.is_ready()
     return BackendLink(
@@ -96,16 +102,10 @@ def _link(conn: BackendConnection, role: Literal["leader", "follower"]) -> Backe
 
 
 def _backends(session: ChargerSession) -> List[BackendLink]:
-    """The leader first, then the followers. In broker mode the leader is the broker itself."""
-    if session.mode is SessionMode.BROKER or session.backend_conn is None:
+    """The leader first, then the followers. In plain broker mode the leader is the broker itself."""
+    if session.backend_conn is None:
         local = BackendLink(
-            key=session.local_key or BROKER_KEY,
-            url=None,
-            role="leader",
-            local=True,
-            connected=True,
-            buffered_frames=0,
-            down_for_seconds=None,
+            key=session.local_key or BROKER_KEY, url=None, role="leader", local=True, connected=True, buffered_frames=0, down_for_seconds=None
         )
         return [local, *(_link(f, "follower") for f in session.follower_conns)]
     return [_link(session.backend_conn, "leader"), *(_link(f, "follower") for f in session.follower_conns)]

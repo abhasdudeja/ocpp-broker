@@ -1136,8 +1136,8 @@ def create_management_api(broker) -> APIRouter:
         for charger_id, conns in chargers.items():
             members = [conns.get("leader"), *conns.get("followers", [])]
             for conn in members:
-                if conn is None:
-                    continue
+                if conn is None or getattr(conn, "local", False) is True:
+                    continue  # this broker itself is not a link to anywhere
                 links.append({
                     "charger_id": charger_id,
                     "url": conn.url,

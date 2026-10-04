@@ -1,6 +1,6 @@
 # Plan: the broker as the leader of a charger (local backend)
 
-Status (2026-10-04): **B2, the useful part of B3 and B5 are built; B4 is deferred.** Related: [ui-plan.md](ui-plan.md) (workstream B), [transaction-ids.md](transaction-ids.md), [roadmap.md](roadmap.md).
+Status (2026-10-04): **B2, B4, the useful part of B3 and B5 are built.** Related: [ui-plan.md](ui-plan.md) (workstream B), [transaction-ids.md](transaction-ids.md), [roadmap.md](roadmap.md).
 
 ## The requirement
 
@@ -11,20 +11,20 @@ A charger can be served by the broker itself (broker mode) or by external backen
 | Question | Decision | Why |
 |----------|----------|-----|
 | How is it configured? | One `backends` entry with `local: true` (no `url`, optional `id`, default key `broker`). | Reuses the existing list, ids and the transaction id table's backend keys; no second switch to keep consistent. |
-| Who may the local backend be? | Always the leader. A local follower, a second local backend, a `url` on it, or another entry marked leader are refused at load time with a reason. | A local *follower* needs the broker to process every message silently so it can take over (see B4). Refusing it is better than a half-working version. |
+| Who may the local backend be? | The leader unless another entry is marked `leader: true`, then a standby. A second local backend, a `url` on it, two entries marked leader, or a lone non-leading local backend are refused at load time with a reason. | One rule that also covers the standby of B4. |
 | Which mode is it? | `mode: broker` with followers. | "Mode" says who answers the charger. The console already shows a local leader and followers. |
-| Does the broker fail over? | No (B4 deferred). The local leader cannot be unreachable, so nothing triggers it; `leader_failover_timeout` and the outbox settings do not apply. | Failover needs the local-follower machinery above and a hand-back story; neither was asked for. |
+| Does the broker fail over? | A local *leader* cannot be unreachable, so nothing triggers it. A local *standby* (a local backend that is not the leader) takes over when the external leader fails (B4, below). | Same failover machinery as relay mode; no automatic fail-back, as there is none for external followers either. |
 
 ## How it works
 
-The `ocpp` library's `ChargePoint` reads frames from, and writes frames to, an adapter. In a local-leader session the adapter gets two filters, so the library is just another backend of the transaction id table:
+`LocalBackend` (`local_backend.py`) runs the `ocpp` library's `ChargePoint` on a loopback queue instead of a WebSocket and offers what the session uses of a `BackendConnection`: `send` (a frame for it), `is_ready`, `close`, a key, a role. What it says comes back through the same `OcppBroker.forward_backend_message` as for any backend: from the leader, to the charger (with the id table translating ids); from a follower, read by the id table and dropped. So the relay loop, the id table, the follower hold queues, retry handling, persistence and failover all treat this broker as one more backend and did not need to change.
 
-- **incoming** (`ChargerSession._local_incoming`): the charger's frame goes through `TransactionIdTable.from_charger` with the local key as the leader. That copies the frame to each follower in the follower's own ids, answers a retried start from the stored result without bothering the library, and returns the frame in the leader's (the broker's) ids for the library.
-- **outgoing** (`_local_outgoing`): each frame the library sends goes through `TransactionIdTable.from_leader`, which turns the broker's ids into the charger's (they are the same unless the broker issues an id the charger already holds) and handles reservation and profile ids of broker-initiated commands exactly as for any leader.
-- Followers are connected by `_ensure_backend_connection` as before; only the leader socket is skipped (`links["leader"] = None`).
+- **Local leader:** `session.backend_conn` is a `LocalBackend`; the session runs in BROKER mode (REST commands go through the library) and the relay loop reads the charger's socket and sends its frames to the local backend and, as copies, to the followers.
+- **Local standby:** the same object as a follower. Its library runs on copies of the charger's CALLs and its answers are dropped. On promotion `_promote` swaps roles as for any follower and, because the new leader is local, switches the session to BROKER mode and hands the library to the command path.
+- **Failure:** if the library stops with an error, a local leader closes the charger's socket (1011) so it reconnects; a local standby is just shown as down.
 - Without a table (`transaction_ids.mapping: false`) the charger's CALLs are copied to followers untouched.
 
-Nothing about the table, the follower hold queues, the retry handling or the persistence needed to change: the leader's answer simply arrives from the library instead of a socket.
+(An earlier version of the local leader used two filters on the library's socket adapter. Running it as a backend made the standby almost free, so the filters were removed.)
 
 ## B3: backend depth, what was and was not built
 
@@ -62,7 +62,11 @@ Not built, and why:
 | Local transactions registry, idempotent start, stop handling | In memory; see above for what is not covered. |
 | Conformance table | About 100 tests, about 100 s because each starts a server; it can move to a shared server if CI time matters. |
 
+## B4: the local standby, what was built
+
+A local backend that is not the leader (another entry is marked `leader: true`) is a silent standby: the same `LocalBackend` as a follower. Tests (`tests/test_local_standby.py`) cover: only the external leader is heard while it is healthy; the standby keeps its own state (the transactions it numbered, in the id table next to the leader's); after the leader fails the standby is promoted and answers with its own rules; a running transaction is stopped under the standby's own number without an "unknown transaction" warning; a start the dead leader never answered is answered exactly once; commands switch from the relay path to the validating library path on promotion; there is no fail-back (the old leader follows when it returns); the first healthy follower in configured order is promoted; a failing standby disturbs nobody and a failing local leader closes the charger's connection.
+
 ## Still open
 
-- **B4, a local standby:** the broker taking over when an external leader fails, and handing back. Design sketch: a local follower runs the `ocpp` library in a *silent* mode (replies not sent) to keep its own state, becomes audible on promotion, and the id table treats it as another follower. This is the part that needs real care; do it only if wanted.
-- **OCPP 2.0.1 / 2.1** local leader: a second `ChargePoint` per version ([roadmap.md](roadmap.md)); the adapter filters and the table's per-backend idea carry over, the id problem mostly disappears because the charger chooses transaction ids in 2.x.
+- **Fail-back / hand-back** to the configured external leader when it returns. None exists for external followers either; add it for both together if it is wanted, with the same hold-down rules as the id table needs after a leader change.
+- **OCPP 2.0.1 / 2.1** local leader and standby: a second `ChargePoint` per version ([roadmap.md](roadmap.md)); `LocalBackend` and the table's per-backend idea carry over, the id problem mostly disappears because the charger chooses transaction ids in 2.x.

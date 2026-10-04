@@ -1108,6 +1108,20 @@ def local_index(backends: Iterable[Dict[str, Any]]) -> Optional[int]:
     return None
 
 
+def leader_index(backends: List[Dict[str, Any]]) -> int:
+    """
+    Position of the backend that leads: the one marked ``leader: true``; if none is, the local backend
+    (unless it is explicitly ``leader: false``), else the first that is not explicitly a follower.
+    """
+    for index, backend in enumerate(backends):
+        if backend.get("leader"):
+            return index
+    local = local_index(backends)
+    if local is not None and backends[local].get("leader") is not False:
+        return local
+    return next((i for i, b in enumerate(backends) if b.get("leader") is not False), 0)
+
+
 def backend_keys(backends: Iterable[Dict[str, Any]]) -> List[str]:
     """
     Stable, unique key per configured backend: its ``id`` if given, else its URL (a local backend: "broker").

@@ -2,7 +2,7 @@ import asyncio
 import dataclasses
 import logging
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as OcppChargePoint, call_result, datatypes
@@ -26,8 +26,6 @@ class StarletteWebSocketAdapter:
         send_lock: Optional[asyncio.Lock] = None,
         on_receive: Optional[Callable[[str], None]] = None,
         on_send: Optional[Callable[[], None]] = None,
-        filter_in: Optional[Callable[[str], Awaitable[Optional[str]]]] = None,
-        filter_out: Optional[Callable[[str], List[str]]] = None,
     ):
         self._ws = websocket
         # Shared with ChargerSession so every writer to this socket is serialised.
@@ -37,23 +35,13 @@ class StarletteWebSocketAdapter:
         # Let the session watch the traffic (its charger state); they never change a frame.
         self._on_receive = on_receive
         self._on_send = on_send
-        # Used when the broker is the leader of a charger that also has followers: what the ``ocpp``
-        # library gets is the charger's frame in the leader's ids (None: nothing for the library, e.g. a
-        # retried start answered from the id table), and each frame it sends goes out as the charger's own.
-        self._filter_in = filter_in
-        self._filter_out = filter_out
 
     async def recv(self) -> str:
         # Schema validation is the ocpp library's job (route_message / call).
-        while True:
-            message = await self._ws.receive_text()
-            if self._on_receive is not None:
-                self._on_receive(message)
-            if self._filter_in is None:
-                return message
-            kept = await self._filter_in(message)
-            if kept is not None:
-                return kept
+        message = await self._ws.receive_text()
+        if self._on_receive is not None:
+            self._on_receive(message)
+        return message
 
     async def send(self, message: str):
         # Save call results/errors to MongoDB when broker is leader
@@ -101,10 +89,9 @@ class StarletteWebSocketAdapter:
         except Exception:
             pass  # Ignore parsing errors
         
-        for frame in self._filter_out(message) if self._filter_out is not None else [message]:
-            await locked_send(self._send_lock, self._ws.send_text, frame)
-            if self._on_send is not None:
-                self._on_send()
+        await locked_send(self._send_lock, self._ws.send_text, message)
+        if self._on_send is not None:
+            self._on_send()
 
     async def close(self, code: int = 1000, reason: str | None = None):
         await self._ws.close(code=code, reason=reason)

@@ -459,8 +459,8 @@ def test_the_local_backend_wins_even_if_it_is_listed_last_or_not_marked():
     [
         ([{"local": True}, {"local": True}], "only one backend can be local"),
         ([{"local": True, "url": "ws://x/ocpp"}], "has no url"),
-        ([{"local": True, "leader": False}, {"url": "ws://x/ocpp"}], "always the leader"),
-        ([{"local": True}, {"url": "ws://x/ocpp", "leader": True}], "cannot be marked leader"),
+        ([{"local": True, "leader": True}, {"url": "ws://x/ocpp", "leader": True}], "only one backend can be marked leader"),
+        ([{"local": True, "leader": False}], "needs a leader to follow"),
         ([{"id": "nourl"}], "needs a url"),
         ([{"local": "yes"}], "local must be true or false"),
     ],
@@ -468,6 +468,26 @@ def test_the_local_backend_wins_even_if_it_is_listed_last_or_not_marked():
 def test_a_wrong_local_backend_is_refused_with_a_reason(backends, message):
     with pytest.raises(ValueError, match=message):
         configured(*backends)
+
+
+def test_an_external_leader_makes_the_local_backend_a_standby():
+    org = configured({"id": "primary", "url": "ws://a/ocpp", "leader": True}, {"id": "broker", "local": True})
+    assert [b["leader"] for b in org["backends"]] == [True, False]
+
+
+def test_a_local_backend_that_says_it_is_not_the_leader_leaves_the_lead_to_the_first_other_backend():
+    org = configured({"id": "broker", "local": True, "leader": False}, {"id": "a", "url": "ws://a/ocpp"}, {"id": "b", "url": "ws://b/ocpp"})
+    assert [b["leader"] for b in org["backends"]] == [False, True, False]
+
+
+def test_which_backend_leads():
+    from ocpp_broker.transaction_ids import leader_index
+
+    assert leader_index([{"url": "a"}, {"url": "b"}]) == 0
+    assert leader_index([{"url": "a"}, {"url": "b", "leader": True}]) == 1
+    assert leader_index([{"url": "a"}, {"local": True}]) == 1, "unmarked: the local backend"
+    assert leader_index([{"url": "a", "leader": True}, {"local": True}]) == 0
+    assert leader_index([{"local": True, "leader": False}, {"url": "a"}]) == 1
 
 
 def test_the_keys_of_a_local_backend():

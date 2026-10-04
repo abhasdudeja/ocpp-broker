@@ -339,10 +339,10 @@ class OcppBroker:
             return
         message = frames[0]
 
-        # Save command to MongoDB when broker is leader
+        # Save command to MongoDB when broker is leader (a local leader's commands are saved by the API)
         try:
             import json
-            parsed = json.loads(message)
+            parsed = json.loads(message) if getattr(backend_conn, "local", False) is not True else None
             if isinstance(parsed, list) and len(parsed) >= 3:
                 message_type = parsed[0]
                 action = parsed[2] if len(parsed) > 2 else None

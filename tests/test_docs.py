@@ -178,6 +178,8 @@ TOP = {
     "security": {
         "api_key": None,
         "allow_unauthenticated_api": None,
+        "api_keys": None,
+        "api_key_throttle": {"max_failures": None, "window_seconds": None, "lockout_seconds": None},
         "cors": {"allow_origins": None, "allow_credentials": None},
         "websocket": {"ping_interval": None, "ping_timeout": None},
     },

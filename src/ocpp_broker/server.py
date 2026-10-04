@@ -11,7 +11,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from ocpp_broker._version import __version__
 from ocpp_broker.api_server import mount_api_routers
-from ocpp_broker.auth import authenticate_charger, configured_api_key
+from ocpp_broker.auth import authenticate_charger, configured_api_keys
 from ocpp_broker.broker import OcppBroker
 from ocpp_broker.ui import create_ui_router
 
@@ -288,8 +288,9 @@ def build_uvicorn_config(application: FastAPI, cfg: dict) -> uvicorn.Config:
 
 
 def _log_api_security(cfg: dict) -> None:
-    if configured_api_key(cfg):
-        logger.info("REST API protected by API key")
+    keys = configured_api_keys(cfg)
+    if keys:
+        logger.info("REST API protected by %d API key%s", len(keys), "" if len(keys) == 1 else "s")
     elif (cfg.get("security") or {}).get("allow_unauthenticated_api"):
         logger.warning("REST API is UNAUTHENTICATED (security.allow_unauthenticated_api is true)")
     else:

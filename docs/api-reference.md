@@ -18,11 +18,14 @@ X-API-Key: <key>
 Authorization: Bearer <key>
 ```
 
-The broker reads the key from the `OCPP_BROKER_API_KEY` environment variable or `security.api_key` in `config.yaml` (the variable wins).
+The broker reads the key from the `OCPP_BROKER_API_KEY` environment variable or `security.api_key` in `config.yaml` (the variable wins). `security.api_keys` lists further keys, each with a **label** (`- {label: alice, key: "..."}`); any of them opens the API, and the label of the key a call used is kept with the call, so the audit log of the admin API can say who. The main key is labelled `api-key`.
+
+**Wrong keys are throttled.** After 10 wrong keys from one address within 60 seconds, that address is refused for 60 seconds, with the right key too (otherwise a lucky guess could not be told from a blocked one). Requests with no key at all are not counted. The limits are `security.api_key_throttle` (`max_failures`, `window_seconds`, `lockout_seconds`; `max_failures: 0` turns it off). The address is the one the broker sees: behind a reverse proxy that is the proxy, so one client's mistakes lock out everyone behind it. Keep the proxy's own limits stricter, or raise `max_failures`.
 
 | Situation | Response |
 |-----------|----------|
 | Missing or wrong key | `401` `{"detail": "Missing or invalid API key"}` with `WWW-Authenticate: Bearer` |
+| Too many wrong keys from this address | `429` `{"detail": "Too many wrong API keys from this address; try again in 42 s"}` with `Retry-After` |
 | No key configured | `503` `{"detail": "REST API disabled: set security.api_key or OCPP_BROKER_API_KEY"}` |
 | No key configured and `security.allow_unauthenticated_api: true` | open access (development only) |
 

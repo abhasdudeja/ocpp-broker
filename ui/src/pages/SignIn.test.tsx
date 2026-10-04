@@ -35,6 +35,14 @@ describe('sign-in', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled()
   })
 
+  it('tells the reader to wait when the broker has blocked this address for wrong keys', async () => {
+    mockFetch(() => respond({ detail: 'Too many wrong API keys from this address; try again in 42 s' }, 429))
+    renderApp('/signin')
+    await submit('guess')
+    expect(await screen.findByRole('alert')).toHaveTextContent('try again in 42 s')
+    expect(window.sessionStorage.getItem('ocpp-broker-api-key')).toBeNull()
+  })
+
   it('explains a broker that has no API key configured', async () => {
     mockFetch(() => respond({ detail: 'REST API disabled: set security.api_key or OCPP_BROKER_API_KEY' }, 503))
     renderApp('/signin')

@@ -41,6 +41,12 @@ ocpp:
 security:
   api_key: "..."                    # REST API key; prefer the OCPP_BROKER_API_KEY environment variable
   allow_unauthenticated_api: false  # true = REST API needs no key (development only)
+  api_keys:                         # more keys, each labelled (the label goes in the admin audit log)
+    - {label: alice, key: "..."}
+  api_key_throttle:                 # wrong keys from one address; defaults shown, max_failures 0 = off
+    max_failures: 10
+    window_seconds: 60
+    lockout_seconds: 60
   cors:
     allow_origins: []               # explicit origins; empty = no CORS headers
     allow_credentials: false        # never combined with "*"
@@ -234,6 +240,8 @@ Unknown names, non-boolean switches and retentions that are not a whole number o
 |---------|---------|---------|
 | `security.api_key` | none | REST API key. The `OCPP_BROKER_API_KEY` environment variable wins over it. |
 | `security.allow_unauthenticated_api` | `false` | With no key configured the REST API answers `503` unless this is `true`. |
+| `security.api_keys` | none | More API keys as `{label, key}`; the label (1 to 40 letters, digits, `.`, `-`, `_`; unique; not `api-key`) is recorded in the audit log. |
+| `security.api_key_throttle` | 10 / 60 / 60 | `max_failures` wrong keys within `window_seconds` block the address for `lockout_seconds` (`429`). `max_failures: 0` turns it off. |
 | `security.cors.allow_origins` | `[]` | Origins allowed to call the API from a browser. Empty means no CORS headers. |
 | `security.cors.allow_credentials` | `false` | Ignored (and an error is logged) if `allow_origins` contains `"*"`. |
 | `security.websocket.ping_interval` | `20` | Seconds between server pings to each charger. |

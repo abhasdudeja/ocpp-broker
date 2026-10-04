@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from .auth import DEFAULT_KEY_LABEL, LABEL_PATTERN, THROTTLE_DEFAULTS
 from .history import validate_history_config
 from .transaction_ids import leader_index, local_index
 
@@ -367,6 +368,34 @@ def _check_backend_ids(org):
         )
 
 
+def _validate_security(security):
+    """``security.api_keys`` (labelled keys) and ``security.api_key_throttle``."""
+    keys = security.get("api_keys")
+    if keys is not None:
+        if not isinstance(keys, list):
+            raise ValueError("security.api_keys must be a list of {label, key}")
+        labels = set()
+        for entry in keys:
+            if not isinstance(entry, dict) or not entry.get("key") or not isinstance(entry.get("key"), str):
+                raise ValueError("Each security.api_keys entry needs a key (text)")
+            label = entry.get("label")
+            if not isinstance(label, str) or not LABEL_PATTERN.match(label):
+                raise ValueError("Each security.api_keys entry needs a label of 1 to 40 letters, digits, dots, dashes or underscores")
+            if label == DEFAULT_KEY_LABEL or label in labels:
+                raise ValueError(f"security.api_keys label {label!r} is used twice (or is the name of the main key)")
+            labels.add(label)
+    throttle = security.get("api_key_throttle")
+    if throttle is not None:
+        if not isinstance(throttle, dict):
+            raise ValueError("security.api_key_throttle must be a mapping")
+        for name, value in throttle.items():
+            if name not in THROTTLE_DEFAULTS:
+                raise ValueError(f"security.api_key_throttle.{name} is not known; use {', '.join(THROTTLE_DEFAULTS)}")
+            minimum = 0 if name == "max_failures" else 1
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or value < minimum:
+                raise ValueError(f"security.api_key_throttle.{name} must be a number, {minimum} or more")
+
+
 def _validate_config(cfg):
     """Validate configuration structure and values"""
     # Validate broker settings
@@ -391,6 +420,7 @@ def _validate_config(cfg):
         logger.warning("Global tag management enabled but no organizations have tag management enabled")
     
     validate_history_config(cfg.get("mongodb") or {})
+    _validate_security(cfg.get("security") or {})
 
     level = (cfg.get("logging") or {}).get("level", "INFO")
     if str(level).upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):

@@ -15,6 +15,8 @@ from .fakes import API_KEY, wait_for
 def api_key_env(monkeypatch):
     """REST routes require a key; give every test the same one (clients send AUTH_HEADERS)."""
     monkeypatch.setenv("OCPP_BROKER_API_KEY", API_KEY)
+    # Wrong keys are counted per address, and every test client is the same address
+    monkeypatch.setattr(server.broker, "api_throttle", None, raising=False)
 
 
 @pytest_asyncio.fixture

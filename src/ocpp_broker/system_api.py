@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from ._version import __version__
-from .auth import configured_api_key
+from .auth import configured_api_keys
 from .ui import ui_built, ui_enabled
 from .write_behind import WriteBehind
 
@@ -61,7 +61,7 @@ def create_system_api(broker) -> APIRouter:
             instance_id=broker.instance_id,
             started_at=broker.started_at,
             uptime_seconds=round((now - broker.started_at).total_seconds(), 1),
-            api_auth="api_key" if configured_api_key(config) else "none",
+            api_auth="api_key" if configured_api_keys(config) else "none",
             ui_enabled=ui_enabled(broker),
             ui_built=ui_built(),
             organizations=len(config.get("organizations", [])),

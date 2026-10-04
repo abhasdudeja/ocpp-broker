@@ -25,7 +25,7 @@ Connection strings are standard MongoDB URIs: `mongodb://user:password@host:2701
 
 ### Startup behaviour
 
-The broker connects once at startup and pings the server (5 second timeout). If that fails, an error `Failed to initialize MongoDB service` is logged and the broker **continues without MongoDB until it is restarted**; it does not retry. Start MongoDB first. If MongoDB goes away later, charger traffic carries on and what is waiting to be stored is kept and tried again ([below](#writes-happen-after-the-reply)).
+The broker connects at startup and pings the server (5 second timeout). If that fails, an error `Failed to initialize MongoDB service` is logged and the broker **continues without MongoDB and tries again** after 2 seconds, doubling the wait up to a minute (later failures are logged at debug level only). When MongoDB answers, persistence is switched on from then (`MongoDB is available now`): the transaction id counter and the background writes use it, and the tags loaded from the configuration are pushed into it (or its own tags are loaded, if it has any). Records the broker could not store while it was away are not kept; start MongoDB first if you can. If MongoDB goes away later, charger traffic carries on and what is waiting to be stored is kept and tried again ([below](#writes-happen-after-the-reply)).
 
 If MongoDB is disabled, the broker logs `MongoDB not configured or disabled: transaction ids will come from a non-durable in-memory counter and nothing will be persisted.`
 
@@ -33,7 +33,7 @@ The broker creates indexes for one collection only, `transaction_id_map` (see be
 
 ## Writes happen after the reply
 
-What a charger says is stored **after the charger has been answered**, by a background writer, never before. A database that is slow (a cloud cluster a few hundred milliseconds away) or not answering therefore does not slow or stall the charger's replies: with the database in line, a reply took 150 to 250 ms against a remote cluster and would have waited for the driver's timeout (30 s) during an outage.
+What a charger says is stored **after the charger has been answered**, by a background writer, never before. A database that is slow (a cloud cluster a few hundred milliseconds away) or not answering therefore does not slow or stall the charger's replies: with the database in line, a reply took 150 to 250 ms against a remote cluster and would have waited for the driver's timeout (5 s, per call) during an outage.
 
 - **In order, side by side.** Records are stored by eight workers; one charger's records always go to the same worker, one after another, so a transaction's start is stored before its stop, while different chargers' records are written at the same time. (Over a link with 100 ms latency one worker would store about ten records a second.)
 - **Heartbeats are merged.** A heartbeat time is stored once per charger however many heartbeats arrive while a write is waiting.

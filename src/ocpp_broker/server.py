@@ -1,6 +1,7 @@
 import asyncio
 import argparse
 import logging
+import os
 from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, WebSocket
@@ -208,38 +209,42 @@ def apply_cors(application: FastAPI, cfg: dict) -> None:
 # ---------------------------------------------------------------------------
 # Config loader
 # ---------------------------------------------------------------------------
+def resolve_config_path(config_path: str | None) -> tuple[Path, bool]:
+    """
+    Which configuration file to use, and whether it was asked for by name.
+    - ``-c PATH`` first, then the ``OCPP_BROKER_CONFIG`` environment variable (both are "asked for by name").
+    - Otherwise config.yaml in the current directory, else the one at the project root.
+    """
+    asked = config_path or os.environ.get("OCPP_BROKER_CONFIG")
+    if asked:
+        return Path(asked), True
+    cwd_path = Path.cwd() / "config.yaml"
+    if cwd_path.exists():
+        return cwd_path, False
+    return Path(__file__).resolve().parents[2] / "config.yaml", False  # repo root (two levels above src/ocpp_broker/)
+
+
 def load_broker_config(config_path: str | None) -> dict:
     """
-    Load the unified broker configuration from YAML.
-    - If -c is provided, use that path.
-    - Otherwise, first check the current working directory for config.yaml.
-    - If not found, fall back to the package root path.
+    Load the broker configuration once. A file asked for by name (``-c`` or ``OCPP_BROKER_CONFIG``) that does not
+    exist is an error: starting with built-in defaults would mean no organizations, and every charger refused.
+    Without one, a missing config.yaml means the defaults (and the environment overrides still apply).
     """
-    if config_path:
-        path = Path(config_path)
-    else:
-        # Prefer config.yaml from current working directory
-        cwd_path = Path.cwd() / "config.yaml"
-        if cwd_path.exists():
-            path = cwd_path
-        else:
-            # Fallback to repo root (two levels above src/ocpp_broker/)
-            path = Path(__file__).resolve().parents[2] / "config.yaml"
-
-    if not path.exists():
-        logger.warning(f"Configuration file not found at {path}, using unified defaults.")
-        from .config import _get_default_config
-        cfg = _get_default_config()
-        cfg["_path"] = "default"
-        return cfg
-
-    # Use the optimized config loader
     from .config import load_config
-    cfg = load_config(str(path))
+
+    path, asked = resolve_config_path(config_path)
+    if asked and not path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {path} (from -c or OCPP_BROKER_CONFIG)")
+    cfg = load_config(str(path))  # applies the defaults and the environment overrides whether or not the file exists
     cfg["_path"] = str(path)
-    
-    logger.info(f"Loaded unified configuration from {path}")
     return cfg
+
+
+def apply_log_level(cfg: dict) -> None:
+    """Set the log level from ``logging.level`` (``LOG_LEVEL`` in the environment has already been folded into it)."""
+    name = str((cfg.get("logging") or {}).get("level", "INFO")).upper()
+    logging.getLogger().setLevel(getattr(logging, name, logging.INFO))
+    logger.info("Log level: %s", name)
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +259,7 @@ class BrokerServer(uvicorn.Server):
 
     async def shutdown(self, *args, **kwargs) -> None:
         broker.events.close()
+        broker.stop_mongodb_retry()
         await super().shutdown(*args, **kwargs)
         # What chargers said just before the end is still waiting to be written to MongoDB
         await broker.writes.close()
@@ -298,7 +304,8 @@ def _log_api_security(cfg: dict) -> None:
 # ---------------------------------------------------------------------------
 async def main_async(cfg: dict):
     broker._cfg_path = cfg.get("_path", "config.yaml")
-    await broker.load_config()
+    apply_log_level(cfg)
+    await broker.load_config(cfg)  # the configuration was loaded once, by load_broker_config
     apply_cors(app, broker.config_data)
     _log_api_security(broker.config_data)
     logger.info("OCPP Broker ready — waiting for chargers...")
@@ -311,7 +318,11 @@ async def main_async(cfg: dict):
 # CLI wrapper
 # ---------------------------------------------------------------------------
 def run_broker_server(config_path: str | None):
-    cfg = load_broker_config(config_path)
+    try:
+        cfg = load_broker_config(config_path)
+    except FileNotFoundError as exc:
+        logger.error("%s", exc)
+        raise SystemExit(2) from exc
     try:
         asyncio.run(main_async(cfg))
     except KeyboardInterrupt:

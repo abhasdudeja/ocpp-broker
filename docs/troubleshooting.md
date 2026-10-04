@@ -22,7 +22,7 @@ sudo journalctl -u ocpp-broker --since "1 hour ago"
 pip show ocpp-broker
 ```
 
-Log level is fixed at INFO; there is no way to turn on debug logging without editing the code (`logging.level`, `LOG_LEVEL` and `--debug` do nothing). See [Monitoring & Logging](monitoring.md) for the log messages worth searching for.
+The log level is `INFO`; set `logging.level: DEBUG` (or the `LOG_LEVEL` environment variable) for more. See [Monitoring & Logging](monitoring.md) for the log messages worth searching for.
 
 ## Startup problems
 
@@ -38,7 +38,7 @@ If `-c` is missing or wrong, and there is no `./config.yaml`, the server logs `C
 ocpp-broker-server -c /opt/ocpp-broker/config/config.yaml
 ```
 
-The `OCPP_BROKER_CONFIG` environment variable is not used by `ocpp-broker-server`.
+The `OCPP_BROKER_CONFIG` environment variable names the file when `-c` is not given. A named file that does not exist stops the server with `Configuration file not found` (exit status 2).
 
 ### Config errors at startup
 
@@ -52,7 +52,7 @@ The process exits with a traceback ending in one of these messages:
 | `Broker port must be a positive integer` | Fix `broker.port`. |
 | `Organization X: credentials for charger Y need password_hash or password` | A `charger_auth.credentials` entry is empty. |
 
-Keys the code does not read are silently ignored (for example `logging.level`, `api.port`, `broker.timeout`, `worker_processes`). If a setting seems to have no effect, check the [Configuration Guide](configuration.md).
+Keys the code does not read are silently ignored (for example `api.port`, `broker.timeout`, `worker_processes`). If a setting seems to have no effect, check the [Configuration Guide](configuration.md).
 
 ## A charger cannot connect
 

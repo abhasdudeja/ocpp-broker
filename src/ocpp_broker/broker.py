@@ -16,6 +16,8 @@ from .session import ChargerSession
 from .transaction_ids import TransactionIdTable, backend_keys, table_for_org
 from .transaction_store import TransactionStore
 
+MONGODB_RETRY_FIRST = 2.0  # seconds before the first new attempt to reach MongoDB after a failed start; doubles each time
+MONGODB_RETRY_MAX = 60.0
 COUNTER_TIMEOUT = 3.0  # seconds the MongoDB transaction counter may take before the in-memory fallback is used
 
 logger = logging.getLogger("ocpp_broker.broker")
@@ -45,6 +47,7 @@ class OcppBroker:
         self.local_transactions: Dict[Tuple[str, str], LocalTransactions] = {}
         # Writes of what chargers say go to MongoDB from here, after the charger has been answered (write_behind.py)
         self.writes = WriteBehind()
+        self._mongo_retry: Optional[asyncio.Future] = None
         self._presence_indexed = False
         self._presence_tasks: set = set()
         self._tx_store: Optional[TransactionStore] = None
@@ -62,8 +65,9 @@ class OcppBroker:
     # ------------------------------------------------------------------
     # Configuration and initialization
     # ------------------------------------------------------------------
-    async def load_config(self):
-        self.config_data = load_config(self._cfg_path)
+    async def load_config(self, config=None):
+        """Use ``config`` (already loaded, as the server does) or read the configuration file."""
+        self.config_data = config if config is not None else load_config(self._cfg_path)
         logger.info(
             "Loaded configuration for %s organizations.",
             len(self.config_data.get("organizations", [])),
@@ -87,9 +91,7 @@ class OcppBroker:
             if self.tag_manager.is_enabled():
                 logger.info("Tag management enabled and initialized")
             else:
-                logger.info(
-                    "Tag management disabled - no organizations with tag management enabled"
-                )
+                logger.debug("No tags are configured at startup; tags can still be added through the API")
 
     # ------------------------------------------------------------------
     # Handle new charger connection
@@ -411,26 +413,55 @@ class OcppBroker:
             )
             return
         
+        # Get connection string (env var takes precedence), then database name
+        connection_string = (
+            os.environ.get("MONGODB_CONNECTION_STRING") or
+            mongodb_config.get("connection_string") or
+            "mongodb://localhost:27017"
+        )
+        database_name = (
+            os.environ.get("MONGODB_DATABASE_NAME") or
+            mongodb_config.get("database_name") or
+            "ocpp_broker"
+        )
+        if not await self._connect_mongodb(connection_string, database_name):
+            logger.warning("MongoDB is not reachable; the broker works without it and tries again every few seconds")
+            self._mongo_retry = asyncio.ensure_future(self._retry_mongodb(connection_string, database_name))
+
+    async def _connect_mongodb(self, connection_string: str, database_name: str, first_try: bool = True) -> bool:
+        from .mongodb_service import MongoDBService
+
+        service = MongoDBService(connection_string, database_name)
         try:
-            from .mongodb_service import MongoDBService
-            
-            # Get connection string (env var takes precedence)
-            connection_string = (
-                os.environ.get("MONGODB_CONNECTION_STRING") or
-                mongodb_config.get("connection_string") or
-                "mongodb://localhost:27017"
-            )
-            
-            # Get database name (env var takes precedence)
-            database_name = (
-                os.environ.get("MONGODB_DATABASE_NAME") or
-                mongodb_config.get("database_name") or
-                "ocpp_broker"
-            )
-            
-            self.mongodb_service = MongoDBService(connection_string, database_name)
-            await self.mongodb_service.connect()
-            logger.info("✅ MongoDB service initialized and connected")
+            await service.connect()
         except Exception as e:
-            logger.error(f"❌ Failed to initialize MongoDB service: {e}", exc_info=True)
-            self.mongodb_service = None
+            # Said loudly once; the tries after it are only noted at debug level (there may be one a minute for days)
+            (logger.error if first_try else logger.debug)(f"❌ Failed to initialize MongoDB service: {e.__class__.__name__}: {e}")
+            return False
+        self.mongodb_service = service
+        self._presence_indexed = False
+        logger.info("✅ MongoDB service initialized and connected")
+        return True
+
+    async def _retry_mongodb(self, connection_string: str, database_name: str) -> None:
+        """MongoDB was down at startup: keep trying (2 s, doubling up to 60 s) and switch it on when it answers."""
+        delay = MONGODB_RETRY_FIRST
+        while True:
+            await asyncio.sleep(delay)
+            if await self._connect_mongodb(connection_string, database_name, first_try=False):
+                break
+            delay = min(delay * 2, MONGODB_RETRY_MAX)
+        logger.info("MongoDB is available now; persistence is on from here")
+        tags = self.tag_manager
+        if tags is not None:
+            tags.mongodb_service = self.mongodb_service
+            tags._use_mongodb = True
+            try:
+                await tags.sync_from_mongodb()  # MongoDB's tags if it has any, else the ones loaded from the configuration go in
+            except Exception as exc:
+                logger.warning("Could not sync tags with MongoDB after it came back: %s", exc)
+
+    def stop_mongodb_retry(self) -> None:
+        task, self._mongo_retry = self._mongo_retry, None
+        if task is not None and not task.done():
+            task.cancel()

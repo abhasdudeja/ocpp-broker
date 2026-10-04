@@ -15,7 +15,7 @@ export OCPP_BROKER_API_KEY="your-key"   # the same value the broker runs with
 | Endpoint | Auth | Tells you |
 |---|---|---|
 | `GET /health` (also `HEAD`) | none | The process is up and serving HTTP. Always `{"status":"ok"}`. |
-| `GET /api/mongodb/health` | API key | Whether MongoDB was configured and connected. |
+| `GET /api/mongodb/health` | API key | Whether MongoDB is configured and answers a ping now. |
 | `GET /api/system/info` | API key | Version, uptime, instance id, MongoDB reachability (pinged now) and the state of the background writes: records waiting, written, failed, dropped, and whether MongoDB looks to be down. |
 | `GET /api/tags/status` | API key | Whether MongoDB persistence is active for tags, and which orgs have tag lists. |
 | `GET /api/ocpp/organizations/{org}/chargers` | API key | Chargers currently connected for an org. |
@@ -38,10 +38,11 @@ curl -fsS -H "X-API-Key: $OCPP_BROKER_API_KEY" http://localhost:8765/api/mongodb
 
 Responses:
 
-- `{"status":"not_configured","connected":false}`: MongoDB is disabled, or it was enabled but the initial connection failed (the broker then continues without it).
-- `{"status":"connected","connected":true,"database":"ocpp_broker"}`: connected at startup.
+- `{"status":"not_configured","connected":false}`: MongoDB is disabled, or it was enabled but the initial connection has not succeeded yet (the broker carries on without it and keeps trying).
+- `{"status":"connected","connected":true,"database":"ocpp_broker"}`: connected, and the server answered a ping just now.
+- `{"status":"disconnected","connected":false,"database":"..."}`: it was connected but the server does not answer now.
 
-The flag is set once at startup. The route does not ping MongoDB, so it will not notice a database that goes away later. Watch the log for `Error saving ...` lines instead.
+The route asks the server on every call. `GET /api/system/info` adds how many records are waiting to be written.
 
 ### Connected chargers
 
@@ -79,12 +80,11 @@ One entry per charger per backend. `connected: false` means that link is current
 
 ## Logging
 
-- Logging is standard-library `logging` to stderr at level **INFO**. The level is hard-coded in `server.py`: the `logging.level` config key, the `LOG_LEVEL` environment variable and any `--debug` flag have no effect, and DEBUG messages cannot be enabled without editing the code.
+- Logging is standard-library `logging` to stderr. The level is `INFO` unless `logging.level` in the configuration (or the `LOG_LEVEL` environment variable, which wins) says otherwise; the broker logs `Log level: ...` at startup. There is no `--debug` flag.
 - Format: `2026-10-03 11:54:35 [WARNING] ocpp_broker.broker: message`. Logger names all start with `ocpp_broker.`.
 - uvicorn writes its own lines (HTTP requests, WebSocket accept/reject, `connection open`) in its own format alongside the broker's.
 - There is no log file option, rotation, or JSON output. Send stderr wherever you want it: journald under systemd (see [deployment](deployment.md)), or a redirect.
 - Many broker log lines start with an emoji marker; match on the text, not the marker.
-- Config warnings are printed twice at startup, because the configuration is loaded twice. This is harmless.
 
 ### Messages worth watching
 

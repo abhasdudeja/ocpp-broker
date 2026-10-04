@@ -1111,9 +1111,10 @@ def create_mongodb_api(broker) -> APIRouter:
         if not mongodb:
             return {"status": "not_configured", "connected": False}
         
+        reachable = bool(mongodb.is_connected() and await mongodb.ping())  # asks the server now, not the startup flag
         return {
-            "status": "connected" if mongodb.is_connected() else "disconnected",
-            "connected": mongodb.is_connected(),
+            "status": "connected" if reachable else "disconnected",
+            "connected": reachable,
             "database": mongodb.database_name
         }
     

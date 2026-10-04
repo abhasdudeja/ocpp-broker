@@ -29,6 +29,15 @@ logger = logging.getLogger("ocpp_broker.session")
 COMMAND_MAX_TIMEOUT = 300
 
 
+def explain_validation_error(exc: Exception) -> str:
+    """What was wrong with a command's payload, in a line (the library's own text carries the whole message and a schema dump)."""
+    cause = (getattr(exc, "details", None) or {}).get("cause")
+    if isinstance(cause, str) and cause:
+        first = cause.splitlines()[0]
+        return first.split(" is not valid: ", 1)[1] if " is not valid: " in first else first
+    return getattr(exc, "description", None) or str(exc)
+
+
 class CommandRejected(ValueError):
     """The requested command is not a valid OCPP 1.6 CALL; nothing was sent."""
 
@@ -262,7 +271,7 @@ class ChargerSession:
                 "1.6",
             )
         except OCPPError as exc:
-            raise CommandRejected(f"Invalid payload for {action}: {exc}") from exc
+            raise CommandRejected(f"Invalid payload for {action}: {explain_validation_error(exc)}") from exc
 
         call_task = asyncio.ensure_future(
             self.charge_point.call(request, suppress=False, unique_id=message_id)
@@ -534,19 +543,27 @@ class ChargerSession:
 
     async def _watch_leader(self, leader: BackendConnection, timeout: float) -> None:
         """Promote the first healthy follower if the leader stays down for ``timeout`` seconds."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        warned = False
         while not self._closed.is_set() and leader is self.backend_conn and not leader.is_ready():
-            await asyncio.sleep(timeout)
+            await asyncio.sleep(max(0.0, min(1.0, deadline - loop.time())) if loop.time() < deadline else 1.0)
             if self._closed.is_set() or leader is not self.backend_conn or leader.is_ready():
                 return
+            if loop.time() < deadline:
+                continue  # the leader may still come back
+            # Past the timeout: promote the first healthy follower, and look again every second until there is one
             candidate = next((f for f in self.follower_conns if f.is_ready()), None)
             if candidate is not None:
                 self._promote(candidate)
                 return
-            logger.warning(
-                "[%s] leader backend %s is down and no follower is healthy; still waiting",
-                self.charger_id,
-                leader.url,
-            )
+            if not warned:
+                warned = True
+                logger.warning(
+                    "[%s] leader backend %s is down and no follower is healthy; still waiting",
+                    self.charger_id,
+                    leader.url,
+                )
 
     def _promote(self, new_leader: Any) -> None:
         """Swap roles: ``new_leader`` becomes the leader, the old leader a follower."""

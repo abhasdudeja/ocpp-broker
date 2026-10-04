@@ -58,7 +58,7 @@ organizations:
 
 Notes:
 
-- Always pass the config path explicitly with `-c`. Without `-c` the server looks for `./config.yaml`, then for a `config.yaml` in the repository root (only meaningful for a source checkout); if neither exists it logs `Configuration file not found at ..., using unified defaults.` and starts with **no organizations**, so every charger is rejected. The `OCPP_BROKER_CONFIG` environment variable is not used by `ocpp-broker-server`.
+- Pass the config path explicitly, with `-c` or the `OCPP_BROKER_CONFIG` environment variable. A path given either way that does not exist stops the server with `Configuration file not found` (exit status 2). Without either the server looks for `./config.yaml`, then for a `config.yaml` in the repository root (only meaningful for a source checkout); if neither exists it logs a warning and starts with **no organizations**, so every charger is rejected.
 - Set the REST API key in the environment, not in the file: `OCPP_BROKER_API_KEY` (it overrides `security.api_key`). With no key, every REST request returns 503 unless `security.allow_unauthenticated_api: true` is set, which you should not do in production.
 - Organizations without `charger_auth.credentials` accept any client as any charger (the broker logs a warning at startup).
 - Environment overrides that are read: `BROKER_HOST`, `BROKER_PORT`, `MONGODB_ENABLED`, `MONGODB_CONNECTION_STRING`, `MONGODB_DATABASE_NAME`, `OCPP_BROKER_API_KEY`. A `.env` file in the working directory is also loaded. Environment values win over the YAML.

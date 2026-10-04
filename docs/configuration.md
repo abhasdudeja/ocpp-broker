@@ -7,10 +7,11 @@ The broker is configured with one YAML file. This page lists every setting the c
 `ocpp-broker-server` looks for the file in this order:
 
 1. `-c /path/to/config.yaml` (`--config`)
-2. `config.yaml` in the current working directory
-3. `config.yaml` at the root of the source tree (only meaningful for a checkout, not an installed package)
+2. the `OCPP_BROKER_CONFIG` environment variable
+3. `config.yaml` in the current working directory
+4. `config.yaml` at the root of the source tree (only meaningful for a checkout, not an installed package)
 
-If no file is found (or the `-c` path does not exist) the broker starts with built-in defaults **and no organizations**, so every charger is refused (`Unknown organization`, close code 4002). A warning is logged.
+A file named by `-c` or `OCPP_BROKER_CONFIG` that does not exist is an **error**: the server logs `Configuration file not found: ...` and exits with status 2, rather than starting with nothing. If no file is named and none is found at 3 or 4 the broker starts with built-in defaults **and no organizations**, so every charger is refused (`Unknown organization`, close code 4002); a warning is logged. The file is read once, and the environment overrides below apply in that case too.
 
 Environment variables override a few values ([see below](#environment-variables)). A `.env` file in the working directory is loaded first, so it can supply them.
 
@@ -238,7 +239,8 @@ Changing the setting needs a restart, like every other setting; there is no live
 | `MONGODB_ENABLED` | `true`, `1`, `yes` or `on` enables MongoDB |
 | `MONGODB_CONNECTION_STRING` | Overrides `mongodb.connection_string` (default `mongodb://localhost:27017`) |
 | `MONGODB_DATABASE_NAME` | Overrides `mongodb.database_name` (default `ocpp_broker`) |
-| `OCPP_BROKER_CONFIG` | Default path used by `ocpp_broker.config.load_config()` when it is called without a path. **`ocpp-broker-server` does not read it**; use `-c`. |
+| `OCPP_BROKER_CONFIG` | The configuration file, when `-c` is not given. |
+| `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` (overrides `logging.level`; an unknown value is ignored) |
 
 `env.example` in the repository lists these.
 
@@ -249,7 +251,7 @@ The loader fills in defaults for the settings below, but nothing in the broker r
 - `broker.ocpp_version`, `broker.enable_validation`, `broker.enable_smart_charging`, `broker.enable_firmware_management`, `broker.enable_local_auth`, `broker.enable_reservations`, `broker.enable_tag_management`
 - `api.*` and the `API_HOST` / `API_PORT` variables (the REST API shares the broker port)
 - `ocpp.validation`, `ocpp.commands.smart_charging|firmware|local_auth|reservations`
-- `logging.*` and the `LOG_LEVEL` variable: the log level is fixed at `INFO`
+- `logging.ocpp_commands`, `logging.tag_management` (only `logging.level` is read)
 - `security.ocpp.*`, `security.tags.*`
 - top-level `tag_management.*` and `organizations[].tag_management`
 - `organizations[].chargers`, `organizations[].backends[].chargers`, `organizations[].ocpp_features`
@@ -311,8 +313,7 @@ This raises on a YAML syntax error, a non-positive port, a duplicate or missing 
 
 - **Relay organization without `backends`** (often caused by leaving out `connect_to_backend`, which defaults to `true`).
 - **Backend `url` that already ends in the charger id.** The broker appends `/{charger_id}` itself.
-- **Expecting `OCPP_BROKER_CONFIG` to select the file** for `ocpp-broker-server`. Use `-c`.
-- **Setting `LOG_LEVEL` or `logging.level`** to get debug output. They are not applied.
+- **A wrong `logging.level`.** Only `DEBUG`, `INFO`, `WARNING`, `ERROR` and `CRITICAL` are accepted; anything else stops the broker at startup. `DEBUG` also turns on the WebSocket libraries' own debug output, which is very verbose.
 - **REST calls returning `503`.** No API key is configured; set `OCPP_BROKER_API_KEY`.
 
 ## Related documentation

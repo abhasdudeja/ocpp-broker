@@ -7,8 +7,11 @@ DataTransfer allows chargers to send custom vendor-specific data.
 
 import logging
 import json
-from typing import Dict, Any, Optional, Callable, Awaitable
+from collections import deque
+from typing import Deque, Dict, Any, Optional, Callable, Awaitable
 from enum import Enum
+
+MAX_REMEMBERED_TRANSFERS = 1000
 
 logger = logging.getLogger("ocpp_broker.data_transfer_handler")
 
@@ -41,8 +44,8 @@ class DataTransferHandler:
         # Register vendor+message_id specific handlers ((vendor_id, message_id) -> handler)
         self.vendor_message_handlers: Dict[tuple[str, str], Callable[[str, str, Optional[str], Optional[str]], Awaitable[tuple[str, Optional[str]]]]] = {}
         
-        # Store received data transfers for logging/analysis
-        self.received_transfers: list = []
+        # The most recent received data transfers (bounded: the list used to grow for as long as the broker ran)
+        self.received_transfers: Deque[Dict[str, Any]] = deque(maxlen=MAX_REMEMBERED_TRANSFERS)
     
     def register_vendor_handler(
         self, 
@@ -449,7 +452,7 @@ class DataTransferHandler:
         Returns:
             List of transfer records
         """
-        filtered = self.received_transfers
+        filtered = list(self.received_transfers)
         
         if charger_id:
             filtered = [t for t in filtered if t["charger_id"] == charger_id]

@@ -389,6 +389,10 @@ def _validate_config(cfg):
     ):
         logger.warning("Global tag management enabled but no organizations have tag management enabled")
     
+    level = (cfg.get("logging") or {}).get("level", "INFO")
+    if str(level).upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        raise ValueError(f"logging.level must be DEBUG, INFO, WARNING, ERROR or CRITICAL, not {level!r}")
+
     logger.info("Configuration validation passed")
 
 

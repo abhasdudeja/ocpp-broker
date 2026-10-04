@@ -74,7 +74,7 @@ GET /api/mongodb/health
 {"status": "not_configured", "connected": false}
 ```
 
-When MongoDB is configured: `{"status": "connected" | "disconnected", "connected": true | false, "database": "ocpp_broker"}`. `connected` only reflects whether the connection at startup succeeded; it is never re-checked.
+When MongoDB is configured: `{"status": "connected" | "disconnected", "connected": true | false, "database": "ocpp_broker"}`. `connected` is true only if the broker connected and the server answers a ping now (the call asks every time).
 
 ## System information
 
@@ -339,7 +339,7 @@ curl -X POST "$BROKER/api/ocpp/organizations/orgA/chargers/CP001/commands" \
 
 ### Typed commands
 
-`POST .../chargers/{charger_id}/commands/{Action}` builds the OCPP payload from a **snake_case** body. These routes always use the default 30 second timeout; use the generic route to choose another.
+`POST .../chargers/{charger_id}/commands/{Action}` builds the OCPP payload from a **snake_case** body. These routes always use the default 30 second timeout; use the generic route to choose another. An invalid payload is answered with `422` and a one-line reason, such as `Invalid payload for Reset: 'Medium' is not one of ['Hard', 'Soft']`.
 
 | Route | Body fields |
 |-------|-------------|

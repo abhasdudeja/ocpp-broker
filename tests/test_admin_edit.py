@@ -107,6 +107,13 @@ def test_backends_are_written_the_short_way():
     ], "a leader is marked, a follower is not, a local standby says false, the organization's own subprotocol is not repeated"
 
 
+def test_no_backends_is_written_as_no_key_rather_than_an_empty_list():
+    org, _, _ = built(org_input(connect_to_backend=False), {"name": "Fleet", "connect_to_backend": False})
+    assert "backends" not in org
+    org, _, _ = built(org_input(backends=[]), EXISTING)
+    assert "backends" not in org, "removing the last backend leaves the broker's default: none"
+
+
 def test_a_backend_keeps_the_settings_written_by_hand_that_the_console_does_not_know():
     org, _, _ = built(org_input(backends=[{"id": "primary", "url": "ws://changed.example/ocpp", "leader": True}]), EXISTING)
     assert org["backends"] == [{"id": "primary", "url": "ws://changed.example/ocpp", "leader": True, "headers": {"x": "1"}}]
@@ -359,12 +366,22 @@ def test_a_plan_has_the_errors_the_loader_finds(config_file):
     assert not plan.ok and "only one backend can be local" in plan.errors[0]
 
 
+def test_a_plan_shows_only_the_warnings_the_change_adds(config_file):
+    config_file.write_text(CONFIG + "  - name: Other\n    connect_to_backend: false\n", encoding="utf-8")
+    store = FileConfigStore(str(config_file))
+    snap = store.snapshot()
+    unchanged = store.plan(snap.revision, snap.organizations)
+    assert unchanged.warnings == [], "both organizations are open to any charger, and that was already so"
+    added = store.plan(snap.revision, [*snap.organizations, {"name": "Third", "connect_to_backend": False}])
+    assert len(added.warnings) == 1 and "Third" in added.warnings[0]
+
+
 def test_a_plan_has_the_warnings_the_loader_gives_and_logs_none(config_file, caplog):
     store = FileConfigStore(str(config_file))
     snap = store.snapshot()
     with caplog.at_level("WARNING", logger="ocpp_broker.config"):
-        plan = store.plan(snap.revision, [{"name": "Fleet", "connect_to_backend": False}])
-    assert any("UNAUTHENTICATED" in w for w in plan.warnings)
+        plan = store.plan(snap.revision, [*snap.organizations, {"name": "Fresh", "connect_to_backend": False}])
+    assert any("UNAUTHENTICATED" in w and "Fresh" in w for w in plan.warnings)
     assert "UNAUTHENTICATED" not in caplog.text, "checking a change is not news"
 
 

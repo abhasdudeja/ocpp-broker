@@ -798,6 +798,11 @@ textarea.json-input {
 }
 
 /* ---- admin ---- */
+.card > h2:first-child,
+details.card + h2 {
+  margin-top: 0;
+}
+
 a.button {
   display: inline-block;
   padding: 8px 16px;

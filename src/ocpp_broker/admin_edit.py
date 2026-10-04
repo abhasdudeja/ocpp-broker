@@ -165,8 +165,8 @@ def build_org(inp: AdminOrgInput, existing: Optional[Dict[str, Any]], errors: Li
 
     previous = [b for b in (existing or {}).get("backends") or [] if isinstance(b, dict)]
     org["backends"] = [_backend_entry(b, subprotocol, _match_backend(previous, b)) for b in inp.backends]
-    if not org["backends"] and not existing:
-        org.pop("backends")  # nothing to say
+    if not org["backends"]:
+        org.pop("backends")  # nothing to say: the broker's default is no backends
 
     for key in DEFAULTS:
         value = getattr(inp, key)

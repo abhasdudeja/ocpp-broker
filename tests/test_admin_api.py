@@ -181,10 +181,12 @@ def test_checking_says_when_the_file_is_not_the_one_the_changes_were_made_from(a
     assert plan["conflict"] is True and plan["ok"] is False and "has changed" in plan["errors"][0]
 
 
-def test_checking_gives_the_loaders_warnings(admin):
+def test_checking_gives_the_loaders_warnings_for_what_the_change_adds(admin):
     payload = body(admin, change(name="Fresh", connect_to_backend=False))
     plan = admin.post("/api/admin/config/validate", json=payload).json()
-    assert plan["ok"] is True and any("UNAUTHENTICATED" in w for w in plan["warnings"])
+    assert plan["ok"] is True and [w for w in plan["warnings"] if "UNAUTHENTICATED" in w] == [
+        "Organization Fresh accepts UNAUTHENTICATED chargers. Add charger_auth.credentials to enforce HTTP Basic auth (OCPP security profile 1)."
+    ], "not the ones about organizations the change does not touch"
     assert plan["changes"][0]["kind"] == "added"
 
 

@@ -161,6 +161,9 @@ class FileConfigStore:
         current = revision_of(content)
         new_document = {**document, "organizations": copy.deepcopy(organizations)}
         errors, warnings, _ = check(new_document)
+        # What the loader says about the organizations nobody is touching is not news; show only what the change adds
+        _, already, _ = check(document)
+        warnings = [w for w in warnings if w not in already]
         plan = Plan(base_revision=revision, current_revision=current, document=new_document, errors=errors, warnings=warnings)
         if revision != current:
             plan.errors.insert(0, "The configuration file has changed since this page loaded it. Reload, then make the change again.")

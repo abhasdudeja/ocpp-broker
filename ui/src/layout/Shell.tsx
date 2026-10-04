@@ -21,6 +21,7 @@ export function Shell() {
             </NavLink>
             <NavLink to="/chargers">Chargers</NavLink>
             <NavLink to="/backends">Backends</NavLink>
+            <NavLink to="/history">History</NavLink>
             <NavLink to="/tags">Tags</NavLink>
           </nav>
           <LiveIndicator />

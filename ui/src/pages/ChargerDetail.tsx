@@ -5,6 +5,7 @@ import { ApiError, apiGet, type ChargerDetail as Detail, type TransactionRow } f
 import { useAuth } from '../auth'
 import { Chip, ConnectorStatus } from '../components/Chip'
 import { Commands } from '../components/Commands'
+import { StatusHistory } from '../components/StatusHistory'
 import { EventFeed } from '../components/EventFeed'
 import { useRefreshOnEvents } from '../events'
 import { Topology } from '../components/Topology'
@@ -228,6 +229,8 @@ function ChargerView({ org, chargerId }: { org: string; chargerId: string }) {
               </ul>
             )}
           </section>
+
+          <StatusHistory org={org} chargerId={chargerId} />
 
           {!gone && <Commands org={org} chargerId={chargerId} />}
 

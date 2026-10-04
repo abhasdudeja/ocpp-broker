@@ -206,7 +206,7 @@ Order: 0 → 1 → (2 and 3 in either order) → 4 → 5 → 6. Admin stays late
 | Event bus, `GET /api/events`, command catalog, command history | Events and commands backend commit | Events carry no payloads, id tags or command payloads. 30 deliberate breaks of the new code each fail a test. |
 | Live indicator, event feeds, refresh on events, command panel with schema forms and history | Events and commands frontend commit | Fetch-based SSE reader (`EventSource` cannot send the key header); 222 Vitest tests before the final count below. |
 | History: indexes, retention, `commands` and `ocpp_messages`, `GET /api/history/...`; the forgeable `/api/mongodb` write routes removed | History backend commit | Written by the broker only. 45 deliberate breaks of the new code each fail a test; the queries are tested against a real MongoDB (CI `mongo-tests`). |
-| History page, transaction page with a meter chart, status changes on the charger page | History frontend commit | Time ranges are fixed when chosen; 354 Vitest tests. |
+| History page, transaction page with a meter chart, status changes on the charger page | History frontend commit | Time ranges are fixed when chosen; 359 Vitest tests; 25 deliberate breaks of the new code each fail a test. |
 
 What building it changed in the plan:
 

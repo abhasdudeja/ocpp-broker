@@ -1,7 +1,7 @@
 import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { ago, backendLink, detail, mockApi, renderApp, respond, signedIn } from '../test-utils'
+import { ago, backendLink, brokerEvent, detail, mockApi, mockEvents, renderApp, respond, signedIn } from '../test-utils'
 
 const PATH = '/api/chargers/Fleet/CP-001'
 
@@ -195,5 +195,85 @@ describe('charger detail', () => {
     signedIn()
     renderApp('/chargers/Fleet/CP-001')
     expect(await screen.findByLabelText('API key')).toBeInTheDocument()
+  })
+
+  describe('status history', () => {
+    const changes = (items: unknown[], available = true) => ({ available, reason: null, next_cursor: null, items })
+    const change = (status: string, overrides: Record<string, unknown> = {}) => ({
+      org: 'Fleet',
+      charger_id: 'CP-001',
+      connector_id: 1,
+      status,
+      error_code: 'NoError',
+      info: null,
+      vendor_id: null,
+      vendor_error_code: null,
+      timestamp: '2026-10-04T10:00:00Z',
+      ...overrides,
+    })
+
+    it('lists the latest status changes with a link to all of them', async () => {
+      const fetch = mockApi({
+        [PATH]: detail(),
+        '/api/history/statuses': changes([change('Charging'), change('Faulted', { error_code: 'GroundFailure', connector_id: 0 })]),
+      })
+      await open()
+      const section = within(await screen.findByRole('region', { name: 'Recent status changes' }))
+      const items = section.getAllByRole('listitem')
+      expect(items).toHaveLength(2)
+      expect(within(items[0]!).getByText('Charging')).toBeInTheDocument()
+      expect(within(items[1]!).getByText('Faulted')).toBeInTheDocument()
+      expect(within(items[1]!).getByText('GroundFailure')).toBeInTheDocument()
+      expect(within(items[1]!).getByText('charger')).toBeInTheDocument()
+      expect(section.getByRole('link', { name: 'All status changes of this charger' })).toHaveAttribute('href', '/history?tab=statuses&org=Fleet&charger=CP-001')
+      const asked = new URL(String(fetch.mock.calls.find(([url]) => String(url).startsWith('/api/history/statuses'))?.[0]), 'http://x').searchParams
+      expect(Object.fromEntries(asked)).toEqual({ org: 'Fleet', charger_id: 'CP-001', limit: '10' })
+    })
+
+    it('says when none has been recorded', async () => {
+      mockApi({ [PATH]: detail(), '/api/history/statuses': changes([]) })
+      await open()
+      expect(await screen.findByText('No status change has been recorded for this charger.')).toBeInTheDocument()
+    })
+
+    it('is left out when there is no history, or it cannot be read', async () => {
+      const fetch = mockApi({ [PATH]: detail(), '/api/history/statuses': changes([], false) })
+      await open()
+      await screen.findByRole('region', { name: 'Connectors' })
+      await vi.waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).startsWith('/api/history/statuses'))).toBe(true))
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50))) // the answer has been read
+      expect(screen.queryByRole('region', { name: 'Recent status changes' })).not.toBeInTheDocument()
+    })
+
+    it('reads again when this charger changes status, and only then', async () => {
+      const events = mockEvents()
+      let items = [change('Charging')]
+      const fetch = mockApi({ [PATH]: detail(), '/api/history/statuses': () => changes(items) }, events.handler)
+      await open()
+      await screen.findByRole('region', { name: 'Recent status changes' })
+      await vi.waitFor(() => expect(events.streams.length).toBeGreaterThan(0))
+      act(() => events.latest()?.open())
+      await screen.findByText('Live')
+      const reads = () => fetch.mock.calls.filter(([url]) => String(url).startsWith('/api/history/statuses')).length
+      const before = reads()
+
+      act(() => events.latest()?.emit(brokerEvent('charger.status', { connector_id: 1, status: 'Charging' }, { charger_id: 'CP-999' })))
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1900)))
+      expect(reads()).toBe(before)
+
+      items = [change('Faulted'), change('Charging')]
+      act(() => events.latest()?.emit(brokerEvent('charger.status', { connector_id: 1, status: 'Faulted' })))
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1900)))
+      expect(reads()).toBe(before + 1)
+      expect(await screen.findByText('Faulted')).toBeInTheDocument()
+    })
+
+    it('is left out when the request fails, and the rest of the page is unaffected', async () => {
+      mockApi({ [PATH]: detail(), '/api/history/statuses': respond({ detail: 'boom' }, 500) })
+      await open()
+      await screen.findByRole('region', { name: 'Connectors' })
+      expect(screen.queryByRole('region', { name: 'Recent status changes' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
   })
 })

@@ -143,6 +143,8 @@ export function mockApi(routes: Record<string, unknown | (() => unknown)>, event
     const prefix = prefixes.find((p) => url.startsWith(p))
     const standard = defaults.find(([pattern]) => pattern.test(url) && (prefix === undefined || prefix.length < url.length))
     if (standard) return respond(standard[1])
+    // The charger page asks for its status history; a test about something else gets an empty history
+    if (prefix === undefined && /^\/api\/history\/statuses/.test(url)) return respond({ available: true, reason: null, next_cursor: null, items: [] })
     if (prefix === undefined) return respond({ detail: `no mock for ${url}` }, 404)
     const route = routes[prefix]
     const value = typeof route === 'function' ? (route as () => unknown)() : route

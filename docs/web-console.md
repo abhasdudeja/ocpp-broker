@@ -51,6 +51,21 @@ If the charger is not connected to this instance the page says so and keeps chec
 
 `/ui/backends` (`GET /api/backends`, refreshed every 5 seconds and when a backend link or a charger changes): for each organization that has backends, one row per backend summed over the chargers connected to this instance: whether it is the configured leader, for how many chargers it leads and follows **now** (a failover moves chargers from one to another; the configuration does not change), how many links are up and down, the charger messages waiting for it, and which chargers lost it (linked, at most 20 named). A local backend is marked *this broker*. Below the table, the recent `backend.link` and `backend.failover` events.
 
+## History
+
+`/ui/history` (`GET /api/history/...`, see [MongoDB Integration](mongodb-integration.md#history)): what the broker recorded, newest first, in four tabs. Everything needs MongoDB; without it, or while it does not answer, the page says why instead of showing an empty table.
+
+- **Transactions:** the charger, connector and id tag, when it started, how long it ran, the energy (meter at the end minus meter at the start) and how it ended, or *running*. Each transaction opens its own page. Only transactions the broker answered itself are here (broker mode, a local leader); in relay mode the backend has them.
+- **Status changes:** each connector status change with its error code, with the charger's own time.
+- **Commands:** what was sent through the API or this console, the outcome (`success`, `error`, `timeout`, `cancelled`), how long it took, and what was sent and answered (secrets are `***`).
+- **Messages:** every OCPP frame, in both directions, replies labelled with the action they answer. Empty unless `mongodb.history.messages` is on; the tab says so and how to turn it on.
+
+Filter by organization, charger id and time range (last hour, 24 hours, 7 or 30 days, or all time), and on each tab by what fits it (transaction state and id tag, status, command and outcome, action and direction). The filters are kept in the address. A time range counts back from the moment it was chosen and stays fixed while you read; **Refresh** starts again from now. Each tab loads 50 rows and **Load older** adds the next 50.
+
+A transaction's page shows its facts and a chart of its meter readings, one measurement at a time (the energy register first), with the readings as a table under it. A running transaction refreshes every 15 seconds.
+
+A charger's page has a **Recent status changes** list from the history (left out when there is none), with a link to the full list.
+
 ## Tags
 
 `/ui/tags`: the id tags the broker authorizes when it answers a charger itself. Pick an organization (only those where the broker answers or may take over: broker mode, a local leader, or a local standby); the list is the organization's tag list ([Tag Management](tag-management.md)).

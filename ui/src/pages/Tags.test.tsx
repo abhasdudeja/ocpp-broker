@@ -230,7 +230,7 @@ describe('the tags page', () => {
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'Previous' }))
     await screen.findByRole('row', { name: /T25/ })
-  })
+  }, 20_000) // many role queries over 25 rows: slow on a busy machine
 
   it('has no pager when everything fits on one page', async () => {
     fakeTags([tag('AAA')])

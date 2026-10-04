@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom'
 import { ApiError, apiGet, type OrgSummary, type SystemInfo } from '../api/client'
 import { useAuth } from '../auth'
 import { Chip } from '../components/Chip'
+import { EventFeed } from '../components/EventFeed'
+import { useRefreshOnEvents } from '../events'
 import { formatClock, formatDateTime, formatUptime } from '../format'
 import { usePolling } from '../usePolling'
 
@@ -90,11 +92,19 @@ function Organizations({ orgs }: { orgs: OrgSummary[] }) {
 
 export function Overview() {
   const { key, keyRejected } = useAuth()
-  const { data, error, updatedAt } = usePolling(
-    (signal) => apiGet<SystemInfo>('/api/system/info', key ?? '', signal),
-    REFRESH_MS,
-  )
+  const info = usePolling((signal) => apiGet<SystemInfo>('/api/system/info', key ?? '', signal), REFRESH_MS)
+  const { data, error, updatedAt } = info
   const orgs = usePolling((signal) => apiGet<OrgSummary[]>('/api/orgs', key ?? '', signal), REFRESH_MS)
+  // Connected-charger counts change when a charger arrives or leaves
+  const reloadInfo = info.reload
+  const reloadOrgs = orgs.reload
+  useRefreshOnEvents(
+    () => {
+      reloadInfo()
+      reloadOrgs()
+    },
+    (e) => e.type === 'charger.connected' || e.type === 'charger.disconnected',
+  )
 
   useEffect(() => {
     if (error instanceof ApiError && error.status === 401) keyRejected()
@@ -169,6 +179,7 @@ export function Overview() {
             </div>
           </dl>
           {Array.isArray(orgs.data) && <Organizations orgs={orgs.data} />}
+          <EventFeed />
         </>
       )}
     </section>

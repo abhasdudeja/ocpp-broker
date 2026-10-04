@@ -4,6 +4,9 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError, apiGet, type ChargerDetail as Detail, type TransactionRow } from '../api/client'
 import { useAuth } from '../auth'
 import { Chip, ConnectorStatus } from '../components/Chip'
+import { Commands } from '../components/Commands'
+import { EventFeed } from '../components/EventFeed'
+import { useRefreshOnEvents } from '../events'
 import { Topology } from '../components/Topology'
 import { formatDateTime, formatRelative } from '../format'
 import { useNow } from '../useNow'
@@ -124,10 +127,11 @@ function IdTable({ title, rows, keys }: { title: string; rows: Detail['reservati
 function ChargerView({ org, chargerId }: { org: string; chargerId: string }) {
   const { key, keyRejected } = useAuth()
   const now = useNow()
-  const { data, error } = usePolling(
+  const { data, error, reload } = usePolling(
     (signal) => apiGet<Detail>(`/api/chargers/${encodeURIComponent(org)}/${encodeURIComponent(chargerId)}`, key ?? '', signal),
     REFRESH_MS,
   )
+  useRefreshOnEvents(reload, (e) => e.type !== 'command.result' && e.org === org && e.charger_id === chargerId)
 
   useEffect(() => {
     if (error instanceof ApiError && error.status === 401) keyRejected()
@@ -225,6 +229,8 @@ function ChargerView({ org, chargerId }: { org: string; chargerId: string }) {
             )}
           </section>
 
+          {!gone && <Commands org={org} chargerId={chargerId} />}
+
           <Transactions detail={data} />
           <IdTable title="Reservations" rows={data.reservations} keys={keys} />
           <IdTable title="Charging profiles" rows={data.charging_profiles} keys={keys} />
@@ -244,6 +250,8 @@ function ChargerView({ org, chargerId }: { org: string; chargerId: string }) {
               </dl>
             </details>
           )}
+
+          <EventFeed org={org} chargerId={chargerId} title="Recent events for this charger" />
         </>
       )}
     </section>

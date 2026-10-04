@@ -3,8 +3,9 @@ import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 
 import { AppRoutes } from './App'
-import type { BackendLink, ChargerDetail, ChargerSummary, OrgSummary, SystemInfo } from './api/client'
+import type { BackendLink, BrokerEvent, ChargerDetail, ChargerSummary, CommandCatalog, OrgSummary, SystemInfo } from './api/client'
 import { AuthProvider } from './auth'
+import commandCatalog from './test-fixtures/command-catalog.json'
 
 export const API_KEY = 'test-key'
 
@@ -113,15 +114,105 @@ export function org(overrides: Partial<OrgSummary> = {}): OrgSummary {
  * Answer fetches by URL prefix (the longest matching prefix wins). A value that is not a Response is sent as
  * JSON; a function is called each time, so a test can change what the broker says.
  */
-export function mockApi(routes: Record<string, unknown | (() => unknown)>) {
+export function mockApi(routes: Record<string, unknown | (() => unknown)>, events?: (init: RequestInit | undefined) => Response) {
   const prefixes = Object.keys(routes).sort((a, b) => b.length - a.length)
-  return mockFetch((url) => {
+  // Answers for calls every charger page makes, unless a test mocks that exact address itself
+  const defaults: Array<[RegExp, unknown]> = [
+    [/^\/api\/chargers\/[^/]+\/[^/]+\/commands$/, { commands: [] }],
+    [/^\/api\/ocpp\/commands\/catalog$/, catalog()],
+  ]
+  return mockFetch((url, init) => {
+    if (url.startsWith('/api/events')) return events ? events(init) : respond({ detail: 'no event stream' }, 404)
     const prefix = prefixes.find((p) => url.startsWith(p))
+    const standard = defaults.find(([pattern]) => pattern.test(url) && (prefix === undefined || prefix.length < url.length))
+    if (standard) return respond(standard[1])
     if (prefix === undefined) return respond({ detail: `no mock for ${url}` }, 404)
     const route = routes[prefix]
     const value = typeof route === 'function' ? (route as () => unknown)() : route
     return value instanceof Response ? value : respond(value)
   })
+}
+
+export function catalog(): CommandCatalog {
+  return commandCatalog as unknown as CommandCatalog
+}
+
+let eventCounter = 0
+
+/** An event as the broker sends it. */
+export function brokerEvent(type: BrokerEvent['type'], data: Record<string, unknown> = {}, who: { org?: string | null; charger_id?: string | null } = {}): BrokerEvent {
+  eventCounter += 1
+  return {
+    id: eventCounter,
+    type,
+    time: new Date().toISOString(),
+    org: who.org === undefined ? 'Fleet' : who.org,
+    charger_id: who.charger_id === undefined ? 'CP-001' : who.charger_id,
+    data,
+  }
+}
+
+/** The text of one SSE message. */
+export function sse(event: string, data: unknown, id?: number): string {
+  return `${id === undefined ? '' : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+/**
+ * A fake /api/events response the test writes to. Aborting the request (as the console does when it
+ * goes away) errors the stream, as a real fetch would.
+ */
+export class FakeStream {
+  readonly response: Response
+  private controller!: ReadableStreamDefaultController<Uint8Array>
+  private readonly encoder = new TextEncoder()
+  closed = false
+
+  constructor(signal?: AbortSignal | null) {
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        this.controller = controller
+      },
+    })
+    this.response = new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    signal?.addEventListener('abort', () => {
+      this.closed = true
+      try {
+        this.controller.error(new DOMException('Aborted', 'AbortError'))
+      } catch {
+        // already finished
+      }
+    })
+  }
+
+  send(text: string) {
+    this.controller.enqueue(this.encoder.encode(text))
+  }
+
+  open(instance = 'run-1', missed = false) {
+    this.send(sse('stream.open', { instance_id: instance, last_id: 0, missed }))
+  }
+
+  emit(event: BrokerEvent) {
+    this.send(sse(event.type, event, event.id))
+  }
+
+  end() {
+    this.closed = true
+    this.controller.close()
+  }
+}
+
+/** Streams handed out by ``mockEvents``, one per connection the console makes, with the request each came from. */
+export function mockEvents() {
+  const streams: FakeStream[] = []
+  const requests: RequestInit[] = []
+  const handler = (init: RequestInit | undefined) => {
+    const stream = new FakeStream(init?.signal)
+    streams.push(stream)
+    requests.push(init ?? {})
+    return stream.response
+  }
+  return { handler, streams, requests, latest: () => streams[streams.length - 1] }
 }
 
 export function respond(body: unknown, status = 200): Response {

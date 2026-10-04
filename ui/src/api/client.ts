@@ -9,6 +9,11 @@ export type ChargerSummary = components['schemas']['ChargerSummary']
 export type ChargerDetail = components['schemas']['ChargerDetail']
 export type BackendLink = components['schemas']['BackendLink']
 export type TransactionRow = components['schemas']['TransactionRow']
+export type BrokerEvent = components['schemas']['ConsoleEvent']
+export type CommandCatalog = components['schemas']['CommandCatalog']
+export type CommandSpec = components['schemas']['CommandSpecInfo']
+export type CommandHistory = components['schemas']['CommandHistory']
+export type CommandLogEntry = components['schemas']['CommandLogEntry']
 
 const KEY_STORAGE = 'ocpp-broker-api-key'
 
@@ -87,6 +92,33 @@ export async function apiGet<T>(path: string, key: string, signal?: AbortSignal)
   }
   if (!response.ok) throw new ApiError(response.status, await errorDetail(response))
   return (await response.json()) as T
+}
+
+/**
+ * POST JSON to the broker. Besides 2xx, the statuses in ``accept`` are returned as data instead of thrown
+ * (a command that timed out is answered with 504 and a body that says so).
+ */
+export async function apiPost<T>(
+  path: string,
+  key: string,
+  body: unknown,
+  options: { signal?: AbortSignal; accept?: number[] } = {},
+): Promise<{ status: number; body: T }> {
+  let response: Response
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      headers: { 'X-API-Key': key, Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal: options.signal,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ApiError(0, 'Could not reach the broker')
+  }
+  if (!response.ok && !options.accept?.includes(response.status)) throw new ApiError(response.status, await errorDetail(response))
+  return { status: response.status, body: (await response.json()) as T }
 }
 
 export function isAbort(error: unknown): boolean {

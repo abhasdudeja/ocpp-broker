@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { ApiError, apiGet, withQuery, type ChargerList, type ChargerSummary, type OrgSummary } from '../api/client'
 import { useAuth } from '../auth'
 import { Chip, ConnectorStatus } from '../components/Chip'
+import { useRefreshOnEvents } from '../events'
 import { formatRelative } from '../format'
 import { useNow } from '../useNow'
 import { usePolling } from '../usePolling'
@@ -99,6 +100,9 @@ export function Chargers() {
     REFRESH_MS,
     `${org}\n${q}`,
   )
+
+  // Anything that changes a row (a charger arriving, a status, a link) refreshes the list at once
+  useRefreshOnEvents(list.reload, (e) => e.type !== 'command.result' && (org === '' || e.org === org))
 
   const error = list.error
   useEffect(() => {

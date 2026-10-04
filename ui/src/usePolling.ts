@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { isAbort } from './api/client'
 
-export interface Polled<T> {
+interface PolledState<T> {
   /** The latest successful result; kept while a refresh fails, so the page does not go blank. */
   data: T | null
   /** The error of the latest refresh, or null if it worked. */
@@ -10,17 +10,24 @@ export interface Polled<T> {
   updatedAt: Date | null
 }
 
+export interface Polled<T> extends PolledState<T> {
+  /** Load again now (an event said something changed), then carry on polling from there. */
+  reload: () => void
+}
+
 /**
  * Call ``load`` now and then every ``intervalMs`` after each call finishes, until the component goes away.
  * A different ``resetKey`` (say, a changed search) starts over at once; the previous result stays on screen
- * until the new one arrives.
+ * until the new one arrives. ``reload`` starts over the same way.
  */
 export function usePolling<T>(
   load: (signal: AbortSignal) => Promise<T>,
   intervalMs: number,
   resetKey = '',
 ): Polled<T> {
-  const [state, setState] = useState<Polled<T>>({ data: null, error: null, updatedAt: null })
+  const [state, setState] = useState<PolledState<T>>({ data: null, error: null, updatedAt: null })
+  const [round, setRound] = useState(0)
+  const reload = useCallback(() => setRound((n) => n + 1), [])
   const latest = useRef(load)
   useEffect(() => {
     latest.current = load
@@ -48,7 +55,7 @@ export function usePolling<T>(
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [intervalMs, resetKey])
+  }, [intervalMs, resetKey, round])
 
-  return state
+  return { ...state, reload }
 }

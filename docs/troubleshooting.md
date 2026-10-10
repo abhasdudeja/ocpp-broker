@@ -67,6 +67,8 @@ The URL is `ws://HOST:8765/{org_name}/{charger_id}`: exactly two path segments, 
 | Connection refused / timeout | Broker not running, listening on another host/port (`broker.host: 127.0.0.1` accepts only local connections), or a firewall or proxy in between. | `ss -ltnp \| grep 8765`, then check the firewall and proxy. |
 | Dropped after about 40 s | The charger does not answer WebSocket pings. The broker pings every `security.websocket.ping_interval` (20 s) and drops a socket that does not answer within `ping_timeout` (20 s). Look for `Cleaned up charger X session.` in the log. | Make sure the charger (and any proxy) answers WebSocket-level pings, or raise the two `security.websocket` values. |
 
+If a simulated charger on the same computer connects but the real one does not, check that `broker.host` is `0.0.0.0` (not `127.0.0.1`), that the firewall allows the port, and the charger's URL, id, password and protocol; the steps are in [Running it on your own computer](deployment.md#4-connect-a-charger).
+
 You can test the handshake without a charger (with Basic credentials only if the org enforces them):
 
 ```bash
@@ -162,7 +164,7 @@ curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/
   curl -fsS -H "X-API-Key: $OCPP_BROKER_API_KEY" http://localhost:8765/api/mongodb/health
   ```
 
-  `"status":"not_configured"` means the broker is not using MongoDB. Restart after fixing the connection; there is no retry.
+  `"status":"not_configured"` means the broker is not using MongoDB. The broker tries again every few seconds and logs the failure each time, so a MongoDB that is switched on by mistake (a `.env` file, or `MONGODB_ENABLED=true` left in the environment) fills the log: set `MONGODB_ENABLED=false` and restart. A `.env` is loaded from the working folder and from the repository, and variables set in the terminal win over it; see [Running it on your own computer](deployment.md#running-it-on-your-own-computer).
 - **Tags edited directly in MongoDB are not seen.** The broker reads MongoDB only when its cache has no tags for the org. Reload:
 
   ```bash
@@ -170,7 +172,7 @@ curl -X POST -H "X-API-Key: $OCPP_BROKER_API_KEY" -H "Content-Type: application/
   ```
 
   For an org that has tags stored in MongoDB, MongoDB wins and replaces the cache; for an org with none, the config/in-memory tags are pushed up. Without `org_name` all orgs are synced. This returns 503 `MongoDB is not connected` when MongoDB is not in use.
-- **Relay-mode traffic is not in MongoDB.** Status, meter values, transactions and so on are stored only in broker mode. In relay mode only commands are recorded. See [Monitoring & Logging](monitoring.md).
+- **Relay-mode transactions and meter values are not in MongoDB.** The backend answers the charger, so it stores them; the broker stores them only in broker mode. In relay mode it records status changes, commands and, if switched on, the message log. See [Monitoring & Logging](monitoring.md).
 - **`Error saving ...` in the log.** A write to MongoDB failed; the OCPP message itself was still processed.
 
 ## Restarting and recovery

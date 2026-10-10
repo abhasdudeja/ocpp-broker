@@ -154,6 +154,127 @@ server {
 - The web console reads `GET /api/events`, a stream that stays open for as long as the page does. The proxy must not buffer it or time it out: the broker sends `X-Accel-Buffering: no` (which nginx honours) and a keepalive comment every 15 s, so nginx's default `proxy_read_timeout` of 60 s is already enough and the example above needs no change. With another proxy, turn response buffering off for `/api/events` and keep its read timeout above 15 s. If the stream cannot be kept open the console still works: it says "Reconnecting…" and refreshes its pages every few seconds.
 - Point load-balancer or uptime checks at `GET /health`.
 
+## Running it on your own computer
+
+For trying the broker out, developing against it, or testing a real charger on your network before a server exists. Written for Windows PowerShell; on Linux or macOS the same steps work with `export VAR=value` and `source venv/bin/activate`.
+
+### 1. Install into a virtual environment
+
+From a copy of the repository (the release on PyPI may be older, see [Installation](#installation)):
+
+```powershell
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -e .
+```
+
+Use `.\venv\Scripts\python.exe` for every command below instead of activating the environment; it avoids PowerShell's script-policy errors and the Microsoft Store Python's habit of keeping console commands off the `PATH`. `python -m ocpp_broker.server` does what `ocpp-broker-server` does.
+
+`No module named 'ocpp_broker'` means the command ran with a Python that the install did not go into. The web console at `/ui` needs `src\ocpp_broker\ui_dist\index.html`; it is not in git, so build it once (`cd ui; npm ci; npm run build`, Node 20.19 or newer) or take a copy that has it.
+
+### 2. Write a configuration
+
+Make a working folder and keep the configuration there, not in the repository. Make a hash for the charger's password (it asks for the password and prints `pbkdf2_sha256$...`):
+
+```powershell
+.\venv\Scripts\python.exe -m ocpp_broker.auth
+```
+
+Save as `config.yaml`:
+
+```yaml
+broker:
+  host: 127.0.0.1          # this computer only; 0.0.0.0 to accept chargers from the network
+  port: 8765
+
+mongodb:
+  enabled: false
+
+organizations:
+  - name: "MyOrg"
+    connect_to_backend: false      # the broker answers the charger itself
+    tags:
+      - id_tag: "ADMIN001"
+        status: "Accepted"
+    charger_auth:
+      credentials:
+        CP001:
+          password_hash: "pbkdf2_sha256$200000$..."
+```
+
+Check the file really is called `config.yaml` (Notepad adds `.txt`; `dir` shows the true name) and pass its full or relative path with `-c`. A path that does not exist stops the server with `Configuration file not found`.
+
+### 3. Pin the settings, then start
+
+**Do this in every new terminal.** A `.env` file is loaded automatically, and environment variables beat the YAML. If a `.env` is in the working folder (or in the repository, which is found even when you start from elsewhere), it decides whether MongoDB is used and which database, whatever your test configuration says. A test run can therefore write into a real database. Variables set in the terminal win over `.env`, so set them first:
+
+```powershell
+$env:MONGODB_ENABLED = "false"; $env:OCPP_BROKER_API_KEY = "local-test-key"
+```
+
+They last only for that terminal window; a new window starts without them (the symptoms are `MongoDB ... Failed to connect` lines every few seconds, and `REST API is DISABLED`). To use a MongoDB instead, set `MONGODB_ENABLED`, `MONGODB_CONNECTION_STRING` and `MONGODB_DATABASE_NAME` (a throw-away name such as `ocpp_local`) the same way. Start:
+
+```powershell
+.\venv\Scripts\python.exe -m ocpp_broker.server -c .\config.yaml
+```
+
+A healthy start ends with `OCPP Broker ready` and `Uvicorn running on http://127.0.0.1:8765`. Then:
+
+```powershell
+curl.exe http://127.0.0.1:8765/health
+```
+
+Open `http://127.0.0.1:8765/ui` and sign in with the API key.
+
+### 4. Connect a charger
+
+**A simulated one**, from a second terminal: the script in the [Quick Start](quick-start.md#4-connect-a-simulated-charger), with the URL `ws://CP001:YOUR_PASSWORD@127.0.0.1:8765/MyOrg/CP001`. Characters such as `@` or `:` in the password must be URL-encoded in that address.
+
+**A real one.** Set these in the charger:
+
+| Setting | Value |
+|---------|-------|
+| Server URL | `ws://BROKER_IP:8765/MyOrg`, plus the charger id if the charger does not add it itself: `ws://BROKER_IP:8765/MyOrg/CP001` |
+| Charger id | exactly the id in `charger_auth.credentials` (`CP001`); it is also the user name |
+| Password (authorization key) | the one you hashed |
+| Protocol | OCPP 1.6 JSON (`ocpp1.6`), not SOAP |
+| Security | HTTP Basic (security profile 1) over plain `ws://`; the broker has no TLS |
+
+and make the broker reachable:
+
+1. Change `broker.host` to `0.0.0.0` and restart. With `127.0.0.1` only this computer can connect, and `/health` answering "ok" on this computer proves nothing about other devices.
+2. Find the computer's address (`ipconfig`, the IPv4 line, for example `192.168.1.25`); that is `BROKER_IP` for a charger on the same network. Give the computer a fixed address in the router so it does not change.
+3. Allow the port in Windows Firewall (administrator PowerShell):
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "OCPP broker test" -Direction Inbound -Protocol TCP -LocalPort 8765 -Action Allow
+   ```
+
+4. From another device on the network (a phone's browser will do) open `http://192.168.1.25:8765/health`. If that fails the firewall or the network is in the way (guest and public Wi-Fi often block traffic between devices); fix that before looking at the charger.
+
+### 5. Reaching it from the internet
+
+To let a charger outside your network connect, forward TCP 8765 on the router to the computer's fixed address, and give the charger your public address (`curl.exe ifconfig.me`; a free dynamic DNS name keeps it stable when your provider changes it). It does not work when the address on the router's status page differs from the public one: the provider uses carrier-grade NAT, and only a tunnel or a server ([VPS](#deploying-on-a-vps-contabo)) will do.
+
+What you are exposing: the port is plain `ws://`, so the charger password and the API key cross the internet in clear text; and the REST API, the console and `/docs` share the port with the chargers, so anyone who finds it can try them. Use long random passwords and API key, keep it for a short test, and undo it afterwards: remove the router forward and
+
+```powershell
+Remove-NetFirewallRule -DisplayName "OCPP broker test"
+```
+
+A tunnel (`cloudflared tunnel --url http://localhost:8765`, ngrok) needs no router change and gives `wss://`; the quick-tunnel address changes each run, and not every charger supports `wss://`.
+
+### When it does not work
+
+| Symptom | Cause and fix |
+|---------|---------------|
+| `No module named 'ocpp_broker'` | The install went into another Python. Run `.\venv\Scripts\python.exe -m pip install -e .` and use that interpreter. |
+| `Configuration file not found: ...` | The `-c` path does not exist (often the example path from a guide, or `config.yaml.txt`). |
+| `Failed to connect to MongoDB: localhost:27017 ... refused`, repeating | MongoDB is switched on (by a `.env` or the YAML) and none runs. Set `MONGODB_ENABLED=false` in this terminal, or start a MongoDB. The broker works meanwhile. |
+| `REST API is DISABLED` | `OCPP_BROKER_API_KEY` is not set in this terminal. |
+| `/ui` is not found | The console is not built, see step 1. |
+| Simulator works, real charger does not | The broker is on `127.0.0.1`, the firewall blocks the port, or the charger's URL, id, password or protocol is wrong (table above). |
+| HTTP 401 / 403 / close 4002 | See [A charger cannot connect](troubleshooting.md#a-charger-cannot-connect). |
+
 ## Deploying on a VPS (Contabo)
 
 The numbered, copy-and-paste steps are in the [README](../README.md#deploying-on-a-vps-contabo): build the wheel, prepare an Ubuntu server, install, configure, run under systemd, put nginx and HTTPS in front, check. This section is what the steps do not say.
